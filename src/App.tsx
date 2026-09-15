@@ -53,7 +53,7 @@ const MainContent: React.FC = () => {
   };
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#0b0f17]">
+    <div className="flex h-screen w-screen overflow-hidden bg-[#f8fafc]">
       {/* Sidebar */}
       <Sidebar />
 
