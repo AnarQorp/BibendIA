@@ -1,17 +1,16 @@
 import React, { useState } from 'react';
 import { useDemo } from '../../context/DemoContext';
 import { 
-  Sparkles, 
-  CheckCircle2, 
   AlertCircle, 
   Clock, 
   ArrowRight, 
   Wrench, 
-  Send, 
-  Calendar,
-  Check,
+  Check, 
   ChevronRight,
-  Database
+  Database,
+  MessageSquare,
+  FileText,
+  AlertTriangle
 } from 'lucide-react';
 
 export const MiDiaView: React.FC = () => {
@@ -23,18 +22,20 @@ export const MiDiaView: React.FC = () => {
     sendAppointmentToDMS, 
     impactLogs,
     setActiveSection,
-    confirmMartaAppointment,
     vehicles,
-    customers
+    customers,
+    notifyClientVehicleReady,
+    conversations
   } = useDemo();
 
-  // State for mechanic dictation modal
   const [selectedAppId, setSelectedAppId] = useState<string | null>(null);
-  const [dictationText, setDictationText] = useState('Aceite 5W30 C3 y filtro de aceite sustituidos. Pastillas con buen grosor, pero discos delanteros presentan desgaste. Recomendar cambio en 6 meses.');
+  const [dictationText, setDictationText] = useState('Aceite 5W30 C3 y filtro de aceite sustituidos. Pastillas con buen grosor, discos delanteros presentan desgaste leve.');
 
   const pendingQuotes = quotes.filter(q => q.status === 'pending_approval');
   const todayApps = appointments.filter(a => a.status !== 'completed' && a.status !== 'sent_to_dms');
   const completedApps = appointments.filter(a => a.status === 'completed' || a.status === 'sent_to_dms');
+
+  const noiseConv = conversations.find(c => c.id === 'conv-noise-issue');
 
   const handleFinishWorkSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -42,7 +43,7 @@ export const MiDiaView: React.FC = () => {
       completeAppointmentWork(
         selectedAppId,
         dictationText,
-        'Recomendar cambio de discos y pastillas delanteras en 6 meses (marzo 2027).'
+        'Sustituir discos y pastillas delanteras en la revisión de los 6 meses (marzo 2027).'
       );
       setSelectedAppId(null);
     }
@@ -51,26 +52,19 @@ export const MiDiaView: React.FC = () => {
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6 animate-fadeIn">
       {/* Welcome Banner */}
-      <div className="bg-gradient-to-r from-[#131b2e] via-slate-900 to-[#131b2e] border border-orange-500/20 rounded-2xl p-6 shadow-xl relative overflow-hidden">
-        <div className="absolute -right-10 -bottom-10 w-60 h-60 bg-orange-500/10 rounded-full blur-3xl pointer-events-none"></div>
+      <div className="bg-[#131b2e] border border-slate-800 rounded-2xl p-6 shadow-xl relative overflow-hidden">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 relative z-10">
           <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className="text-xs font-bold text-orange-400 uppercase tracking-wider bg-orange-500/10 border border-orange-500/20 px-2 py-0.5 rounded">
-                Recepción Autónoma Activa
-              </span>
-              <span className="text-xs text-slate-400">· Talleres Etxeberria</span>
-            </div>
             <h2 className="text-2xl font-extrabold text-white tracking-tight">Buenos días, Jon</h2>
             <p className="text-sm text-slate-300 mt-1">
-              Mientras estabas trabajando en el taller: <span className="font-semibold text-emerald-400">5 consultas atendidas</span> · <span className="font-semibold text-blue-400">3 citas gestionadas</span> · <span className="font-semibold text-amber-400">2 presupuestos preparados</span>.
+              Mientras trabajabas, BibendIA se ha ocupado de: <strong className="text-emerald-400">5 consultas</strong> · <strong className="text-blue-400">3 citas</strong> · <strong className="text-amber-400">2 presupuestos</strong>.
             </p>
           </div>
 
           <div className="flex items-center gap-3 shrink-0">
             <button
               onClick={() => setActiveSection('bandeja')}
-              className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all"
+              className="bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all"
             >
               <span>Ver Bandeja (1)</span>
               <ArrowRight className="w-4 h-4 text-orange-400" />
@@ -82,84 +76,92 @@ export const MiDiaView: React.FC = () => {
       {/* Grid: 2 Columns */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
-        {/* Left 2 Columns: Action Required + Today's Schedule */}
+        {/* Left 2 Columns: NECESITO QUE MIRES ESTO + HOY EN LA AGENDA */}
         <div className="lg:col-span-2 space-y-6">
 
-          {/* SECTION: NECESITA TU ATENCIÓN */}
-          <div className="bg-[#131b2e] border border-slate-800 rounded-2xl p-5 shadow-lg">
-            <div className="flex items-center justify-between mb-4">
+          {/* SECTION: NECESITO QUE MIRES ESTO (The 20% of Exceptions) */}
+          <div className="bg-[#131b2e] border border-amber-500/30 rounded-2xl p-5 shadow-lg space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div className="flex items-center gap-2.5">
                 <div className="w-7 h-7 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold">
                   <AlertCircle className="w-4 h-4" />
                 </div>
-                <h3 className="text-base font-bold text-white">Necesita Tu Atención</h3>
+                <div>
+                  <h3 className="text-base font-bold text-white">NECESITO QUE MIRES ESTO</h3>
+                  <p className="text-[11px] text-slate-400">BibendIA resuelve el 80%. Aquí aparece únicamente el 20% que necesita a Jon.</p>
+                </div>
               </div>
-              <span className="text-xs font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded">
-                {pendingQuotes.length} pendientes
-              </span>
             </div>
 
-            {pendingQuotes.length === 0 ? (
-              <div className="p-4 bg-slate-900/60 rounded-xl border border-slate-800 text-center text-xs text-slate-400">
-                ¡Todo al día! La IA ha procesado todas las solicitudes de recepción.
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {pendingQuotes.map(quote => {
-                  const customer = customers.find(c => c.id === quote.customerId);
-                  const vehicle = vehicles.find(v => v.id === quote.vehicleId);
-                  return (
-                    <div 
-                      key={quote.id} 
-                      className="p-4 bg-slate-900/90 border border-slate-800 hover:border-slate-700 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all"
-                    >
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-bold text-orange-400 bg-orange-500/10 border border-orange-500/20 px-2 py-0.5 rounded">
-                            Presupuesto preparado por IA
-                          </span>
-                          {vehicle && <span className="license-plate">{vehicle.plate}</span>}
-                          <span className="text-xs text-slate-400">{quote.createdDate}</span>
-                        </div>
-                        <h4 className="text-sm font-bold text-white">{quote.title}</h4>
-                        <p className="text-xs text-slate-300">
-                          Cliente: <span className="font-semibold text-slate-200">{customer?.name}</span> · {vehicle?.brand} {vehicle?.model}
-                        </p>
-                        <p className="text-[11px] text-slate-400 italic">"{quote.aiRationale}"</p>
+            <div className="space-y-3">
+              {/* Exception 1: Presupuesto pendiente de aprobación */}
+              {pendingQuotes.map(quote => {
+                const cust = customers.find(c => c.id === quote.customerId);
+                const veh = vehicles.find(v => v.id === quote.vehicleId);
+                return (
+                  <div key={quote.id} className="p-4 bg-slate-900 border border-slate-800 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold text-amber-400 bg-amber-950/40 border border-amber-800/40 px-2 py-0.5 rounded">
+                          Presupuesto preparado
+                        </span>
+                        {veh && <span className="license-plate">{veh.plate}</span>}
                       </div>
-
-                      <div className="flex items-center gap-3 shrink-0">
-                        <div className="text-right">
-                          <p className="text-xs text-slate-400">TOTAL IVA INC.</p>
-                          <p className="text-lg font-extrabold text-amber-400">{quote.total.toFixed(2)} €</p>
-                        </div>
-                        <button
-                          onClick={() => approveQuote(quote.id)}
-                          className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-1.5 shadow-md shadow-emerald-950/40 transition-all hover:scale-[1.02]"
-                        >
-                          <Check className="w-4 h-4 stroke-[3]" />
-                          <span>Aprobar y enviar</span>
-                        </button>
-                      </div>
+                      <h4 className="text-sm font-bold text-white">{quote.title}</h4>
+                      <p className="text-xs text-slate-300">Cliente: <strong className="text-slate-100">{cust?.name}</strong> · {veh?.brand} {veh?.model}</p>
                     </div>
-                  );
-                })}
-              </div>
-            )}
+
+                    <div className="flex items-center gap-3 shrink-0">
+                      <div className="text-right">
+                        <span className="text-lg font-extrabold text-amber-400 block">{quote.total.toFixed(2)} €</span>
+                      </div>
+                      <button
+                        onClick={() => approveQuote(quote.id)}
+                        className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow-md"
+                      >
+                        <Check className="w-4 h-4" />
+                        <span>Aprobar y enviar</span>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* Exception 2: Technical question BibendIA cannot answer */}
+              {noiseConv && (
+                <div className="p-4 bg-slate-900 border border-slate-800 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-bold text-red-400 bg-red-950/40 border border-red-800/40 px-2 py-0.5 rounded flex items-center gap-1">
+                        <AlertTriangle className="w-3 h-3" /> Consulta técnica post-reparación
+                      </span>
+                      <span className="license-plate">7731 CKB</span>
+                    </div>
+                    <h4 className="text-sm font-bold text-white">Laura Martín — Ruido metálico al acelerar</h4>
+                    <p className="text-xs text-slate-300">Cliente reporta un silbido extraño tras recoger el Golf ayer.</p>
+                  </div>
+
+                  <div className="shrink-0">
+                    <button
+                      onClick={() => setActiveSection('bandeja')}
+                      className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-1.5"
+                    >
+                      <MessageSquare className="w-4 h-4 text-orange-400" />
+                      <span>Ver conversación</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* SECTION: HOY EN LA AGENDA */}
-          <div className="bg-[#131b2e] border border-slate-800 rounded-2xl p-5 shadow-lg">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2.5">
-                <div className="w-7 h-7 rounded-lg bg-blue-500/20 text-blue-400 flex items-center justify-center font-bold">
-                  <Calendar className="w-4 h-4" />
-                </div>
-                <h3 className="text-base font-bold text-white">Hoy en la Agenda</h3>
-              </div>
+          <div className="bg-[#131b2e] border border-slate-800 rounded-2xl p-5 shadow-lg space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="text-base font-bold text-white">Hoy en la Agenda del Taller</h3>
               <button 
                 onClick={() => setActiveSection('agenda')}
-                className="text-xs font-semibold text-blue-400 hover:text-blue-300 flex items-center gap-1"
+                className="text-xs font-semibold text-orange-400 hover:underline flex items-center gap-1"
               >
                 Ver agenda completa <ChevronRight className="w-3.5 h-3.5" />
               </button>
@@ -167,30 +169,21 @@ export const MiDiaView: React.FC = () => {
 
             <div className="space-y-3">
               {todayApps.map(app => {
-                const customer = customers.find(c => c.id === app.customerId);
-                const vehicle = vehicles.find(v => v.id === app.vehicleId);
+                const cust = customers.find(c => c.id === app.customerId);
+                const veh = vehicles.find(v => v.id === app.vehicleId);
                 return (
-                  <div 
-                    key={app.id}
-                    className="p-4 bg-slate-900/90 border border-slate-800 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4"
-                  >
+                  <div key={app.id} className="p-4 bg-slate-900 border border-slate-800 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div className="flex items-start gap-3">
-                      <div className="bg-slate-800 px-3 py-2 rounded-lg text-center shrink-0">
-                        <span className="text-xs font-bold text-slate-400 block uppercase">HORA</span>
+                      <div className="bg-slate-950 px-3 py-2 rounded-lg text-center shrink-0 border border-slate-800">
+                        <span className="text-[10px] font-bold text-slate-400 block uppercase">HORA</span>
                         <span className="text-sm font-extrabold text-orange-400">{app.time}</span>
                       </div>
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
                           <h4 className="text-sm font-bold text-white">{app.serviceName}</h4>
-                          {vehicle && <span className="license-plate">{vehicle.plate}</span>}
+                          {veh && <span className="license-plate">{veh.plate}</span>}
                         </div>
-                        <p className="text-xs text-slate-300">
-                          {customer?.name} · {vehicle?.brand} {vehicle?.model} ({vehicle?.motorization})
-                        </p>
-                        <div className="flex items-center gap-3 text-[11px] text-slate-400">
-                          <span className="flex items-center gap-1"><Clock className="w-3 h-3 text-slate-400" /> {app.estimatedDurationMinutes} min estim.</span>
-                          <span>Mecánico: <strong className="text-slate-300">{app.assignedMechanic || 'Jon'}</strong></span>
-                        </div>
+                        <p className="text-xs text-slate-300">{cust?.name} · {veh?.brand} {veh?.model}</p>
                       </div>
                     </div>
 
@@ -207,46 +200,38 @@ export const MiDiaView: React.FC = () => {
                 );
               })}
 
-              {/* Completed items section */}
               {completedApps.map(app => {
-                const customer = customers.find(c => c.id === app.customerId);
-                const vehicle = vehicles.find(v => v.id === app.vehicleId);
+                const cust = customers.find(c => c.id === app.customerId);
+                const veh = vehicles.find(v => v.id === app.vehicleId);
                 const isSentDMS = app.status === 'sent_to_dms';
                 return (
                   <div key={app.id} className="p-4 bg-emerald-950/20 border border-emerald-800/40 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div className="flex items-start gap-3">
-                      <div className="bg-emerald-500/20 text-emerald-400 p-2.5 rounded-lg shrink-0">
-                        <CheckCircle2 className="w-5 h-5" />
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-emerald-400 uppercase">TRABAJO TERMINADO</span>
+                        {veh && <span className="license-plate">{veh.plate}</span>}
                       </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-bold text-emerald-400 uppercase">TRABAJO TERMINADO</span>
-                          {vehicle && <span className="license-plate">{vehicle.plate}</span>}
-                        </div>
-                        <h4 className="text-sm font-bold text-white">{app.serviceName} ({customer?.name})</h4>
-                        {app.completedNotes && (
-                          <p className="text-xs text-slate-300 mt-1 italic">"{app.completedNotes}"</p>
-                        )}
-                        {app.futureRecommendation && (
-                          <p className="text-[11px] text-amber-300 font-semibold mt-0.5">
-                            Recomendación futura guardada: {app.futureRecommendation}
-                          </p>
-                        )}
-                      </div>
+                      <h4 className="text-sm font-bold text-white">{app.serviceName} ({cust?.name})</h4>
                     </div>
 
                     <div className="shrink-0 flex items-center gap-2">
+                      <button
+                        onClick={() => notifyClientVehicleReady(app.customerId, app.vehicleId)}
+                        className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-1.5 rounded-xl text-xs font-bold"
+                      >
+                        Avisar a {cust?.name.split(' ')[0]}
+                      </button>
                       {!isSentDMS ? (
                         <button
                           onClick={() => sendAppointmentToDMS(app.id)}
-                          className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow-md transition-all"
+                          className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3.5 py-1.5 rounded-xl text-xs flex items-center gap-1.5 shadow-md"
                         >
                           <Database className="w-3.5 h-3.5" />
                           <span>[Enviar a gestión]</span>
                         </button>
                       ) : (
-                        <span className="text-xs font-bold text-emerald-400 bg-emerald-900/60 border border-emerald-700/60 px-3 py-1.5 rounded-xl flex items-center gap-1">
-                          <Check className="w-3.5 h-3.5" /> Enviado a ERP / DMS
+                        <span className="text-xs font-bold text-emerald-400 bg-emerald-950/60 border border-emerald-700/60 px-3 py-1.5 rounded-xl flex items-center gap-1">
+                          <Check className="w-3.5 h-3.5" /> Enviado a ERP
                         </span>
                       )}
                     </div>
@@ -257,18 +242,12 @@ export const MiDiaView: React.FC = () => {
           </div>
         </div>
 
-        {/* Right 1 Column: HECHO POR LA IA */}
+        {/* Right 1 Column: ACTIVIDAD REALIZADA POR BIBENDIA */}
         <div className="space-y-6">
-          <div className="bg-[#131b2e] border border-slate-800 rounded-2xl p-5 shadow-lg">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2.5">
-                <div className="w-7 h-7 rounded-lg bg-orange-500/20 text-orange-400 flex items-center justify-center font-bold">
-                  <Sparkles className="w-4 h-4" />
-                </div>
-                <h3 className="text-base font-bold text-white">Hecho por la IA</h3>
-              </div>
-              <span className="text-[11px] text-slate-400">Hoy</span>
-            </div>
+          <div className="bg-[#131b2e] border border-slate-800 rounded-2xl p-5 shadow-lg space-y-4">
+            <h3 className="text-base font-bold text-white border-b border-slate-800 pb-3">
+              Actividad Resuelta por BibendIA
+            </h3>
 
             <div className="space-y-3 relative before:absolute before:left-3.5 before:top-3 before:bottom-3 before:w-0.5 before:bg-slate-800">
               {impactLogs.slice(0, 5).map(log => (
@@ -281,27 +260,22 @@ export const MiDiaView: React.FC = () => {
                     <span className="text-[10px] text-slate-400 font-mono">{log.timestamp}</span>
                   </div>
                   <p className="text-slate-400 leading-snug">{log.details}</p>
-                  {log.revenueImpact && (
-                    <span className="inline-block text-[10px] font-bold text-emerald-400 bg-emerald-950/40 border border-emerald-800/40 px-1.5 py-0.5 rounded mt-0.5">
-                      +{log.revenueImpact.toFixed(2)} € generado
-                    </span>
-                  )}
                 </div>
               ))}
             </div>
 
             <button
               onClick={() => setActiveSection('impacto')}
-              className="w-full mt-4 py-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs text-orange-400 font-bold rounded-xl flex items-center justify-center gap-1.5 transition-all"
+              className="w-full py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs text-orange-400 font-bold rounded-xl flex items-center justify-center gap-1.5"
             >
-              <span>Ver todas las acciones e impacto</span>
+              <span>Ver impacto de gestión</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>
       </div>
 
-      {/* Dictation Modal for Mechanics */}
+      {/* Dictation Modal */}
       {selectedAppId && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-[#131b2e] border border-slate-700 rounded-2xl w-full max-w-lg p-5 shadow-2xl space-y-4">
@@ -316,7 +290,7 @@ export const MiDiaView: React.FC = () => {
             <form onSubmit={handleFinishWorkSubmit} className="space-y-4">
               <div>
                 <label className="text-xs font-semibold text-slate-300 block mb-1">
-                  Dictado / Notas del Mecánico:
+                  Dictado / Observaciones del Mecánico:
                 </label>
                 <textarea
                   value={dictationText}
@@ -327,13 +301,10 @@ export const MiDiaView: React.FC = () => {
               </div>
 
               <div className="p-3 bg-slate-900 rounded-xl border border-slate-800 text-xs text-slate-300 space-y-1">
-                <p className="font-bold text-orange-400 flex items-center gap-1">
-                  <Sparkles className="w-3 h-3" /> BibendIA procesará automáticamente:
-                </p>
-                <p>✓ Registro de trabajos realizados</p>
-                <p>✓ Guardado de recomendación preventiva futura</p>
-                <p>✓ Programación de seguimiento preventivo</p>
-                <p>✓ Preparación de datos para facturación en 1 clic</p>
+                <p className="font-bold text-orange-400">BibendIA procesará automáticamente:</p>
+                <p>✓ Registro del parte de trabajo</p>
+                <p>✓ Guardado de recomendación a 6 meses</p>
+                <p>✓ Preparación para exportación a gestión</p>
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-2">

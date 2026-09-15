@@ -1,18 +1,10 @@
 import React from 'react';
 import { useDemo } from '../../context/DemoContext';
 import { 
-  Play, 
   ChevronRight, 
   ChevronLeft, 
   X, 
-  Sparkles, 
-  CheckCircle2, 
-  Wrench, 
-  ArrowRight,
-  MessageSquare,
-  Calendar,
-  Database,
-  TrendingUp
+  ArrowRight
 } from 'lucide-react';
 
 export const GuidedDemoPlayer: React.FC = () => {
@@ -26,7 +18,8 @@ export const GuidedDemoPlayer: React.FC = () => {
     confirmMartaAppointment,
     completeAppointmentWork,
     sendAppointmentToDMS,
-    appointments
+    appointments,
+    notifyClientVehicleReady
   } = useDemo();
 
   if (!demoModeActive) return null;
@@ -34,37 +27,37 @@ export const GuidedDemoPlayer: React.FC = () => {
   const steps = [
     {
       num: 1,
-      title: 'Paso 1: Recepción de Consulta WhatsApp',
-      desc: 'Marta Etxebarria escribe por WhatsApp solicitando revisión y reportando un ruido al frenar.',
+      title: 'Paso 1: Consulta Entrante por WhatsApp',
+      desc: 'Marta Etxebarria escribe por WhatsApp solicitando revisión de su vehículo y reportando un ruido al frenar.',
       actionLabel: 'Ver en Bandeja Multicanal',
       execute: () => setActiveSection('bandeja')
     },
     {
       num: 2,
-      title: 'Paso 2: Interpretación IA en Tiempo Real',
-      desc: 'La IA identifica a Marta (Seat León 2019 - 8421 LMK) y detecta: Revisión + Ruido de frenos. Identifica que falta el kilometraje.',
-      actionLabel: 'Analizar Interpretación IA',
+      title: 'Paso 2: Resumen "BibendIA ha entendido"',
+      desc: 'BibendIA identifica el vehículo (Seat León · 8421 LMK), detecta que falta el kilometraje y prepara el siguiente paso.',
+      actionLabel: 'Ver "BibendIA ha entendido"',
       execute: () => setActiveSection('bandeja')
     },
     {
       num: 3,
       title: 'Paso 3: Consulta Autónoma de Kilometraje',
-      desc: 'La IA pregunta automáticamente el kilometraje. Marta responde: "Unos 86.000 km".',
+      desc: 'BibendIA pregunta por WhatsApp. Marta responde: "Unos 86.000 km". BibendIA actualiza el contexto del vehículo.',
       actionLabel: 'Ver Respuesta Registrada',
       execute: () => setActiveSection('bandeja')
     },
     {
       num: 4,
-      title: 'Paso 4: Propuesta Inicial y Presupuesto',
-      desc: 'La IA calcula 1,2 h de intervención para la revisión 86.000 km + inspección de discos y pastillas.',
-      actionLabel: 'Ver propuesta técnica',
+      title: 'Paso 4: Propuesta Técnica y Cálculo',
+      desc: 'BibendIA calcula la revisión periódica de 86.000 km + comprobación de frenos delanteros.',
+      actionLabel: 'Ver Propuesta de Cita',
       execute: () => setActiveSection('bandeja')
     },
     {
       num: 5,
-      title: 'Paso 5: Propuesta Inteligente de Cita',
-      desc: 'La IA revisa la agenda del taller y propone dos huecos optimizados: Miércoles 10:30 o Jueves 08:30.',
-      actionLabel: 'Seleccionar Cita (Miércoles 10:30)',
+      title: 'Paso 5: Propuesta de Citas (Jueves 17 / Viernes 18)',
+      desc: 'BibendIA consulta disponibilidad real y ofrece dos huecos: Jueves 17 de Septiembre a las 10:30 h o Viernes 18 a las 08:30 h.',
+      actionLabel: 'Agendar para Jueves 17 (10:30 h)',
       execute: () => {
         confirmMartaAppointment('2026-09-17', '10:30');
         setActiveSection('agenda');
@@ -73,22 +66,22 @@ export const GuidedDemoPlayer: React.FC = () => {
     {
       num: 6,
       title: 'Paso 6: Confirmación y Registro en Agenda',
-      desc: 'Marta elige Miércoles. Cita creada automáticamente en la agenda con estimación de 75 min.',
+      desc: 'Marta acepta la cita. Queda agendada en la agenda del taller para el Jueves 17 de Septiembre.',
       actionLabel: 'Ver Cita en Agenda',
       execute: () => setActiveSection('agenda')
     },
     {
       num: 7,
-      title: 'Paso 7: Dictado del Mecánico al Finalizar',
-      desc: 'Jon (mecánico) dicta: "Aceite y filtros hechos. Discos con desgaste, recomendar cambio en 6 meses."',
+      title: 'Paso 7: Entra al Taller & Dictado del Mecánico',
+      desc: 'El coche entra al taller. Jon dicta: "Aceite y filtro cambiados. Pastillas bien, recomendar cambio de discos en 6 meses."',
       actionLabel: 'Registrar Dictado del Mecánico',
       execute: () => {
         const martaApp = appointments.find(a => a.customerId === 'c1');
         if (martaApp) {
           completeAppointmentWork(
             martaApp.id,
-            'Aceite 5W30 C3 y filtro de aceite sustituidos. Discos delanteros presentan desgaste leve/moderado.',
-            'Sustituir discos y pastillas delanteras en la revisión de los 6 meses (marzo 2027).'
+            'Aceite 5W30 C3 y filtro de aceite sustituidos. Discos delanteros presentan desgaste leve.',
+            'Sustituir discos y pastillas delanteras en 6 meses (Marzo 2027).'
           );
         }
         setActiveSection('midia');
@@ -96,15 +89,18 @@ export const GuidedDemoPlayer: React.FC = () => {
     },
     {
       num: 8,
-      title: 'Paso 8: Procesamiento Autónomo del Trabajo',
-      desc: 'La IA registra la intervención, guarda la recomendación futura, programa el seguimiento a 6 meses y prepara los datos para facturación.',
-      actionLabel: 'Ver Estado "Trabajo Terminado"',
-      execute: () => setActiveSection('midia')
+      title: 'Paso 8: Procesamiento Autónomo & Recomendación',
+      desc: 'BibendIA marca el vehículo listo, registra la recomendación a 6 meses y prepara los partes para avisar a Marta y enviar a gestión.',
+      actionLabel: 'Avisar a Marta de Coche Listo',
+      execute: () => {
+        notifyClientVehicleReady('c1', 'v1');
+        setActiveSection('midia');
+      }
     },
     {
       num: 9,
-      title: 'Paso 9: Exportación a Gestión y Aviso Cliente',
-      desc: 'Jon presiona [Enviar a gestión]. Los datos se envían al programa de facturación/ERP del taller en 1 clic.',
+      title: 'Paso 9: Exportar a Gestión (ERP/DMS)',
+      desc: 'Jon presiona [Enviar a gestión]. Se transfieren cliente, vehículo y partidas de facturación en 1 clic.',
       actionLabel: 'Enviar a Gestión (ERP/DMS)',
       execute: () => {
         const martaApp = appointments.find(a => a.customerId === 'c1');
@@ -116,9 +112,9 @@ export const GuidedDemoPlayer: React.FC = () => {
     },
     {
       num: 10,
-      title: 'Paso 10: Impacto y ROI Visible',
-      desc: 'Toda la gestión realizada aparece automáticamente en "Lo que BibendIA ha hecho por ti", contabilizando 14 min ahorrados y 145 € generados.',
-      actionLabel: 'Ver Métricas de Impacto',
+      title: 'Paso 10: Impacto y Registro de Actividad',
+      desc: 'Toda la gestión aparece reflejada en "Lo que BibendIA ha hecho por ti" sumando tiempo ahorrado.',
+      actionLabel: 'Ver Resumen de Impacto',
       execute: () => setActiveSection('impacto')
     }
   ];
@@ -144,7 +140,7 @@ export const GuidedDemoPlayer: React.FC = () => {
           </button>
         </div>
 
-        {/* Current Step Description */}
+        {/* Step Info */}
         <div className="flex items-start gap-3">
           <div className="w-8 h-8 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-400 font-extrabold flex items-center justify-center shrink-0 text-sm">
             {currentStep.num}
@@ -155,7 +151,7 @@ export const GuidedDemoPlayer: React.FC = () => {
           </div>
         </div>
 
-        {/* Presenter Action Bar */}
+        {/* Actions */}
         <div className="flex items-center justify-between pt-1">
           <div className="flex items-center gap-2">
             <button
@@ -179,10 +175,10 @@ export const GuidedDemoPlayer: React.FC = () => {
               currentStep.execute();
               if (demoStep < 10) nextDemoStep();
             }}
-            className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-amber-950/40 transition-all hover:scale-[1.02]"
+            className="bg-orange-500 hover:bg-orange-600 text-white font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-2 shadow-lg transition-all"
           >
             <span>{currentStep.actionLabel}</span>
-            <ArrowRight className="w-4 h-4 stroke-[2.5]" />
+            <ArrowRight className="w-4 h-4" />
           </button>
         </div>
       </div>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useDemo } from '../../context/DemoContext';
-import { Mic, Sparkles, X, ArrowRight, CheckCircle2, Wrench, Calendar, FileText } from 'lucide-react';
+import { Mic, X, ArrowRight, Check, Calendar, FileText, Wrench, MessageSquare, AlertCircle } from 'lucide-react';
 
 export const GlobalAssistantModal: React.FC = () => {
   const { 
@@ -9,7 +9,9 @@ export const GlobalAssistantModal: React.FC = () => {
     isListening, 
     startVoiceInput, 
     voiceQuery, 
-    submitNaturalLanguageQuery 
+    submitNaturalLanguageQuery,
+    activeCommandResult,
+    clearCommandResult
   } = useDemo();
 
   const [inputVal, setInputVal] = useState('');
@@ -34,57 +36,74 @@ export const GlobalAssistantModal: React.FC = () => {
     submitNaturalLanguageQuery(presetText);
   };
 
+  const handleClose = () => {
+    clearCommandResult();
+    setAssistantModalOpen(false);
+  };
+
+  const workingCommands = [
+    { text: "¿Qué tengo mañana?", category: "Agenda" },
+    { text: "Dale cita a Roberto esta semana para cambio de aceite.", category: "Cita" },
+    { text: "Prepárame presupuesto para discos y pastillas del BMW de Ander.", category: "Presupuesto" },
+    { text: "¿Qué presupuestos llevan más de 3 días esperando?", category: "Seguimiento" },
+    { text: "Avísale a Marta de que el coche está terminado.", category: "Aviso" },
+    { text: "Apunta revisar los discos de Marta dentro de 6 meses.", category: "Recomendación" },
+    { text: "¿Qué clientes debería contactar esta semana?", category: "Clientes" },
+    { text: "El coche de Roberto ya está terminado.", category: "Gestión" }
+  ];
+
   return (
     <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn">
       <div className="bg-[#131b2e] border border-slate-700/80 rounded-2xl w-full max-w-xl shadow-2xl overflow-hidden">
         {/* Modal Header */}
-        <div className="p-4 bg-slate-900/80 border-b border-slate-800 flex items-center justify-between">
+        <div className="p-4 bg-slate-900 border-b border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-orange-500/20 border border-orange-500/30 flex items-center justify-center">
-              <Sparkles className="w-4 h-4 text-orange-400" />
+            <div className="w-8 h-8 rounded-lg bg-orange-500/20 border border-orange-500/30 text-orange-400 font-extrabold flex items-center justify-center text-sm">
+              ⚡
             </div>
             <div>
-              <h3 className="text-sm font-bold text-slate-100">Asistente Global BibendIA</h3>
-              <p className="text-xs text-slate-400">Instrucciones por voz o texto directo</p>
+              <h3 className="text-base font-extrabold text-slate-100">¿Qué necesitas?</h3>
+              <p className="text-xs text-slate-400">Instrucciones directas por habla o escritura</p>
             </div>
           </div>
           <button 
-            onClick={() => setAssistantModalOpen(false)}
+            onClick={handleClose}
             className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Listening / Dictation Indicator */}
+        {/* Listening Indicator */}
         {isListening && (
-          <div className="p-4 bg-red-950/30 border-b border-red-900/40 flex items-center justify-center gap-3 text-red-300 text-sm font-semibold">
+          <div className="p-3.5 bg-red-950/40 border-b border-red-900/50 flex items-center justify-center gap-3 text-red-300 text-xs font-semibold">
             <div className="w-3 h-3 rounded-full bg-red-500 animate-ping"></div>
-            <span>Escuchando dictado del taller... habla ahora</span>
+            <span>Escuchando... habla ahora la instrucción para el taller</span>
           </div>
         )}
 
         {/* Input Form */}
-        <form onSubmit={handleSubmit} className="p-5">
+        <form onSubmit={handleSubmit} className="p-5 space-y-4">
           <div className="relative flex items-center">
             <input
               type="text"
               value={inputVal}
               onChange={e => setInputVal(e.target.value)}
-              placeholder="Ej: Prepárame presupuesto para discos y pastillas del BMW de Ander..."
-              className="w-full bg-slate-950 border border-slate-700/90 rounded-xl px-4 py-3.5 pr-24 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-orange-500 transition-all shadow-inner"
+              placeholder="Ej. Dale cita al Golf de Laura para el jueves..."
+              className="w-full bg-slate-950 border border-slate-700/90 rounded-xl px-4 py-3.5 pr-28 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-orange-500"
               autoFocus
             />
             <div className="absolute right-2 flex items-center gap-1.5">
               <button
                 type="button"
                 onClick={startVoiceInput}
-                className={`p-2 rounded-lg transition-all ${
+                className={`p-2 rounded-lg transition-all flex items-center gap-1 text-xs font-semibold ${
                   isListening ? 'bg-red-600 text-white animate-pulse' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
                 }`}
                 title="Dictar por voz"
               >
-                <Mic className="w-4 h-4" />
+                <Mic className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Hablar</span>
               </button>
               <button
                 type="submit"
@@ -95,53 +114,85 @@ export const GlobalAssistantModal: React.FC = () => {
             </div>
           </div>
 
-          {/* Quick Action Presets */}
-          <div className="mt-5 space-y-2">
-            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Ejemplos de dictado directo:</p>
-            
-            <button
-              type="button"
-              onClick={() => handlePresetClick("Prepárame presupuesto para discos y pastillas delanteras del BMW de Ander")}
-              className="w-full text-left p-3 rounded-xl bg-slate-900/60 hover:bg-slate-800/80 border border-slate-800 hover:border-slate-700 transition-all flex items-center gap-3 group text-xs text-slate-200"
-            >
-              <FileText className="w-4 h-4 text-orange-400 group-hover:scale-110 transition-transform" />
-              <div className="flex-1 truncate">
-                <p className="font-semibold text-slate-100">Presupuesto en lenguaje natural</p>
-                <p className="text-slate-400 text-[11px] truncate">“Prepárame presupuesto para discos y pastillas delanteras del BMW de Ander”</p>
+          {/* Structured Command Result Overlay (Nuance #2 & P0) */}
+          {activeCommandResult && (
+            <div className="p-4 bg-slate-900 border border-orange-500/40 rounded-xl space-y-3 animate-fadeIn">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                <div>
+                  <h4 className="text-sm font-bold text-white">{activeCommandResult.title}</h4>
+                  <p className="text-xs text-slate-400">{activeCommandResult.subtitle}</p>
+                </div>
+                <span className="text-[10px] font-bold text-orange-400 bg-orange-500/10 border border-orange-500/20 px-2 py-0.5 rounded">
+                  Entendido por BibendIA
+                </span>
               </div>
-              <span className="text-[10px] bg-orange-500/10 text-orange-400 border border-orange-500/20 px-2 py-0.5 rounded font-bold">1-Clic</span>
-            </button>
 
-            <button
-              type="button"
-              onClick={() => handlePresetClick("Dale cita a Marta el miércoles a las 10:30")}
-              className="w-full text-left p-3 rounded-xl bg-slate-900/60 hover:bg-slate-800/80 border border-slate-800 hover:border-slate-700 transition-all flex items-center gap-3 group text-xs text-slate-200"
-            >
-              <Calendar className="w-4 h-4 text-blue-400 group-hover:scale-110 transition-transform" />
-              <div className="flex-1 truncate">
-                <p className="font-semibold text-slate-100">Agendar cita directamente</p>
-                <p className="text-slate-400 text-[11px] truncate">“Dale cita a Marta Etxebarria para el miércoles a las 10:30”</p>
-              </div>
-              <span className="text-[10px] bg-blue-500/10 text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded font-bold">Agendar</span>
-            </button>
+              {activeCommandResult.wants && (
+                <div className="p-2.5 bg-slate-950 rounded-lg text-xs text-slate-200">
+                  <span className="font-bold text-slate-400 block uppercase text-[10px]">Quieres:</span>
+                  <p className="font-semibold text-white mt-0.5">{activeCommandResult.wants}</p>
+                </div>
+              )}
 
-            <button
-              type="button"
-              onClick={() => handlePresetClick("Apunta que al Opel Astra de Roberto hay que revisar los neumáticos dentro de 6 meses")}
-              className="w-full text-left p-3 rounded-xl bg-slate-900/60 hover:bg-slate-800/80 border border-slate-800 hover:border-slate-700 transition-all flex items-center gap-3 group text-xs text-slate-200"
-            >
-              <Wrench className="w-4 h-4 text-emerald-400 group-hover:scale-110 transition-transform" />
-              <div className="flex-1 truncate">
-                <p className="font-semibold text-slate-100">Anotar recomendación preventiva de futuro</p>
-                <p className="text-slate-400 text-[11px] truncate">“Revisar neumáticos del Opel Astra en 6 meses”</p>
+              {activeCommandResult.infoMessage && (
+                <div className="p-2.5 bg-slate-950 rounded-lg text-xs text-slate-300">
+                  <p>{activeCommandResult.infoMessage}</p>
+                </div>
+              )}
+
+              {activeCommandResult.slots && activeCommandResult.slots.length > 0 && (
+                <div className="space-y-1.5">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase">Huecos disponibles:</span>
+                  <div className="space-y-1">
+                    {activeCommandResult.slots.map((s, idx) => (
+                      <div key={idx} className="p-2 bg-slate-950 rounded-lg text-xs text-slate-200 flex items-center justify-between">
+                        <span>{s.label}</span>
+                        <span className="text-[10px] text-emerald-400 font-bold">Disponible</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {activeCommandResult.actionLabel && activeCommandResult.actionFn && (
+                <button
+                  type="button"
+                  onClick={activeCommandResult.actionFn}
+                  className="w-full mt-2 py-2.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-slate-950 font-extrabold rounded-xl text-xs flex items-center justify-center gap-2 shadow-md"
+                >
+                  <span>{activeCommandResult.actionLabel}</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Working Command Examples List */}
+          {!activeCommandResult && (
+            <div className="space-y-2 pt-1">
+              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Órdenes soportadas en la demo:</p>
+              
+              <div className="grid grid-cols-1 gap-1.5 max-h-56 overflow-y-auto pr-1">
+                {workingCommands.map((cmd, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => handlePresetClick(cmd.text)}
+                    className="w-full text-left p-2.5 bg-slate-900/80 hover:bg-slate-800/90 border border-slate-800 rounded-xl transition-all flex items-center justify-between group text-xs text-slate-200"
+                  >
+                    <span className="truncate pr-2">“{cmd.text}”</span>
+                    <span className="text-[10px] font-bold text-slate-400 bg-slate-800 group-hover:text-orange-400 px-2 py-0.5 rounded shrink-0">
+                      {cmd.category}
+                    </span>
+                  </button>
+                ))}
               </div>
-              <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded font-bold">Seguimiento</span>
-            </button>
-          </div>
+            </div>
+          )}
         </form>
 
-        <div className="p-3 bg-slate-950 border-t border-slate-800/80 text-[11px] text-slate-400 text-center">
-          BibendIA interpreta el contexto del vehículo, precios de tarifa del taller y tiempos de mano de obra automáticamente.
+        <div className="p-3 bg-slate-950 border-t border-slate-800 text-[11px] text-slate-400 text-center">
+          BibendIA comprende la orden y propone la acción correspondiente.
         </div>
       </div>
     </div>

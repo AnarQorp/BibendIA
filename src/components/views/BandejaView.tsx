@@ -5,14 +5,14 @@ import {
   Phone, 
   Globe, 
   Send, 
-  Sparkles, 
   CheckCircle2, 
   Calendar, 
   Clock, 
   User, 
   Car, 
-  AlertCircle,
-  FileText
+  AlertTriangle,
+  FileText,
+  Sparkles
 } from 'lucide-react';
 
 export const BandejaView: React.FC = () => {
@@ -37,6 +37,7 @@ export const BandejaView: React.FC = () => {
   const selectedConv = conversations.find(c => c.id === selectedConvId) || conversations[0];
   const customer = customers.find(c => c.id === selectedConv?.customerId);
   const vehicle = vehicles.find(v => v.id === selectedConv?.vehicleId);
+  const understanding = selectedConv?.understanding;
 
   const getChannelBadge = (channel: string) => {
     switch (channel) {
@@ -67,7 +68,7 @@ export const BandejaView: React.FC = () => {
                   : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
               }`}
             >
-              {ch === 'all' ? 'Todos los canales' : ch.toUpperCase()}
+              {ch === 'all' ? 'Todos' : ch.toUpperCase()}
             </button>
           ))}
         </div>
@@ -77,7 +78,7 @@ export const BandejaView: React.FC = () => {
         </div>
       </div>
 
-      {/* 3 Columns Layout: Inbox List | Chat View | AI Interpretation Panel */}
+      {/* 3 Columns Layout: Inbox List | Chat View | Human Understanding Panel ("BibendIA ha entendido") */}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4 overflow-hidden">
         
         {/* Left Col (3 cols): Conversation List */}
@@ -153,12 +154,12 @@ export const BandejaView: React.FC = () => {
                     isClient 
                       ? 'bg-slate-900 border border-slate-800 text-slate-200 rounded-tl-none' 
                       : isAi
-                      ? 'bg-gradient-to-tr from-orange-950/60 to-amber-950/60 border border-orange-500/30 text-slate-100 rounded-tr-none'
+                      ? 'bg-slate-800/90 border border-orange-500/30 text-slate-100 rounded-tr-none'
                       : 'bg-blue-900/40 border border-blue-700/50 text-slate-100 rounded-tr-none'
                   }`}>
                     {isAi && (
                       <div className="flex items-center gap-1 text-[10px] font-bold text-orange-400 mb-1">
-                        <Sparkles className="w-3 h-3" /> Asistente IA BibendIA
+                        BibendIA (Recepción Taller)
                       </div>
                     )}
                     <p>{msg.content}</p>
@@ -174,7 +175,7 @@ export const BandejaView: React.FC = () => {
               type="text"
               value={replyInput}
               onChange={e => setReplyInput(e.target.value)}
-              placeholder="Escribe un mensaje o deja que la IA responda..."
+              placeholder="Escribe un mensaje..."
               className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-orange-500"
             />
             <button className="p-2 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-xs font-bold transition-all">
@@ -183,93 +184,106 @@ export const BandejaView: React.FC = () => {
           </div>
         </div>
 
-        {/* Right Col (4 cols): AI Interpretation Panel */}
+        {/* Right Col (4 cols): Human Result Panel ("BibendIA ha entendido") */}
         <div className="lg:col-span-4 bg-[#131b2e] border border-slate-800 rounded-2xl flex flex-col p-4 space-y-4 overflow-y-auto">
+          {/* Header */}
           <div className="flex items-center gap-2 pb-2 border-b border-slate-800">
-            <div className="w-7 h-7 rounded-lg bg-orange-500/20 text-orange-400 flex items-center justify-center">
-              <Sparkles className="w-4 h-4" />
+            <div className="w-7 h-7 rounded-lg bg-orange-500/20 text-orange-400 flex items-center justify-center font-extrabold text-sm">
+              ⚡
             </div>
             <div>
-              <h3 className="text-sm font-bold text-white">Interpretación IA en Tiempo Real</h3>
-              <p className="text-[11px] text-slate-400">Análisis semántico de necesidad</p>
+              <h3 className="text-sm font-bold text-white">BibendIA ha entendido</h3>
+              <p className="text-[11px] text-slate-400">Resumen y estado de la recepción</p>
             </div>
           </div>
 
-          {/* Vehicle summary card */}
-          {vehicle && (
-            <div className="p-3 bg-slate-900/80 border border-slate-800 rounded-xl space-y-1">
+          {/* Customer & Vehicle Header Badge */}
+          {customer && vehicle && (
+            <div className="p-3 bg-slate-900 border border-slate-800 rounded-xl space-y-1">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-200">{vehicle.brand} {vehicle.model}</span>
-                <span className="license-plate">{vehicle.plate}</span>
+                <span className="text-xs font-bold text-white">{customer.name}</span>
+                <span className="license-plate text-[11px]">{vehicle.plate}</span>
               </div>
-              <p className="text-xs text-slate-400">Año: {vehicle.year} · Motor: {vehicle.motorization}</p>
-              <p className="text-xs text-slate-300 font-semibold">Kilometraje registrado: {vehicle.kilometers.toLocaleString('es-ES')} km</p>
+              <p className="text-xs text-slate-400">{vehicle.brand} {vehicle.model} ({vehicle.motorization})</p>
             </div>
           )}
 
-          {/* Detected Needs */}
-          <div className="space-y-2">
-            <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> Necesidades Detectadas
-            </h4>
-            <div className="space-y-1.5">
-              {selectedConv?.aiInterpretation.detectedNeeds.map((need, idx) => (
-                <div key={idx} className="p-2.5 bg-emerald-950/30 border border-emerald-800/40 rounded-lg text-xs text-emerald-200 font-medium">
-                  ✓ {need}
+          {/* QUIERE */}
+          <div className="space-y-1.5">
+            <span className="text-xs font-bold text-orange-400 uppercase tracking-wider block">QUIERE:</span>
+            <div className="space-y-1">
+              {understanding?.wants.map((w, idx) => (
+                <div key={idx} className="p-2.5 bg-slate-900 border border-slate-800 rounded-lg text-xs text-slate-200 font-semibold">
+                  • {w}
                 </div>
               ))}
             </div>
           </div>
 
-          {/* Recommended Next Action */}
-          <div className="p-3.5 bg-gradient-to-br from-slate-900 to-orange-950/30 border border-orange-500/30 rounded-xl space-y-3">
-            <div className="flex items-center gap-1.5 text-xs font-bold text-orange-400">
-              <Sparkles className="w-3.5 h-3.5" /> Siguiente Acción Recomendada por IA
+          {/* YA SÉ */}
+          <div className="space-y-1.5">
+            <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider block">YA SÉ:</span>
+            <div className="space-y-1">
+              {understanding?.alreadyKnows.map((k, idx) => (
+                <div key={idx} className="p-2 bg-emerald-950/30 border border-emerald-800/40 rounded-lg text-[11px] text-emerald-300">
+                  ✓ {k}
+                </div>
+              ))}
             </div>
-            <p className="text-xs font-semibold text-slate-200">
-              {selectedConv?.aiInterpretation.recommendedAction}
-            </p>
+          </div>
 
-            {/* Quick Interactive Actions for Marta Walkthrough */}
+          {/* ME FALTA */}
+          {understanding?.missingInfo && understanding.missingInfo.length > 0 && (
+            <div className="space-y-1.5">
+              <span className="text-xs font-bold text-amber-400 uppercase tracking-wider block">ME FALTA:</span>
+              <div className="space-y-1">
+                {understanding.missingInfo.map((m, idx) => (
+                  <div key={idx} className="p-2 bg-amber-950/30 border border-amber-800/40 rounded-lg text-[11px] text-amber-300">
+                    ⚠ {m}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* SIGUIENTE PASO */}
+          <div className="p-4 bg-slate-900 border border-slate-800 rounded-xl space-y-3">
+            <span className="text-xs font-bold text-slate-300 uppercase tracking-wider block">SIGUIENTE PASO:</span>
+            <p className="text-xs font-bold text-white">{understanding?.nextStep}</p>
+
+            {understanding?.autoActionNotice && (
+              <div className="p-2 bg-emerald-950/40 border border-emerald-800/40 rounded-lg text-[11px] font-semibold text-emerald-300">
+                {understanding.autoActionNotice}
+              </div>
+            )}
+
+            {/* Interactive Slot Proposals for Marta (Dates fixed: Jueves 17 / Viernes 18) */}
             {selectedConv?.id === 'conv-marta' && (
-              <div className="space-y-2 pt-1 border-t border-slate-800/80">
-                <p className="text-[11px] font-bold text-slate-400">Proponer huecos de cita a Marta (1-clic):</p>
+              <div className="space-y-2 pt-2 border-t border-slate-800">
+                <p className="text-[11px] font-bold text-slate-400">Proponer hueco a Marta:</p>
                 
                 <button
                   onClick={() => confirmMartaAppointment('2026-09-17', '10:30')}
-                  className="w-full text-left p-2.5 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-xs font-bold flex items-center justify-between shadow-md transition-all"
+                  className="w-full text-left p-3 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-xs font-bold flex items-center justify-between shadow-md transition-all"
                 >
                   <div className="flex items-center gap-2">
                     <Calendar className="w-4 h-4" />
-                    <span>Miércoles 17 — 10:30 h (Recomendado)</span>
+                    <span>Jueves 17 Sept. — 10:30 h</span>
                   </div>
-                  <span className="text-[10px] bg-white/20 px-1.5 py-0.5 rounded">Agendar</span>
+                  <span className="text-[10px] bg-white/20 px-2 py-0.5 rounded font-extrabold">Agendar</span>
                 </button>
 
                 <button
                   onClick={() => confirmMartaAppointment('2026-09-18', '08:30')}
-                  className="w-full text-left p-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 rounded-xl text-xs font-semibold flex items-center justify-between transition-all"
+                  className="w-full text-left p-2.5 bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-300 rounded-xl text-xs font-semibold flex items-center justify-between transition-all"
                 >
                   <div className="flex items-center gap-2">
                     <Calendar className="w-4 h-4 text-slate-400" />
-                    <span>Jueves 18 — 08:30 h</span>
+                    <span>Viernes 18 Sept. — 08:30 h</span>
                   </div>
-                  <span className="text-[10px] bg-slate-800 px-1.5 py-0.5 rounded">Agendar</span>
+                  <span className="text-[10px] bg-slate-800 px-2 py-0.5 rounded font-bold">Agendar</span>
                 </button>
               </div>
-            )}
-
-            {selectedConv?.id === 'conv-ander' && (
-              <button
-                onClick={() => {
-                  generateQuoteFromPrompt("Discos y pastillas delanteras del BMW de Ander");
-                  setActiveSection('presupuestos');
-                }}
-                className="w-full p-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-xs flex items-center justify-center gap-2 shadow-md transition-all"
-              >
-                <FileText className="w-4 h-4" />
-                <span>Ver Presupuesto IA Preparado (349,69 €)</span>
-              </button>
             )}
           </div>
         </div>
