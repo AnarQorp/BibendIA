@@ -123,17 +123,17 @@ export const GuidedDemoPlayer: React.FC = () => {
 
   return (
     <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 w-full max-w-2xl px-4 animate-slideUp">
-      <div className="bg-[#131b2e]/95 backdrop-blur-xl border border-amber-500/40 rounded-2xl shadow-2xl p-4 text-slate-100 flex flex-col gap-3">
+      <div className="bg-white/95 backdrop-blur-md border border-slate-300 rounded-2xl shadow-2xl p-4 text-slate-900 flex flex-col gap-3">
         {/* Presenter Header */}
-        <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+        <div className="flex items-center justify-between border-b border-slate-100 pb-2">
           <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping"></span>
-            <span className="text-xs font-bold text-amber-400 uppercase tracking-wider">Modo Presentación Guiada</span>
-            <span className="text-xs text-slate-400 font-mono">({demoStep} / 10)</span>
+            <span className="w-2.5 h-2.5 rounded-full bg-blue-600 animate-ping"></span>
+            <span className="text-xs font-bold text-blue-700 uppercase tracking-wider">Modo Presentación Guiada</span>
+            <span className="text-xs text-slate-500 font-mono">({demoStep} / 10)</span>
           </div>
           <button 
             onClick={() => setDemoModeActive(false)}
-            className="text-slate-400 hover:text-white p-1 rounded hover:bg-slate-800"
+            className="text-slate-400 hover:text-slate-700 p-1 rounded-lg hover:bg-slate-100"
             title="Salir del Modo Demo"
           >
             <X className="w-4 h-4" />
@@ -142,12 +142,12 @@ export const GuidedDemoPlayer: React.FC = () => {
 
         {/* Step Info */}
         <div className="flex items-start gap-3">
-          <div className="w-8 h-8 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-400 font-extrabold flex items-center justify-center shrink-0 text-sm">
+          <div className="w-8 h-8 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 font-extrabold flex items-center justify-center shrink-0 text-sm">
             {currentStep.num}
           </div>
           <div className="flex-1 min-w-0">
-            <h4 className="text-sm font-bold text-white leading-snug">{currentStep.title}</h4>
-            <p className="text-xs text-slate-300 mt-0.5 leading-relaxed">{currentStep.desc}</p>
+            <h4 className="text-sm font-bold text-slate-900 leading-snug">{currentStep.title}</h4>
+            <p className="text-xs text-slate-600 mt-0.5 leading-relaxed">{currentStep.desc}</p>
           </div>
         </div>
 
@@ -157,14 +157,14 @@ export const GuidedDemoPlayer: React.FC = () => {
             <button
               onClick={prevDemoStep}
               disabled={demoStep === 1}
-              className="p-1.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 hover:bg-slate-800 disabled:opacity-40 text-xs font-semibold flex items-center gap-1"
+              className="p-1.5 px-3 rounded-xl bg-slate-100 border border-slate-200 text-slate-700 hover:bg-slate-200 disabled:opacity-40 text-xs font-semibold flex items-center gap-1"
             >
               <ChevronLeft className="w-4 h-4" /> Ant.
             </button>
             <button
               onClick={nextDemoStep}
               disabled={demoStep === 10}
-              className="p-1.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 hover:bg-slate-800 disabled:opacity-40 text-xs font-semibold flex items-center gap-1"
+              className="p-1.5 px-3 rounded-xl bg-slate-100 border border-slate-200 text-slate-700 hover:bg-slate-200 disabled:opacity-40 text-xs font-semibold flex items-center gap-1"
             >
               Sig. <ChevronRight className="w-4 h-4" />
             </button>
@@ -175,7 +175,7 @@ export const GuidedDemoPlayer: React.FC = () => {
               currentStep.execute();
               if (demoStep < 10) nextDemoStep();
             }}
-            className="bg-orange-500 hover:bg-orange-600 text-white font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-2 shadow-lg transition-all"
+            className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-2 shadow-xs transition-all"
           >
             <span>{currentStep.actionLabel}</span>
             <ArrowRight className="w-4 h-4" />
@@ -185,3 +185,4 @@ export const GuidedDemoPlayer: React.FC = () => {
     </div>
   );
 };
+

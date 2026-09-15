@@ -192,9 +192,6 @@ export const MiDiaView: React.FC = () => {
                   <p className="text-xs text-slate-500">Trabajo realizado autónomamente por BibendIA hoy.</p>
                 </div>
               </div>
-              <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full">
-                80% Automatizado
-              </span>
             </div>
 
             <div className="space-y-3.5">

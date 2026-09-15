@@ -53,22 +53,22 @@ export const GlobalAssistantModal: React.FC = () => {
   ];
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn">
-      <div className="bg-[#131b2e] border border-slate-700/80 rounded-2xl w-full max-w-xl shadow-2xl overflow-hidden">
+    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn">
+      <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-xl shadow-2xl overflow-hidden">
         {/* Modal Header */}
-        <div className="p-4 bg-slate-900 border-b border-slate-800 flex items-center justify-between">
+        <div className="p-4 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-orange-500/20 border border-orange-500/30 text-orange-400 font-extrabold flex items-center justify-center text-sm">
-              ⚡
+            <div className="w-8 h-8 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 font-extrabold flex items-center justify-center text-sm">
+              B
             </div>
             <div>
-              <h3 className="text-base font-extrabold text-slate-100">¿Qué necesitas?</h3>
-              <p className="text-xs text-slate-400">Instrucciones directas por habla o escritura</p>
+              <h3 className="text-base font-extrabold text-slate-900">¿Qué necesitas?</h3>
+              <p className="text-xs text-slate-500">Instrucciones directas por habla o escritura</p>
             </div>
           </div>
           <button 
             onClick={handleClose}
-            className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
+            className="p-1 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all"
           >
             <X className="w-5 h-5" />
           </button>
@@ -76,8 +76,8 @@ export const GlobalAssistantModal: React.FC = () => {
 
         {/* Listening Indicator */}
         {isListening && (
-          <div className="p-3.5 bg-red-950/40 border-b border-red-900/50 flex items-center justify-center gap-3 text-red-300 text-xs font-semibold">
-            <div className="w-3 h-3 rounded-full bg-red-500 animate-ping"></div>
+          <div className="p-3.5 bg-rose-50 border-b border-rose-200 flex items-center justify-center gap-3 text-rose-700 text-xs font-bold">
+            <div className="w-3 h-3 rounded-full bg-rose-600 animate-ping"></div>
             <span>Escuchando... habla ahora la instrucción para el taller</span>
           </div>
         )}
@@ -90,15 +90,15 @@ export const GlobalAssistantModal: React.FC = () => {
               value={inputVal}
               onChange={e => setInputVal(e.target.value)}
               placeholder="Ej. Dale cita al Golf de Laura para el jueves..."
-              className="w-full bg-slate-950 border border-slate-700/90 rounded-xl px-4 py-3.5 pr-28 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-orange-500"
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3.5 pr-28 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:bg-white transition-all font-sans"
               autoFocus
             />
             <div className="absolute right-2 flex items-center gap-1.5">
               <button
                 type="button"
                 onClick={startVoiceInput}
-                className={`p-2 rounded-lg transition-all flex items-center gap-1 text-xs font-semibold ${
-                  isListening ? 'bg-red-600 text-white animate-pulse' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                className={`p-2 rounded-xl transition-all flex items-center gap-1 text-xs font-semibold ${
+                  isListening ? 'bg-rose-600 text-white animate-pulse' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                 }`}
                 title="Dictar por voz"
               >
@@ -107,47 +107,47 @@ export const GlobalAssistantModal: React.FC = () => {
               </button>
               <button
                 type="submit"
-                className="bg-orange-500 hover:bg-orange-600 text-white p-2 rounded-lg font-semibold transition-all shadow-md"
+                className="bg-blue-600 hover:bg-blue-700 text-white p-2 rounded-xl font-semibold transition-all shadow-xs"
               >
                 <ArrowRight className="w-4 h-4" />
               </button>
             </div>
           </div>
 
-          {/* Structured Command Result Overlay (Nuance #2 & P0) */}
+          {/* Structured Command Result Overlay */}
           {activeCommandResult && (
-            <div className="p-4 bg-slate-900 border border-orange-500/40 rounded-xl space-y-3 animate-fadeIn">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+            <div className="p-4 bg-slate-50 border border-blue-200 rounded-xl space-y-3 animate-fadeIn">
+              <div className="flex items-center justify-between border-b border-slate-200 pb-2">
                 <div>
-                  <h4 className="text-sm font-bold text-white">{activeCommandResult.title}</h4>
-                  <p className="text-xs text-slate-400">{activeCommandResult.subtitle}</p>
+                  <h4 className="text-sm font-bold text-slate-900">{activeCommandResult.title}</h4>
+                  <p className="text-xs text-slate-600">{activeCommandResult.subtitle}</p>
                 </div>
-                <span className="text-[10px] font-bold text-orange-400 bg-orange-500/10 border border-orange-500/20 px-2 py-0.5 rounded">
+                <span className="text-[11px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-md">
                   Entendido por BibendIA
                 </span>
               </div>
 
               {activeCommandResult.wants && (
-                <div className="p-2.5 bg-slate-950 rounded-lg text-xs text-slate-200">
-                  <span className="font-bold text-slate-400 block uppercase text-[10px]">Quieres:</span>
-                  <p className="font-semibold text-white mt-0.5">{activeCommandResult.wants}</p>
+                <div className="p-2.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-800">
+                  <span className="font-bold text-slate-500 block uppercase text-[10px]">Quieres:</span>
+                  <p className="font-semibold text-slate-900 mt-0.5">{activeCommandResult.wants}</p>
                 </div>
               )}
 
               {activeCommandResult.infoMessage && (
-                <div className="p-2.5 bg-slate-950 rounded-lg text-xs text-slate-300">
+                <div className="p-2.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-700">
                   <p>{activeCommandResult.infoMessage}</p>
                 </div>
               )}
 
               {activeCommandResult.slots && activeCommandResult.slots.length > 0 && (
                 <div className="space-y-1.5">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase">Huecos disponibles:</span>
+                  <span className="text-[10px] font-bold text-slate-500 uppercase">Huecos disponibles:</span>
                   <div className="space-y-1">
                     {activeCommandResult.slots.map((s, idx) => (
-                      <div key={idx} className="p-2 bg-slate-950 rounded-lg text-xs text-slate-200 flex items-center justify-between">
+                      <div key={idx} className="p-2 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 flex items-center justify-between">
                         <span>{s.label}</span>
-                        <span className="text-[10px] text-emerald-400 font-bold">Disponible</span>
+                        <span className="text-[11px] text-emerald-700 font-bold">Disponible</span>
                       </div>
                     ))}
                   </div>
@@ -158,7 +158,7 @@ export const GlobalAssistantModal: React.FC = () => {
                 <button
                   type="button"
                   onClick={activeCommandResult.actionFn}
-                  className="w-full mt-2 py-2.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-slate-950 font-extrabold rounded-xl text-xs flex items-center justify-center gap-2 shadow-md"
+                  className="w-full mt-2 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-extrabold rounded-xl text-xs flex items-center justify-center gap-2 shadow-xs transition-all"
                 >
                   <span>{activeCommandResult.actionLabel}</span>
                   <ArrowRight className="w-4 h-4" />
@@ -170,7 +170,7 @@ export const GlobalAssistantModal: React.FC = () => {
           {/* Working Command Examples List */}
           {!activeCommandResult && (
             <div className="space-y-2 pt-1">
-              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Órdenes soportadas en la demo:</p>
+              <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Órdenes soportadas en la demo:</p>
               
               <div className="grid grid-cols-1 gap-1.5 max-h-56 overflow-y-auto pr-1">
                 {workingCommands.map((cmd, idx) => (
@@ -178,10 +178,10 @@ export const GlobalAssistantModal: React.FC = () => {
                     key={idx}
                     type="button"
                     onClick={() => handlePresetClick(cmd.text)}
-                    className="w-full text-left p-2.5 bg-slate-900/80 hover:bg-slate-800/90 border border-slate-800 rounded-xl transition-all flex items-center justify-between group text-xs text-slate-200"
+                    className="w-full text-left p-3 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl transition-all flex items-center justify-between group text-xs text-slate-800"
                   >
-                    <span className="truncate pr-2">“{cmd.text}”</span>
-                    <span className="text-[10px] font-bold text-slate-400 bg-slate-800 group-hover:text-orange-400 px-2 py-0.5 rounded shrink-0">
+                    <span className="truncate pr-2 font-medium">“{cmd.text}”</span>
+                    <span className="text-[11px] font-bold text-slate-500 bg-white group-hover:text-blue-600 px-2 py-0.5 rounded-md border border-slate-200 shrink-0">
                       {cmd.category}
                     </span>
                   </button>
@@ -191,10 +191,11 @@ export const GlobalAssistantModal: React.FC = () => {
           )}
         </form>
 
-        <div className="p-3 bg-slate-950 border-t border-slate-800 text-[11px] text-slate-400 text-center">
+        <div className="p-3 bg-slate-50 border-t border-slate-100 text-xs text-slate-500 text-center">
           BibendIA comprende la orden y propone la acción correspondiente.
         </div>
       </div>
     </div>
   );
 };
+

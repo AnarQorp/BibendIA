@@ -1,6 +1,6 @@
 import React from 'react';
 import { useDemo } from '../../context/DemoContext';
-import { Clock, Euro, MessageSquare, Calendar, FileText, TrendingUp, UserCheck, CheckCircle2 } from 'lucide-react';
+import { Clock, Euro, MessageSquare, Calendar, FileText, TrendingUp, UserCheck, CheckCircle2, Sparkles } from 'lucide-react';
 
 export const ImpactoView: React.FC = () => {
   const { stats, impactLogs } = useDemo();
@@ -8,99 +8,103 @@ export const ImpactoView: React.FC = () => {
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6 animate-fadeIn">
       {/* Header */}
-      <div className="bg-[#131b2e] border border-slate-800 rounded-2xl p-6 shadow-xl space-y-2">
-        <h2 className="text-2xl font-extrabold text-white tracking-tight">Lo que BibendIA ha hecho por ti</h2>
-        <p className="text-xs text-slate-300">
+      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-2">
+        <div className="flex items-center gap-2">
+          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+          <h2 className="text-xl font-extrabold text-slate-900 tracking-tight">Lo que BibendIA ha hecho por ti</h2>
+        </div>
+        <p className="text-xs text-slate-500">
           Resumen del trabajo de recepción, agenda, presupuestos y seguimientos asumido autónomamente por BibendIA.
         </p>
       </div>
 
-      {/* Top 3 Big Results */}
+      {/* Top 3 Big Results (Clean 2C Light Metric Cards) */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-[#131b2e] border border-slate-800 rounded-2xl p-6 shadow-lg flex items-center justify-between">
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs flex items-center justify-between">
           <div className="space-y-1">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">TIEMPO AHORRADO</span>
-            <span className="text-3xl font-extrabold text-orange-400 font-mono">{stats.timeSavedHoursMinutes}</span>
-            <p className="text-[11px] text-slate-400">Trabajo administrativo no realizado por ti.</p>
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">TIEMPO AHORRADO</span>
+            <span className="text-3xl font-extrabold text-slate-900 font-mono">{stats.timeSavedHoursMinutes}</span>
+            <p className="text-xs text-slate-500">Trabajo administrativo no realizado por ti.</p>
           </div>
-          <div className="w-12 h-12 rounded-2xl bg-orange-500/10 border border-orange-500/20 text-orange-400 flex items-center justify-center shrink-0">
-            <Clock className="w-6 h-6" />
+          <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-200 text-blue-700 flex items-center justify-center shrink-0">
+            <Clock className="w-6 h-6 stroke-[2.5]" />
           </div>
         </div>
 
-        <div className="bg-[#131b2e] border border-slate-800 rounded-2xl p-6 shadow-lg flex items-center justify-between">
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs flex items-center justify-between">
           <div className="space-y-1">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">GESTIONES REALIZADAS</span>
-            <span className="text-3xl font-extrabold text-blue-400 font-mono">{stats.inquiriesHandled}</span>
-            <p className="text-[11px] text-slate-400">Atención multicanal resuelta.</p>
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">GESTIONES REALIZADAS</span>
+            <span className="text-3xl font-extrabold text-blue-600 font-mono">{stats.inquiriesHandled}</span>
+            <p className="text-xs text-slate-500">Atención multicanal resuelta.</p>
           </div>
-          <div className="w-12 h-12 rounded-2xl bg-blue-500/10 border border-blue-500/20 text-blue-400 flex items-center justify-center shrink-0">
-            <MessageSquare className="w-6 h-6" />
+          <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-200 text-blue-700 flex items-center justify-center shrink-0">
+            <MessageSquare className="w-6 h-6 stroke-[2.5]" />
           </div>
         </div>
 
-        <div className="bg-[#131b2e] border border-slate-800 rounded-2xl p-6 shadow-lg flex items-center justify-between">
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs flex items-center justify-between">
           <div className="space-y-1">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">TRABAJO RECUPERADO</span>
-            <span className="text-3xl font-extrabold text-emerald-400 font-mono">{stats.recoveredRevenue.toFixed(2)} €</span>
-            <p className="text-[11px] text-slate-400">Generado gracias a seguimientos activos.</p>
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">TRABAJO RECUPERADO</span>
+            <span className="text-3xl font-extrabold text-emerald-700 font-mono">{stats.recoveredRevenue.toFixed(2)} €</span>
+            <p className="text-xs text-slate-500">Generado gracias a seguimientos activos.</p>
           </div>
-          <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
-            <Euro className="w-6 h-6" />
+          <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-700 flex items-center justify-center shrink-0">
+            <Euro className="w-6 h-6 stroke-[2.5]" />
           </div>
         </div>
       </div>
 
       {/* Weekly Activity Summary */}
-      <div className="bg-[#131b2e] border border-slate-800 rounded-2xl p-5 shadow-lg space-y-4">
-        <h3 className="text-base font-bold text-white border-b border-slate-800 pb-3">
+      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-4">
+        <h3 className="text-base font-extrabold text-slate-900 border-b border-slate-100 pb-3">
           Esta semana BibendIA ha...
         </h3>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-          <div className="p-3 bg-slate-900 border border-slate-800 rounded-xl text-center space-y-1">
-            <span className="text-xl font-extrabold text-white font-mono block">{stats.appointmentsBooked}</span>
-            <span className="text-[11px] font-semibold text-slate-400 block">Citas gestionadas</span>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+          <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-center space-y-1">
+            <span className="text-2xl font-extrabold text-slate-900 font-mono block">{stats.appointmentsBooked}</span>
+            <span className="text-xs font-semibold text-slate-600 block">Citas gestionadas</span>
           </div>
 
-          <div className="p-3 bg-slate-900 border border-slate-800 rounded-xl text-center space-y-1">
-            <span className="text-xl font-extrabold text-white font-mono block">{stats.quotesPrepared}</span>
-            <span className="text-[11px] font-semibold text-slate-400 block">Presupuestos preparados</span>
+          <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-center space-y-1">
+            <span className="text-2xl font-extrabold text-slate-900 font-mono block">{stats.quotesPrepared}</span>
+            <span className="text-xs font-semibold text-slate-600 block">Presupuestos preparados</span>
           </div>
 
-          <div className="p-3 bg-slate-900 border border-slate-800 rounded-xl text-center space-y-1">
-            <span className="text-xl font-extrabold text-white font-mono block">{stats.followupsDone}</span>
-            <span className="text-[11px] font-semibold text-slate-400 block">Seguimientos realizados</span>
+          <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-center space-y-1">
+            <span className="text-2xl font-extrabold text-slate-900 font-mono block">{stats.followupsDone}</span>
+            <span className="text-xs font-semibold text-slate-600 block">Seguimientos realizados</span>
           </div>
 
-          <div className="p-3 bg-slate-900 border border-slate-800 rounded-xl text-center space-y-1">
-            <span className="text-xl font-extrabold text-white font-mono block">{stats.inquiriesHandled}</span>
-            <span className="text-[11px] font-semibold text-slate-400 block">Consultas atendidas</span>
+          <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-center space-y-1">
+            <span className="text-2xl font-extrabold text-slate-900 font-mono block">{stats.inquiriesHandled}</span>
+            <span className="text-xs font-semibold text-slate-600 block">Consultas atendidas</span>
           </div>
 
-          <div className="p-3 bg-slate-900 border border-slate-800 rounded-xl text-center space-y-1">
-            <span className="text-xl font-extrabold text-emerald-400 font-mono block">{stats.recoveredClients}</span>
-            <span className="text-[11px] font-semibold text-slate-400 block">Clientes recuperados</span>
+          <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-center space-y-1">
+            <span className="text-2xl font-extrabold text-emerald-800 font-mono block">{stats.recoveredClients}</span>
+            <span className="text-xs font-bold text-emerald-800 block">Clientes recuperados</span>
           </div>
         </div>
       </div>
 
-      {/* Simple Timeline */}
-      <div className="bg-[#131b2e] border border-slate-800 rounded-2xl p-5 shadow-lg space-y-4">
-        <h3 className="text-base font-bold text-white border-b border-slate-800 pb-3">
-          Historial de Intervenciones
+      {/* Intervention History */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-4">
+        <h3 className="text-base font-extrabold text-slate-900 border-b border-slate-100 pb-3 flex items-center gap-2">
+          <Sparkles className="w-4 h-4 text-blue-600" />
+          <span>Historial de Intervenciones</span>
         </h3>
 
         <div className="space-y-3">
           {impactLogs.map(log => (
-            <div key={log.id} className="p-3.5 bg-slate-900 border border-slate-800 rounded-xl flex items-center justify-between text-xs">
+            <div key={log.id} className="p-4 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between text-xs">
               <div className="flex items-center gap-3">
-                <span className="font-mono font-bold text-orange-400 bg-slate-950 px-2 py-1 rounded border border-slate-800">
+                <span className="font-mono font-bold text-blue-700 bg-white border border-slate-200 px-2.5 py-1 rounded-md">
                   {log.timestamp}
                 </span>
-                <span className="font-bold text-white">{log.title}</span>
+                <span className="font-bold text-slate-900">{log.title}</span>
               </div>
-              <span className="text-slate-400 text-[11px] hidden sm:inline">{log.details}</span>
+              <span className="text-slate-600 text-xs hidden sm:inline">{log.details}</span>
             </div>
           ))}
         </div>
@@ -108,3 +112,4 @@ export const ImpactoView: React.FC = () => {
     </div>
   );
 };
+

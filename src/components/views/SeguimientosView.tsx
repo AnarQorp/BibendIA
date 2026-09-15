@@ -22,22 +22,22 @@ export const SeguimientosView: React.FC = () => {
     <div className="p-6 max-w-7xl mx-auto space-y-6 animate-fadeIn">
       
       {/* Banner */}
-      <div className="bg-[#131b2e] border border-slate-800 rounded-2xl p-5 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/30 text-amber-400 flex items-center justify-center shrink-0">
-            <TrendingUp className="w-5 h-5" />
+          <div className="w-9 h-9 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 flex items-center justify-center font-extrabold text-base shrink-0">
+            B
           </div>
           <div>
-            <h2 className="text-lg font-extrabold text-white">Seguimientos y Recuperación de Clientes</h2>
-            <p className="text-xs text-slate-300">
-              La IA detecta presupuestos pendientes, recomendaciones de visitas anteriores y revisiones caducadas para generar ingresos.
+            <h2 className="text-base font-extrabold text-slate-900 tracking-tight">Seguimientos y Recuperación de Clientes</h2>
+            <p className="text-xs text-slate-500">
+              BibendIA detecta autónomamente presupuestos pendientes, recomendaciones de visitas anteriores y revisiones caducadas.
             </p>
           </div>
         </div>
 
-        <div className="bg-slate-900 px-4 py-2.5 rounded-xl border border-slate-800 shrink-0 text-right">
-          <span className="text-[10px] text-slate-400 font-bold block uppercase">TRABAJO RECUPERABLE IDENTIFICADO</span>
-          <span className="text-xl font-extrabold text-emerald-400">{totalPotential.toFixed(2)} €</span>
+        <div className="bg-emerald-50 px-4 py-3 rounded-xl border border-emerald-200 shrink-0 text-right">
+          <span className="text-[10px] text-emerald-800 font-bold block uppercase">TRABAJO RECUPERABLE IDENTIFICADO</span>
+          <span className="text-xl font-extrabold text-emerald-800 font-mono">{totalPotential.toFixed(2)} €</span>
         </div>
       </div>
 
@@ -51,61 +51,67 @@ export const SeguimientosView: React.FC = () => {
           return (
             <div 
               key={item.id}
-              className="bg-[#131b2e] border border-slate-800 hover:border-slate-700 rounded-2xl p-5 shadow-lg space-y-3 transition-all"
+              className={`bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-3 transition-all ${
+                item.type === 'unanswered_quote' ? 'telemetry-strip-amber' : 'telemetry-strip-cobalt'
+              }`}
             >
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
                 <div className="flex items-center gap-2.5">
-                  <span className={`text-xs font-bold px-2.5 py-0.5 rounded border ${
+                  <span className={`text-xs font-bold px-2.5 py-0.5 rounded-md ${
                     item.type === 'unanswered_quote' 
-                      ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' 
+                      ? 'bg-amber-50 text-amber-800 border border-amber-200' 
                       : item.type === 'recommended_repair'
-                      ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
-                      : 'bg-purple-500/10 text-purple-400 border-purple-500/20'
+                      ? 'bg-blue-50 text-blue-800 border border-blue-200'
+                      : 'bg-purple-50 text-purple-800 border border-purple-200'
                   }`}>
                     {item.type === 'unanswered_quote' ? 'Presupuesto Sin Respuesta' : item.type === 'recommended_repair' ? 'Recomendación Preventiva' : 'Mantenimiento Pendiente'}
                   </span>
                   {vehicle && <span className="license-plate">{vehicle.plate}</span>}
                 </div>
 
-                <div className="flex items-center gap-3">
-                  <span className="text-xs text-slate-400 flex items-center gap-1">
-                    <Clock className="w-3.5 h-3.5" /> Hace {item.daysPending} días
+                <div className="flex items-center gap-4">
+                  <span className="text-xs text-slate-500 flex items-center gap-1 font-mono">
+                    <Clock className="w-3.5 h-3.5 text-slate-400" /> Hace {item.daysPending} días
                   </span>
-                  <span className="text-sm font-extrabold text-emerald-400">
+                  <span className="text-base font-extrabold text-slate-900 font-mono">
                     {item.potentialValue.toFixed(2)} €
                   </span>
                 </div>
               </div>
 
               <div className="space-y-1">
-                <h3 className="text-base font-bold text-white">{item.title}</h3>
-                <p className="text-xs text-slate-300">
-                  Cliente: <strong className="text-slate-100">{customer?.name}</strong> ({customer?.phone}) · {vehicle?.brand} {vehicle?.model}
+                <h3 className="text-base font-bold text-slate-900">{item.title}</h3>
+                <p className="text-xs text-slate-600">
+                  Cliente: <strong className="text-slate-900 font-bold">{customer?.name}</strong> ({customer?.phone}) · {vehicle?.brand} {vehicle?.model}
                 </p>
-                <p className="text-xs text-slate-400">{item.description}</p>
+                <p className="text-xs text-slate-500">{item.description}</p>
               </div>
 
               {/* Pre-worded Message Card */}
-              <div className="p-3.5 bg-slate-950/80 border border-slate-800/80 rounded-xl space-y-1 text-xs">
-                <div className="flex items-center gap-1.5 text-orange-400 font-bold">
-                  <Sparkles className="w-3.5 h-3.5" /> Mensaje WhatsApp Redactado por IA:
+              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-1 text-xs">
+                <div className="flex items-center gap-1.5 text-slate-900 font-bold">
+                  <Sparkles className="w-3.5 h-3.5 text-blue-600" /> Mensaje WhatsApp Redactado por BibendIA:
                 </div>
-                <p className="text-slate-300 italic">"{item.suggestedMessage}"</p>
+                <p className="text-slate-600 italic font-sans">"{item.suggestedMessage}"</p>
               </div>
 
-              {/* Action Button */}
-              <div className="flex items-center justify-end pt-1">
+              {/* Action Button (Electric Cobalt #2563EB) */}
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-xs text-slate-500 italic">
+                  {isSent ? '✓ Seguimiento enviado' : 'Programado para envío de seguimiento'}
+                </span>
+
                 {!isSent ? (
                   <button
                     onClick={() => sendFollowUp(item.id)}
-                    className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-5 py-2.5 rounded-xl text-xs flex items-center gap-2 shadow-md shadow-emerald-950/40 transition-all hover:scale-[1.02]"
+                    className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-5 py-2.5 rounded-xl text-xs flex items-center gap-2 shadow-xs transition-all"
                   >
-                    <Send className="w-4 h-4" />
+                    <Send className="w-4 h-4 text-white" />
                     <span>[Enviar Recordatorio por WhatsApp]</span>
                   </button>
                 ) : (
-                  <span className="bg-emerald-950/60 border border-emerald-700/60 text-emerald-400 font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-1.5">
-                    <Check className="w-4 h-4" /> Seguimiento Enviado
+                  <span className="bg-emerald-50 border border-emerald-200 text-emerald-800 font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-1.5">
+                    <Check className="w-4 h-4 text-emerald-600" /> Seguimiento Enviado por WhatsApp
                   </span>
                 )}
               </div>
@@ -116,3 +122,4 @@ export const SeguimientosView: React.FC = () => {
     </div>
   );
 };
+
