@@ -75,6 +75,11 @@ interface DemoContextType {
   prevDemoStep: () => void;
   resetDemoStep: () => void;
   
+  // Mobile responsive sidebar drawer state
+  mobileSidebarOpen: boolean;
+  setMobileSidebarOpen: (open: boolean) => void;
+  toggleMobileSidebar: () => void;
+  
   // State Mutators
   approveQuote: (quoteId: string) => void;
   confirmMartaAppointment: (slotDate: string, slotTime: string) => void;
@@ -90,6 +95,14 @@ const DemoContext = createContext<DemoContextType | undefined>(undefined);
 
 export const DemoProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [activeSection, setActiveSection] = useState<NavSection>('midia');
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState<boolean>(false);
+  
+  const toggleMobileSidebar = () => setMobileSidebarOpen(prev => !prev);
+
+  const handleSetActiveSection = (section: NavSection) => {
+    setActiveSection(section);
+    setMobileSidebarOpen(false);
+  };
   
   const [customers, setCustomers] = useState<Customer[]>(INITIAL_CUSTOMERS);
   const [vehicles, setVehicles] = useState<Vehicle[]>(INITIAL_VEHICLES);
@@ -558,7 +571,10 @@ export const DemoProvider: React.FC<{ children: React.ReactNode }> = ({ children
     <DemoContext.Provider
       value={{
         activeSection,
-        setActiveSection,
+        setActiveSection: handleSetActiveSection,
+        mobileSidebarOpen,
+        setMobileSidebarOpen,
+        toggleMobileSidebar,
         customers,
         vehicles,
         conversations,

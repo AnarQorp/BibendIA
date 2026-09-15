@@ -55,17 +55,17 @@ export const BandejaView: React.FC = () => {
   };
 
   return (
-    <div className="h-[calc(100vh-5rem)] p-6 flex flex-col gap-5 animate-fadeIn">
+    <div className="min-h-0 lg:h-[calc(100vh-5rem)] p-3 sm:p-6 flex flex-col gap-4 sm:gap-5 animate-fadeIn">
       
       {/* Top Filter Bar */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-4 flex items-center justify-between shadow-xs">
-        <div className="flex items-center gap-3">
-          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Filtrar Canal:</span>
+      <div className="bg-white border border-slate-200 rounded-2xl p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider w-full sm:w-auto">Filtrar Canal:</span>
           {(['all', 'whatsapp', 'phone', 'web'] as const).map(ch => (
             <button
               key={ch}
               onClick={() => setChannelFilter(ch)}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
                 channelFilter === ch 
                   ? 'bg-blue-600 text-white shadow-xs' 
                   : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200'
@@ -82,7 +82,7 @@ export const BandejaView: React.FC = () => {
       </div>
 
       {/* 3 Columns Layout: Inbox List | Chat View | Human Understanding Panel ("BibendIA ha entendido") */}
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-5 overflow-hidden">
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-5 overflow-y-auto lg:overflow-hidden">
         
         {/* Left Col (3 cols): Conversation List */}
         <div className="lg:col-span-3 bg-white border border-slate-200 rounded-2xl flex flex-col overflow-hidden shadow-xs">

@@ -27,7 +27,7 @@ export const AgendaView: React.FC = () => {
   ];
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6 animate-fadeIn">
+    <div className="p-3 sm:p-6 max-w-7xl mx-auto space-y-4 sm:space-y-6 animate-fadeIn">
       
       {/* Top Banner: Enriched Capacity Assistant */}
       <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-4">

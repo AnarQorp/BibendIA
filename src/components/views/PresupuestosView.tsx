@@ -33,7 +33,7 @@ export const PresupuestosView: React.FC = () => {
   const vehicle = vehicles.find(v => v.id === activeQuote?.vehicleId);
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6 animate-fadeIn">
+    <div className="p-3 sm:p-6 max-w-7xl mx-auto space-y-4 sm:space-y-6 animate-fadeIn">
       {/* Prompt Generator Header */}
       <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-4">
         <div className="flex items-center gap-3">

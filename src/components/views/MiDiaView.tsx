@@ -53,7 +53,7 @@ export const MiDiaView: React.FC = () => {
   };
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6 animate-fadeIn">
+    <div className="p-3 sm:p-6 max-w-7xl mx-auto space-y-4 sm:space-y-6 animate-fadeIn">
       
       {/* 1. NARRATIVE WELCOME BANNER (No traditional KPI cards grid!) */}
       <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs relative overflow-hidden">

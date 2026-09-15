@@ -1,6 +1,6 @@
 import React from 'react';
 import { useDemo } from '../../context/DemoContext';
-import { Mic, Search, Database, CheckCircle2, RotateCcw } from 'lucide-react';
+import { Mic, Search, Database, CheckCircle2, RotateCcw, Menu } from 'lucide-react';
 
 export const Header: React.FC = () => {
   const { 
@@ -8,7 +8,8 @@ export const Header: React.FC = () => {
     setAssistantModalOpen, 
     startVoiceInput, 
     isListening, 
-    resetAllState 
+    resetAllState,
+    toggleMobileSidebar
   } = useDemo();
 
   const getSectionTitle = () => {
@@ -25,29 +26,40 @@ export const Header: React.FC = () => {
   };
 
   return (
-    <header className="h-16 bg-white border-b border-slate-200 sticky top-0 z-20 backdrop-blur-md px-6 flex items-center justify-between shadow-xs">
-      {/* Title */}
-      <div>
-        <h1 className="text-base font-bold text-slate-900 flex items-center gap-2">
-          {getSectionTitle()}
-        </h1>
-        <p className="text-xs text-slate-500">Talleres Etxeberria · Recepción Taller</p>
+    <header className="h-16 bg-white border-b border-slate-200 sticky top-0 z-20 backdrop-blur-md px-3 sm:px-6 flex items-center justify-between shadow-xs">
+      {/* Title & Hamburger Menu Button for Mobile */}
+      <div className="flex items-center gap-2.5 min-w-0">
+        <button
+          onClick={toggleMobileSidebar}
+          className="md:hidden p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition-all shrink-0"
+          title="Abrir menú"
+        >
+          <Menu className="w-5 h-5" />
+        </button>
+
+        <div className="truncate">
+          <h1 className="text-sm sm:text-base font-bold text-slate-900 flex items-center gap-2 truncate">
+            {getSectionTitle()}
+          </h1>
+          <p className="text-[11px] sm:text-xs text-slate-500 hidden sm:block">Talleres Etxeberria · Recepción Taller</p>
+        </div>
       </div>
 
       {/* Bar */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
         <button
           onClick={() => setAssistantModalOpen(true)}
-          className="bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl px-3.5 py-1.5 flex items-center gap-3 text-xs text-slate-600 w-72 transition-all shadow-2xs"
+          className="bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl px-2.5 sm:px-3.5 py-1.5 flex items-center gap-2 sm:gap-3 text-xs text-slate-600 w-auto sm:w-64 md:w-72 transition-all shadow-2xs"
         >
-          <Search className="w-3.5 h-3.5 text-slate-400" />
-          <span className="truncate text-slate-500">¿Qué necesitas?...</span>
-          <kbd className="ml-auto bg-slate-200 text-slate-600 text-[10px] font-mono px-1.5 py-0.5 rounded border border-slate-300">⌘K</kbd>
+          <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+          <span className="truncate text-slate-500 hidden sm:inline">¿Qué necesitas?...</span>
+          <span className="text-slate-400 sm:hidden text-[11px]">Buscar</span>
+          <kbd className="ml-auto bg-slate-200 text-slate-600 text-[10px] font-mono px-1.5 py-0.5 rounded border border-slate-300 hidden md:inline">⌘K</kbd>
         </button>
 
         <button
           onClick={startVoiceInput}
-          className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
+          className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
             isListening 
               ? 'bg-rose-50 text-rose-700 border-rose-300 animate-pulse' 
               : 'bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200 shadow-2xs'
@@ -55,7 +67,7 @@ export const Header: React.FC = () => {
           title="Dictar por voz"
         >
           <Mic className={`w-3.5 h-3.5 ${isListening ? 'text-rose-600 animate-bounce' : 'text-blue-600'}`} />
-          <span>{isListening ? 'Escuchando...' : 'Hablar'}</span>
+          <span className="hidden sm:inline">{isListening ? 'Escuchando...' : 'Hablar'}</span>
         </button>
 
         <div className="hidden lg:flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-3 py-1 rounded-xl text-xs font-medium text-slate-600">
@@ -77,4 +89,3 @@ export const Header: React.FC = () => {
     </header>
   );
 };
-
