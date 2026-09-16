@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="public/assets/logo_BibendIA.png" alt="BibendIA Logo" width="180" />
+</p>
+
 # ⚡ BibendIA — Recepción Digital Inteligente para Talleres
 
 > **"Tú arreglas coches. La IA se ocupa de la recepción y del trabajo administrativo."**
