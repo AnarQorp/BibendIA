@@ -59,17 +59,17 @@ export const Sidebar: React.FC = () => {
         <div>
           {/* Brand Header */}
           <div className="p-5 border-b border-slate-800/80 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold text-sm shadow-sm">
-                B
-              </div>
+              <img 
+                src="./assets/logo_BibendIA.png" 
+                alt="BibendIA Logo" 
+                className="w-9 h-9 object-contain rounded-xl bg-white/10 p-0.5 border border-slate-700/60 shadow-sm shrink-0" 
+              />
               <div>
                 <div className="flex items-center gap-1.5">
                   <span className="font-extrabold text-base tracking-tight text-white">Bibend<span className="text-blue-500">IA</span></span>
                 </div>
                 <p className="text-[11px] font-medium text-slate-400">Recepción por Excepción</p>
               </div>
-            </div>
 
             {/* Mobile Close Button */}
             <button

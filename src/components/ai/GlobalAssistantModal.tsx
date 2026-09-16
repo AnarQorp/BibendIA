@@ -58,9 +58,11 @@ export const GlobalAssistantModal: React.FC = () => {
         {/* Modal Header */}
         <div className="p-4 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 font-extrabold flex items-center justify-center text-sm">
-              B
-            </div>
+            <img 
+              src="./assets/logo_BibendIA.png" 
+              alt="BibendIA Logo" 
+              className="w-9 h-9 object-contain rounded-xl border border-slate-200 bg-white p-0.5 shadow-2xs shrink-0" 
+            />
             <div>
               <h3 className="text-base font-extrabold text-slate-900">¿Qué necesitas?</h3>
               <p className="text-xs text-slate-500">Instrucciones directas por habla o escritura</p>
