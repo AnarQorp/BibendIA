@@ -11,6 +11,10 @@ import { inAuthorizedTenantTransaction, TenantAuthorizationError } from '../auth
 import { ProviderAuthenticationAdapter, type ProviderIngressConfig } from '../auth/provider-authentication-adapter.js';
 import { claimInboxEvent, inAuthorizedProviderTransaction, ProviderAuthorizationError } from '../auth/provider-authorization.js';
 import type { PrincipalContext, ServicePrincipal } from '../auth/principal.js';
+import {
+  assertTenantOperation, changeTenantLifecycle, operationDecision, readTenantControl,
+  setTenantKillSwitch, TenantControlError,
+} from '../modules/tenant-control/tenant-control.js';
 
 export type ApiSecurityOptions = {
   authentication?: AuthenticationAdapter;
@@ -35,6 +39,11 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
     if (error instanceof ProviderAuthorizationError) {
       return reply.code(403).send({ error: error.code });
     }
+    if (error instanceof TenantControlError) {
+      const conflict = ['INVALID_LIFECYCLE_TRANSITION', 'CONTROL_VERSION_CONFLICT', 'CONTROL_STATE_UNCHANGED'].includes(error.code);
+      const locked = ['TENANT_NOT_OPERATIONAL', 'TENANT_DEACTIVATED', 'KILL_SWITCH_ENABLED'].includes(error.code);
+      return reply.code(conflict ? 409 : locked ? 423 : 403).send({ error: error.code, correlationId: request.id });
+    }
     if (error instanceof z.ZodError) return reply.code(400).send({ error: 'INVALID_PROVIDER_PAYLOAD' });
     request.log.error(error);
     return reply.code(500).send({ error: 'INTERNAL_ERROR' });
@@ -52,6 +61,7 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
       capability: 'workshop:appointments:read',
       correlationId: request.id,
     }, async (client, context) => {
+      await assertTenantOperation(client, context.tenantId, 'workshop_read');
       const result = await client.query(
         `SELECT a.*, c.display_name AS customer_name, v.plate_ciphertext AS vehicle_plate
          FROM appointments a JOIN customers c ON c.id=a.customer_id JOIN vehicles v ON v.id=a.vehicle_id
@@ -61,6 +71,47 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
     });
     return { data: rows, correlationId: request.id };
   });
+  app.get('/v1/platform/tenants/:tenantId/control', {
+    config: { auth: { mode: 'authenticated', audience: 'platform', principalKinds: ['platform_user'] } },
+  }, async (request, reply) => {
+    const tenantId = tenantSelector(request.params);
+    if (!tenantId) return reply.code(400).send({ error: 'INVALID_TENANT_SELECTOR' });
+    if (!request.principal) return reply.code(401).send({ error: 'AUTHENTICATION_REQUIRED' });
+    const control = await inAuthorizedTenantTransaction(pool, {
+      principal: request.principal, requestedTenantId: tenantId, capability: 'platform:tenant:read', correlationId: request.id,
+    }, async (client, context) => {
+      await assertTenantOperation(client, context.tenantId, 'platform_read');
+      return readTenantControl(client, context.tenantId);
+    });
+    return { data: control, correlationId: request.id };
+  });
+  app.post('/v1/platform/tenants/:tenantId/lifecycle', {
+    config: { auth: { mode: 'authenticated', audience: 'platform', principalKinds: ['platform_user'] } },
+  }, async (request, reply) => {
+    const tenantId = tenantSelector(request.params);
+    if (!tenantId) return reply.code(400).send({ error: 'INVALID_TENANT_SELECTOR' });
+    if (!request.principal) return reply.code(401).send({ error: 'AUTHENTICATION_REQUIRED' });
+    const command = lifecycleCommandSchema.parse(request.body);
+    const receipt = await inAuthorizedTenantTransaction(pool, {
+      principal: request.principal, requestedTenantId: tenantId, capability: 'platform:tenant:update', correlationId: request.id,
+    }, (client, context) => changeTenantLifecycle(client, context, command));
+    return { receipt, correlationId: request.id };
+  });
+  for (const enabled of [true, false]) {
+    const operation = enabled ? 'enable' : 'disable';
+    app.post(`/v1/platform/tenants/:tenantId/kill-switch/${operation}`, {
+      config: { auth: { mode: 'authenticated', audience: 'platform', principalKinds: ['platform_user'] } },
+    }, async (request, reply) => {
+      const tenantId = tenantSelector(request.params);
+      if (!tenantId) return reply.code(400).send({ error: 'INVALID_TENANT_SELECTOR' });
+      if (!request.principal) return reply.code(401).send({ error: 'AUTHENTICATION_REQUIRED' });
+      const command = controlCommandSchema.parse(request.body);
+      const receipt = await inAuthorizedTenantTransaction(pool, {
+        principal: request.principal, requestedTenantId: tenantId, capability: 'platform:kill-switch:manage', correlationId: request.id,
+      }, (client, context) => setTenantKillSwitch(client, context, { ...command, enabled }));
+      return { receipt, correlationId: request.id };
+    });
+  }
   app.post('/v1/providers/twilio/voice/events', {
     config: { rawBody: true, auth: { mode: 'authenticated', audience: 'provider', principalKinds: ['service'] } },
   }, async (request, reply) => {
@@ -68,14 +119,18 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
     const principal = servicePrincipal(request.principal);
     if (principal.serviceType !== 'telephony_provider') return reply.code(403).send({ error: 'PRINCIPAL_NOT_ALLOWED' });
     const correlationId = `twilio:${body.CallSid}`;
-    const disposition = await inAuthorizedProviderTransaction(pool, {
+    const ingress = await inAuthorizedProviderTransaction(pool, {
       principal, provider: 'twilio', calledEndpoint: body.To, correlationId,
-    }, (client, context) => claimInboxEvent(client, {
-      context, principal, provider: 'twilio',
-      externalEventId: `${body.CallSid}:${body.CallStatus ?? 'voice'}:${body.SequenceNumber ?? '0'}`,
-      rawBody: canonicalJson(request.body),
-    }));
-    return reply.code(200).send({ ok: true, disposition, correlationId });
+    }, async (client, context) => {
+      const disposition = await claimInboxEvent(client, {
+        context, principal, provider: 'twilio',
+        externalEventId: `${body.CallSid}:${body.CallStatus ?? 'voice'}:${body.SequenceNumber ?? '0'}`,
+        rawBody: canonicalJson(request.body),
+      });
+      const control = await readTenantControl(client, context.tenantId);
+      return { disposition, decision: operationDecision(control, 'conversation_start') };
+    });
+    return reply.code(200).send({ ok: true, ...ingress, fallbackRequired: !ingress.decision.allowed, correlationId });
   });
   app.post('/v1/providers/elevenlabs/conversations/events', {
     config: { rawBody: true, auth: { mode: 'authenticated', audience: 'provider', principalKinds: ['service'] } },
@@ -86,15 +141,19 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
       return reply.code(403).send({ error: 'PROVIDER_NOT_ALLOWED' });
     }
     const correlationId = `elevenlabs:${body.data.conversation_id}`;
-    const disposition = await inAuthorizedProviderTransaction(pool, {
+    const ingress = await inAuthorizedProviderTransaction(pool, {
       principal, provider: 'elevenlabs', correlationId,
-    }, (client, context) => claimInboxEvent(client, {
-      context, principal, provider: 'elevenlabs',
-      externalEventId: `${body.type}:${body.data.conversation_id}:${body.event_timestamp}`,
-      rawBody: request.rawBody?.toString() ?? '',
-      eventOccurredAt: new Date(Number(body.event_timestamp) * 1000),
-    }));
-    return reply.code(200).send({ ok: true, disposition, correlationId });
+    }, async (client, context) => {
+      const disposition = await claimInboxEvent(client, {
+        context, principal, provider: 'elevenlabs',
+        externalEventId: `${body.type}:${body.data.conversation_id}:${body.event_timestamp}`,
+        rawBody: request.rawBody?.toString() ?? '',
+        eventOccurredAt: new Date(Number(body.event_timestamp) * 1000),
+      });
+      const control = await readTenantControl(client, context.tenantId);
+      return { disposition, operational: operationDecision(control, 'conversation_start').allowed };
+    });
+    return reply.code(200).send({ ok: true, ...ingress, correlationId });
   });
   app.post('/v1/providers/elevenlabs/tools/create-appointment', {
     config: { rawBody: true, auth: { mode: 'authenticated', audience: 'provider', principalKinds: ['service'] } },
@@ -104,7 +163,7 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
     const input = request.body as { providerCallId?: unknown };
     if (typeof input?.providerCallId !== 'string') return reply.code(400).send({ error: 'INVALID_PROVIDER_CALL_ID' });
     const correlationId = `elevenlabs:${input.providerCallId}`;
-    const context = await inAuthorizedProviderTransaction(pool, {
+    const authorized = await inAuthorizedProviderTransaction(pool, {
       principal, provider: 'elevenlabs', correlationId,
     }, async (client, tenantContext) => {
       await claimInboxEvent(client, {
@@ -112,10 +171,22 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
         externalEventId: `tool:create-appointment:${input.providerCallId}`,
         rawBody: canonicalJson(request.body),
       });
-      return tenantContext;
+      const control = await readTenantControl(client, tenantContext.tenantId);
+      return { context: tenantContext, decision: operationDecision(control, 'domain_mutation') };
     });
-    try { return await executeAppointmentTool(pool, context, request.body); }
-    catch (error) { request.log.error(error); return reply.code(400).send({ok:false,code:'VALIDATION',safeMessage:'No pude validar los datos; dejaré el caso para atención humana.'}); }
+    if (!authorized.decision.allowed) return reply.code(423).send({
+      ok: false, code: authorized.decision.code, fallbackRequired: true,
+      safeMessage: 'La automatización está pausada; dejaré el caso para atención humana.', correlationId,
+    });
+    try { return await executeAppointmentTool(pool, authorized.context, request.body); }
+    catch (error) {
+      if (error instanceof TenantControlError) return reply.code(423).send({
+        ok: false, code: error.code, fallbackRequired: true,
+        safeMessage: 'La automatización está pausada; dejaré el caso para atención humana.', correlationId,
+      });
+      request.log.error(error);
+      return reply.code(400).send({ok:false,code:'VALIDATION',safeMessage:'No pude validar los datos; dejaré el caso para atención humana.'});
+    }
   });
   return app;
 }
@@ -164,6 +235,18 @@ const elevenLabsEventSchema = z.object({
   event_timestamp: z.union([z.number().int().nonnegative(), z.string().regex(/^\d+$/)]),
   data: z.object({ agent_id: z.string().min(1), conversation_id: z.string().min(1) }).passthrough(),
 }).passthrough();
+
+const controlCommandSchema = z.object({
+  reason: z.string().trim().min(3).max(500), idempotencyKey: z.string().min(8).max(200), expectedVersion: z.number().int().positive(),
+}).strict();
+const lifecycleCommandSchema = controlCommandSchema.extend({
+  target: z.enum(['provisioning', 'pilot', 'active', 'suspended', 'deactivated']),
+}).strict();
+
+function tenantSelector(params: unknown): string | null {
+  const parsed = z.string().uuid().safeParse((params as { tenantId?: unknown })?.tenantId);
+  return parsed.success ? parsed.data : null;
+}
 
 function servicePrincipal(principal: PrincipalContext | null): ServicePrincipal {
   if (!principal || principal.kind !== 'service') throw new ProviderAuthorizationError('PROVIDER_NOT_ALLOWED');

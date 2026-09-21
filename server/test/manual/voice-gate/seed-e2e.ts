@@ -6,7 +6,7 @@ const hash=(v:string)=>createHash('sha256').update(v.toUpperCase().replace(/[^A-
 const pool=createPool();
 try{
  const tenant=randomUUID(),workshop=randomUUID(),customer=randomUUID(),vehicle=randomUUID();
- await pool.query("INSERT INTO tenants(id,name,operating_mode) VALUES($1,'BibendIA E2E','pilot_supervised')",[tenant]);
+ await pool.query("INSERT INTO tenants(id,name,operating_mode,lifecycle_status) VALUES($1,'BibendIA E2E','pilot_supervised','pilot')",[tenant]);
  await inTenantTransaction(pool,tenant,async c=>{
   await c.query("INSERT INTO workshops(id,tenant_id,name) VALUES($1,$2,'Taller E2E')",[workshop,tenant]);
   await c.query("INSERT INTO channel_endpoints(tenant_id,workshop_id,provider,external_account_id,called_endpoint) VALUES($1,$2,'elevenlabs',$3,'web-gate')",[tenant,workshop,env.ELEVENLABS_AGENT_ID]);

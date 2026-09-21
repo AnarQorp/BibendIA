@@ -40,7 +40,7 @@ const authentication: AuthenticationAdapter = {
 beforeAll(async () => {
   await pool.query('RESET ROLE');
   await pool.query(
-    `INSERT INTO tenants(id,name) VALUES ($1,'Tenant A'),($2,'Tenant B')`,
+    `INSERT INTO tenants(id,name,lifecycle_status) VALUES ($1,'Tenant A','pilot'),($2,'Tenant B','pilot')`,
     [ids.tenantA, ids.tenantB],
   );
   await pool.query(

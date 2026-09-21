@@ -14,7 +14,7 @@ const context: TenantContext = {
 const slotToken = `slot-${randomUUID()}`;
 
 beforeAll(async () => {
-  await pool.query("INSERT INTO tenants (id,name) VALUES ($1,'Integration tenant')", [ids.tenant]);
+  await pool.query("INSERT INTO tenants (id,name,lifecycle_status) VALUES ($1,'Integration tenant','pilot')", [ids.tenant]);
   await inTenantTransaction(pool, ids.tenant, async (client) => {
     await client.query("INSERT INTO workshops (id,tenant_id,name) VALUES ($1,$2,'Test workshop')", [ids.workshop, ids.tenant]);
     await client.query("INSERT INTO customers (id,tenant_id,display_name) VALUES ($1,$2,'Aitor Etxeberria')", [ids.customer, ids.tenant]);
@@ -50,7 +50,7 @@ describe('PostgreSQL appointment idempotency', () => {
 
   it('does not expose rows under a different tenant context', async () => {
     const otherTenant = randomUUID();
-    await pool.query("INSERT INTO tenants (id,name) VALUES ($1,'Other tenant')", [otherTenant]);
+    await pool.query("INSERT INTO tenants (id,name,lifecycle_status) VALUES ($1,'Other tenant','pilot')", [otherTenant]);
     const visible = await inTenantTransaction(pool, otherTenant, async (client) => client.query('SELECT id FROM appointments'));
     expect(visible.rowCount).toBe(0);
   });
