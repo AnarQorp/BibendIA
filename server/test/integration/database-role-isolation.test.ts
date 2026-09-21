@@ -43,6 +43,7 @@ describe('P0.1 database role isolation', () => {
       'conversations', 'customer_vehicle_roles', 'customers', 'inbox_events', 'messages',
       'outbox_events', 'reception_cases', 'slot_holds', 'vehicles', 'workshops',
       'users', 'external_identities', 'tenant_memberships', 'platform_access_grants',
+      'service_principals', 'provider_bindings',
     ];
     const result = await pool.query(
       `SELECT relname, relrowsecurity, relforcerowsecurity FROM pg_class

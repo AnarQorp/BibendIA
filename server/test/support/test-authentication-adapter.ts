@@ -22,7 +22,7 @@ export class TestAuthenticationAdapter implements AuthenticationAdapter {
       subject: 'platform-subject', sessionId: 'platform-session', authenticatedAt, expiresAt, assurance: 'mfa',
     };
     if (request.authorization === 'Bearer provider') return {
-      kind: 'service', audience: 'provider', serviceId: 'elevenlabs-test', serviceType: 'voice_provider', authenticatedAt, expiresAt,
+      kind: 'service', audience: 'provider', serviceId: '00000000-0000-4000-8000-000000000099', externalAccountId: 'elevenlabs-test', serviceType: 'voice_provider', authenticatedAt, expiresAt,
     };
     return null;
   }
