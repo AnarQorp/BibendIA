@@ -38,8 +38,8 @@ const app = buildApi(pool, { authentication });
 beforeAll(async () => {
   await pool.query('RESET ROLE');
   await pool.query("INSERT INTO tenants(id,name,lifecycle_status) VALUES($1,'Lifecycle A','pilot'),($2,'Lifecycle B','pilot')", [ids.tenantA, ids.tenantB]);
-  await pool.query(`INSERT INTO users(id,status,display_name) VALUES
-    ($1,'active','Admin A'),($2,'active','Readonly A'),($3,'active','Auditor A'),($4,'active','Workshop A')`,
+  await pool.query(`INSERT INTO users(id,status) VALUES
+    ($1,'active'),($2,'active'),($3,'active'),($4,'active')`,
     [ids.adminA, ids.readonlyA, ids.auditorA, ids.workshopA]);
   await pool.query(`INSERT INTO platform_access_grants(user_id,role,scope_type,tenant_id) VALUES
     ($1,'PLATFORM_ADMIN','tenant',$4),($2,'SUPPORT_READONLY','tenant',$4),($3,'SECURITY_AUDITOR','tenant',$4)`,

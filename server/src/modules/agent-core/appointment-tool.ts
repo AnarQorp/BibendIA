@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type pg from 'pg';
 import { inTenantTransaction } from '../../persistence/pool.js';
@@ -6,18 +6,19 @@ import { evaluatePolicy } from '../policy/pilot-mode.js';
 import { createAppointmentTransactional } from '../scheduling/postgres-scheduling.js';
 import type { TenantContext } from '../../domain/ids.js';
 import { assertTenantMutationAtPool, assertTenantOperation } from '../tenant-control/tenant-control.js';
+import type { PiiProtection } from '../../security/pii-protection.js';
+import { normalizeSpanishPlate } from '../../security/pii-protection.js';
 
 export const appointmentToolInput = z.object({
   providerCallId: z.string().min(1),
-  customerName: z.string().min(2), plate: z.string().min(4), serviceIntent: z.enum(['inspection','oil_service','brakes_or_noise','generic_fault']),
-  symptoms: z.array(z.string()).min(1), notes: z.string().optional(), estimatedDurationMinutes: z.number().int().min(15).max(480),
-  slotToken: z.string().min(1), explicitConfirmation: z.literal(true), confirmationTranscript: z.string().min(3),
+  customerName: z.string().min(2).max(200), plate: z.string().min(4).max(20), serviceIntent: z.enum(['inspection','oil_service','brakes_or_noise','generic_fault']),
+  symptoms: z.array(z.string().min(1).max(500)).min(1).max(10), notes: z.string().max(2000).optional(), estimatedDurationMinutes: z.number().int().min(15).max(480),
+  slotToken: z.string().min(1).max(200), explicitConfirmation: z.literal(true), confirmationTranscript: z.string().min(3).max(1000),
 });
 export type AppointmentToolInput = z.infer<typeof appointmentToolInput>;
-const normalize = (value: string) => value.normalize('NFD').replace(/\p{Diacritic}/gu, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-const hash = (value: string) => createHash('sha256').update(normalize(value)).digest('hex');
+const normalizeName = (value: string) => value.normalize('NFD').replace(/\p{Diacritic}/gu, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 
-export async function executeAppointmentTool(pool: pg.Pool, context: TenantContext, raw: unknown) {
+export async function executeAppointmentTool(pool: pg.Pool, context: TenantContext, raw: unknown, pii: PiiProtection) {
   const input = appointmentToolInput.parse(raw);
   const tenantId = context.tenantId;
   const workshopId = context.workshopId;
@@ -36,18 +37,38 @@ export async function executeAppointmentTool(pool: pg.Pool, context: TenantConte
     const callRow=call.rows[0];
     let caseRow=await client.query<{id:string}>('SELECT id FROM reception_cases WHERE tenant_id=$1 AND conversation_id=$2',[tenantId,callRow.conversation_id]);
     if(!caseRow.rowCount){ caseRow=await client.query("INSERT INTO reception_cases(tenant_id,conversation_id,intent,status) VALUES($1,$2,$3,'ready_to_decide') RETURNING id",[tenantId,callRow.conversation_id,input.serviceIntent]); }
-    const identity=await client.query<{vehicle_id:string;customer_id:string;display_name:string}>(`SELECT v.id vehicle_id,c.id customer_id,c.display_name FROM vehicles v JOIN customer_vehicle_roles r ON r.vehicle_id=v.id AND r.tenant_id=v.tenant_id JOIN customers c ON c.id=r.customer_id AND c.tenant_id=v.tenant_id WHERE v.tenant_id=$1 AND v.plate_hash=$2`,[tenantId,hash(input.plate)]);
+    const plateDigests = pii.lookupDigests(tenantId, 'vehicle.plate', normalizeSpanishPlate(input.plate)).map((item) => item.digest);
+    const identity=await client.query<{
+      vehicle_id:string; customer_id:string; display_name_ciphertext:Buffer; display_name_nonce:Buffer;
+      display_name_auth_tag:Buffer; display_name_key_id:string;
+    }>(`SELECT v.id vehicle_id,c.id customer_id,c.display_name_ciphertext,c.display_name_nonce,
+        c.display_name_auth_tag,c.display_name_key_id
+      FROM vehicles v
+      JOIN customer_vehicle_roles r ON r.vehicle_id=v.id AND r.tenant_id=v.tenant_id
+      JOIN customers c ON c.id=r.customer_id AND c.tenant_id=v.tenant_id
+      WHERE v.tenant_id=$1 AND v.pii_migration_state='protected'
+        AND c.pii_migration_state='protected' AND v.plate_lookup_digest=ANY($2::text[])`,[tenantId,plateDigests]);
     if(identity.rowCount!==1) return { unresolved:true as const, callId:callRow.id,conversationId:callRow.conversation_id,caseId:caseRow.rows[0].id };
     const resolved=identity.rows[0];
+    const storedName = pii.reveal(tenantId, 'customer.display_name', {
+      ciphertext: resolved.display_name_ciphertext, nonce: resolved.display_name_nonce,
+      authTag: resolved.display_name_auth_tag, keyId: resolved.display_name_key_id,
+    });
     await client.query('UPDATE reception_cases SET customer_id=$1,vehicle_id=$2,status=\'executing\' WHERE id=$3',[resolved.customer_id,resolved.vehicle_id,caseRow.rows[0].id]);
-    await client.query("INSERT INTO messages(tenant_id,conversation_id,direction,role,content_jsonb) VALUES($1,$2,'inbound','customer',$3)",[tenantId,callRow.conversation_id,JSON.stringify({text:input.confirmationTranscript,explicitConfirmation:true})]);
-    if(normalize(resolved.display_name)!==normalize(input.customerName)) await client.query("INSERT INTO audit_events(tenant_id,actor_type,actor_id,event_type,entity_type,entity_id,correlation_id,evidence_ref) VALUES($1,'voice_agent',$2,'identity_name_variant_observed','customer',$3,$4,$5)",[tenantId,context.actor.id,resolved.customer_id,correlationId,`plate:${hash(input.plate)}`]);
+    const protectedMessage = pii.protect(tenantId, 'message.content', JSON.stringify({ text: input.confirmationTranscript }));
+    await client.query(`INSERT INTO messages
+      (tenant_id,conversation_id,direction,role,content_legacy_jsonb,content_metadata_jsonb,
+       content_ciphertext,content_nonce,content_auth_tag,content_key_id,pii_migration_state)
+      VALUES($1,$2,'inbound','customer',NULL,$3,$4,$5,$6,$7,'protected')`,
+    [tenantId,callRow.conversation_id,JSON.stringify({ kind:'explicit_confirmation', explicitConfirmation:true }),
+      protectedMessage.ciphertext,protectedMessage.nonce,protectedMessage.authTag,protectedMessage.keyId]);
+    if(normalizeName(storedName)!==normalizeName(input.customerName)) await client.query("INSERT INTO audit_events(tenant_id,actor_type,actor_id,event_type,entity_type,entity_id,correlation_id,evidence_ref) VALUES($1,'voice_agent',$2,'identity_name_variant_observed','customer',$3,$4,$5)",[tenantId,context.actor.id,resolved.customer_id,correlationId,`vehicle:${resolved.vehicle_id}`]);
     return { unresolved:false as const,callId:callRow.id,conversationId:callRow.conversation_id,caseId:caseRow.rows[0].id,customerId:resolved.customer_id,vehicleId:resolved.vehicle_id };
   });
   if(chain.unresolved) return { ok:false,code:'IDENTITY_AMBIGUOUS',safeMessage:'No puedo verificar con seguridad cliente y vehículo; dejaré el caso para atención humana.',...chain };
   const policy=evaluatePolicy({operatingMode:'pilot_supervised',policyVersion:'pilot-v1'},{requestedLevel:'customer_confirmed',customerConfirmationRecorded:true,requiredFactsVerified:true,risk:'low'});
   if(policy.effect!=='allow') return {ok:false,code:'POLICY_BLOCKED',safeMessage:'Necesito revisión humana antes de crear la cita.'};
   const actionContext:TenantContext={...context,correlationId};
-  const receipt=await createAppointmentTransactional(pool,actionContext,{slotToken:input.slotToken,caseId:chain.caseId,customerId:chain.customerId,vehicleId:chain.vehicleId,serviceRequest:{intent:input.serviceIntent,symptoms:input.symptoms,notes:input.notes,estimatedDurationMinutes:input.estimatedDurationMinutes,capacityRequirements:[{resourceType:'mechanic',quantity:1}]},confirmationEvidenceRef:`voice:${chain.callId}:explicit-confirmation`,idempotencyKey:`voice-appointment:${provider}:${input.providerCallId}`});
+  const receipt=await createAppointmentTransactional(pool,actionContext,{slotToken:input.slotToken,caseId:chain.caseId,customerId:chain.customerId,vehicleId:chain.vehicleId,serviceRequest:{intent:input.serviceIntent,symptoms:input.symptoms,notes:input.notes,estimatedDurationMinutes:input.estimatedDurationMinutes,capacityRequirements:[{resourceType:'mechanic',quantity:1}]},confirmationEvidenceRef:`voice:${chain.callId}:explicit-confirmation`,idempotencyKey:`voice-appointment:${provider}:${input.providerCallId}`},pii);
   return {ok:receipt.outcome==='succeeded'&&Boolean(receipt.evidenceRef),code:'APPOINTMENT_CREATED',safeMessage:'La cita ha quedado confirmada.',receipt,callId:chain.callId,conversationId:chain.conversationId,caseId:chain.caseId};
 }
