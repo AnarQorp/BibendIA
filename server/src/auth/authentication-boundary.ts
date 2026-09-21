@@ -8,7 +8,7 @@ export type RouteAuthPolicy =
 
 declare module 'fastify' {
   interface FastifyContextConfig { auth?: RouteAuthPolicy }
-  interface FastifyRequest { principal: PrincipalContext | null }
+  interface FastifyRequest { principal: PrincipalContext | null; rawBody?: string | Buffer }
 }
 
 const reject = (reply: FastifyReply, status: number, code: string) =>
@@ -27,10 +27,13 @@ export function registerAuthenticationBoundary(app: FastifyInstance, adapter: Au
       principal = await adapter.authenticate({
         method: request.method,
         url: request.url,
+        path: request.routeOptions.url ?? request.url,
+        contentType: request.headers['content-type'],
         authorization: request.headers.authorization,
         cookie: request.headers.cookie,
-        providerSignature: stringHeader(request.headers['x-provider-signature']),
-        providerTimestamp: stringHeader(request.headers['x-provider-timestamp']),
+        headers: request.headers,
+        body: request.body,
+        rawBody: typeof request.rawBody === 'string' ? request.rawBody : request.rawBody?.toString('utf8'),
       }, policy.audience);
     } catch {
       request.log.warn('authentication rejected');
@@ -43,8 +46,4 @@ export function registerAuthenticationBoundary(app: FastifyInstance, adapter: Au
     }
     request.principal = principal;
   });
-}
-
-function stringHeader(value: string | string[] | undefined): string | undefined {
-  return typeof value === 'string' ? value : undefined;
 }

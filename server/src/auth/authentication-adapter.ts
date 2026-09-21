@@ -3,10 +3,13 @@ import type { AuthAudience, PrincipalContext } from './principal.js';
 export type AuthenticationRequest = {
   method: string;
   url: string;
+  path: string;
+  contentType?: string;
   authorization?: string;
   cookie?: string;
-  providerSignature?: string;
-  providerTimestamp?: string;
+  headers: Readonly<Record<string, string | string[] | undefined>>;
+  body?: unknown;
+  rawBody?: string;
 };
 
 export interface AuthenticationAdapter {

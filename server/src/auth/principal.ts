@@ -25,6 +25,7 @@ export type ServicePrincipal = {
   kind: 'service';
   audience: 'provider' | 'internal';
   serviceId: string;
+  externalAccountId: string;
   serviceType: 'voice_provider' | 'telephony_provider' | 'worker' | 'scheduler' | 'integration';
   authenticatedAt: string;
   expiresAt: string;

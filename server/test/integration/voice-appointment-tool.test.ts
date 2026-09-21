@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { executeAppointmentTool } from '../../src/modules/agent-core/appointment-tool.js';
 import { createPool, inTenantTransaction } from '../../src/persistence/pool.js';
+import type { TenantContext } from '../../src/domain/ids.js';
 
 const pool = createPool();
 const ids = { tenant: randomUUID(), workshop: randomUUID(), customer: randomUUID(), vehicle: randomUUID() };
@@ -9,9 +10,13 @@ const accountId = `agent-${randomUUID()}`;
 const slotToken = `slot-${randomUUID()}`;
 const plateHash = (value: string) => createHash('sha256').update(value.toUpperCase().replace(/[^A-Z0-9]/g, '')).digest('hex');
 const baseInput = {
-  provider: 'elevenlabs' as const, externalAccountId: accountId, customerName: 'Aitor Echeverría', plate: '1489 KMR',
+  customerName: 'Aitor Echeverría', plate: '1489 KMR',
   serviceIntent: 'oil_service' as const, symptoms: ['cambio de aceite'], estimatedDurationMinutes: 60, slotToken,
   explicitConfirmation: true as const, confirmationTranscript: 'Sí, confirmo explícitamente la cita.',
+};
+const context: TenantContext = {
+  tenantId: ids.tenant as TenantContext['tenantId'], workshopId: ids.workshop as TenantContext['workshopId'],
+  correlationId: 'voice-test', actor: { type: 'voice_agent', id: accountId },
 };
 
 beforeAll(async () => {
@@ -31,8 +36,8 @@ afterAll(async () => { await pool.end(); });
 describe('voice appointment tool identity and replay safety', () => {
   it('uses a strong plate match despite a name variant and replays to the same appointment', async () => {
     const providerCallId = `call-${randomUUID()}`;
-    const first = await executeAppointmentTool(pool, { ...baseInput, providerCallId });
-    const replay = await executeAppointmentTool(pool, { ...baseInput, providerCallId });
+    const first = await executeAppointmentTool(pool, context, { ...baseInput, providerCallId });
+    const replay = await executeAppointmentTool(pool, context, { ...baseInput, providerCallId });
     expect(first.ok).toBe(true);
     expect(replay.ok).toBe(true);
     if (!first.ok || !replay.ok || !first.receipt || !replay.receipt) throw new Error('Expected succeeded receipts');
@@ -49,7 +54,7 @@ describe('voice appointment tool identity and replay safety', () => {
 
   it('does not guess or create a customer when no strong identifier resolves', async () => {
     const before = await inTenantTransaction(pool, ids.tenant, async (client) => client.query('SELECT count(*)::int count FROM customers'));
-    const result = await executeAppointmentTool(pool, { ...baseInput, providerCallId: `call-${randomUUID()}`, plate: '0000 ZZZ' });
+    const result = await executeAppointmentTool(pool, context, { ...baseInput, providerCallId: `call-${randomUUID()}`, plate: '0000 ZZZ' });
     const after = await inTenantTransaction(pool, ids.tenant, async (client) => client.query('SELECT count(*)::int count FROM customers'));
     expect(result).toMatchObject({ ok: false, code: 'IDENTITY_AMBIGUOUS' });
     expect(result.safeMessage).toContain('atención humana');

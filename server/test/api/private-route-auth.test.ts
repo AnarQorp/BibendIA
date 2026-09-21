@@ -15,14 +15,15 @@ describe('API private route policy', () => {
     expect((await app.inject('/health')).statusCode).toBe(200);
     expect((await app.inject('/v1/appointments')).statusCode).toBe(404);
     expect((await app.inject(`/v1/workshop/tenants/${tenantId}/appointments`)).statusCode).toBe(401);
-    expect((await app.inject({ method: 'POST', url: '/v1/voice/tools/create-appointment', payload: {} })).statusCode).toBe(401);
+    expect((await app.inject({ method: 'POST', url: '/v1/voice/tools/create-appointment', payload: {} })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/create-appointment', payload: {} })).statusCode).toBe(401);
   });
 
   it('rejects a Workshop principal at the provider tool boundary', async () => {
     const app = buildApi(pool, { authentication: new TestAuthenticationAdapter() });
     apps.push(app);
     const response = await app.inject({
-      method: 'POST', url: '/v1/voice/tools/create-appointment', payload: {},
+      method: 'POST', url: '/v1/providers/elevenlabs/tools/create-appointment', payload: {},
       headers: { authorization: 'Bearer workshop' },
     });
     expect(response.statusCode).toBe(403);
@@ -33,11 +34,11 @@ describe('API private route policy', () => {
     const app = buildApi(pool, { authentication: new TestAuthenticationAdapter() });
     apps.push(app);
     const response = await app.inject({
-      method: 'POST', url: '/v1/voice/tools/create-appointment', payload: {},
+      method: 'POST', url: '/v1/providers/elevenlabs/tools/create-appointment', payload: {},
       headers: { authorization: 'Bearer provider' },
     });
     expect(response.statusCode).toBe(400);
-    expect(response.json()).toMatchObject({ ok: false, code: 'VALIDATION' });
+    expect(response.json()).toEqual({ error: 'INVALID_PROVIDER_CALL_ID' });
   });
 
   it('emits CORS permission only for an explicitly allowed origin', async () => {
