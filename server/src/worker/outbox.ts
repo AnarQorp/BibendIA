@@ -10,5 +10,5 @@ export async function claimOutboxBatch(pool: pg.Pool, tenantId: string, limit = 
        RETURNING *`, [tenantId, limit],
     );
     return result.rows;
-  });
+  }, 'bibendia_worker');
 }
