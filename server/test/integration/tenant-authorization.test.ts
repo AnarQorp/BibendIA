@@ -48,9 +48,9 @@ beforeAll(async () => {
     [ids.workshopA, ids.tenantA, ids.workshopB, ids.tenantB],
   );
   await pool.query(
-    `INSERT INTO users(id,status,display_name) VALUES
-      ($1,'active','User A'),($2,'active','User AB'),($3,'active','Membership suspended'),
-      ($4,'suspended','User suspended'),($5,'active','Platform A'),($6,'active','Platform readonly')`,
+    `INSERT INTO users(id,status) VALUES
+      ($1,'active'),($2,'active'),($3,'active'),
+      ($4,'suspended'),($5,'active'),($6,'active')`,
     [ids.userA, ids.userAB, ids.userMembershipSuspended, ids.userSuspended, ids.platformA, ids.platformReadonly],
   );
   await pool.query(

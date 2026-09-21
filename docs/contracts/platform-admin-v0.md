@@ -40,6 +40,11 @@ It returns `201` with `{ tenant, workshop, receipt, correlationId }`.
 Provider credentials are write-only secret references. Read models expose only provider, status,
 capabilities, verification state and safe error summaries.
 
+Support activity/appointment projections are redacted by construction. `SUPPORT_READONLY` receives
+IDs, workshop/case references, status, timestamps and version; it never receives customer name,
+phone, plate, transcript, symptoms, notes, ciphertext or cryptographic metadata. A future exceptional
+PII workflow requires a separate approved capability and audit contract; it is not part of Admin v0.
+
 ## Lifecycle and kill switch commands
 
 - `GET /tenants/:tenantId/control`
