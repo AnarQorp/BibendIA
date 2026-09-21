@@ -37,11 +37,12 @@ describe('P0.1 database role isolation', () => {
     }
   });
 
-  it('forces RLS on every tenant-owned table', async () => {
+  it('forces RLS on every tenant-owned and authorization table', async () => {
     const expected = [
       'action_intents', 'appointments', 'audit_events', 'calls', 'channel_endpoints',
       'conversations', 'customer_vehicle_roles', 'customers', 'inbox_events', 'messages',
       'outbox_events', 'reception_cases', 'slot_holds', 'vehicles', 'workshops',
+      'users', 'external_identities', 'tenant_memberships', 'platform_access_grants',
     ];
     const result = await pool.query(
       `SELECT relname, relrowsecurity, relforcerowsecurity FROM pg_class

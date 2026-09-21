@@ -17,6 +17,7 @@ const reject = (reply: FastifyReply, status: number, code: string) =>
 export function registerAuthenticationBoundary(app: FastifyInstance, adapter: AuthenticationAdapter): void {
   app.decorateRequest('principal', null);
   app.addHook('preHandler', async (request: FastifyRequest, reply: FastifyReply) => {
+    if (request.is404) return;
     const policy = request.routeOptions.config.auth;
     if (!policy) return reject(reply, 500, 'ROUTE_SECURITY_POLICY_MISSING');
     if (policy.mode === 'public') return;

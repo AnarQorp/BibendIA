@@ -5,6 +5,7 @@ import { TestAuthenticationAdapter } from '../support/test-authentication-adapte
 
 const apps: ReturnType<typeof buildApi>[] = [];
 const pool = {} as pg.Pool;
+const tenantId = '11111111-1111-4111-8111-111111111111';
 afterEach(async () => Promise.all(apps.splice(0).map((app) => app.close())));
 
 describe('API private route policy', () => {
@@ -12,7 +13,8 @@ describe('API private route policy', () => {
     const app = buildApi(pool);
     apps.push(app);
     expect((await app.inject('/health')).statusCode).toBe(200);
-    expect((await app.inject('/v1/appointments')).statusCode).toBe(401);
+    expect((await app.inject('/v1/appointments')).statusCode).toBe(404);
+    expect((await app.inject(`/v1/workshop/tenants/${tenantId}/appointments`)).statusCode).toBe(401);
     expect((await app.inject({ method: 'POST', url: '/v1/voice/tools/create-appointment', payload: {} })).statusCode).toBe(401);
   });
 
