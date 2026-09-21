@@ -20,7 +20,7 @@ const context: TenantContext = {
 };
 
 beforeAll(async () => {
-  await pool.query("INSERT INTO tenants (id,name,operating_mode) VALUES ($1,'Voice tool tenant','pilot_supervised')", [ids.tenant]);
+  await pool.query("INSERT INTO tenants (id,name,operating_mode,lifecycle_status) VALUES ($1,'Voice tool tenant','pilot_supervised','pilot')", [ids.tenant]);
   await inTenantTransaction(pool, ids.tenant, async (client) => {
     await client.query("INSERT INTO workshops (id,tenant_id,name) VALUES ($1,$2,'Voice workshop')", [ids.workshop, ids.tenant]);
     await client.query("INSERT INTO channel_endpoints (tenant_id,workshop_id,provider,external_account_id,called_endpoint) VALUES ($1,$2,'elevenlabs',$3,'web-gate')", [ids.tenant, ids.workshop, accountId]);

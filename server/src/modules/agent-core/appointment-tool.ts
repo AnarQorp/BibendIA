@@ -5,6 +5,7 @@ import { inTenantTransaction } from '../../persistence/pool.js';
 import { evaluatePolicy } from '../policy/pilot-mode.js';
 import { createAppointmentTransactional } from '../scheduling/postgres-scheduling.js';
 import type { TenantContext } from '../../domain/ids.js';
+import { assertTenantMutationAtPool, assertTenantOperation } from '../tenant-control/tenant-control.js';
 
 export const appointmentToolInput = z.object({
   providerCallId: z.string().min(1),
@@ -22,7 +23,9 @@ export async function executeAppointmentTool(pool: pg.Pool, context: TenantConte
   const workshopId = context.workshopId;
   const provider = 'elevenlabs';
   const correlationId = `voice:${input.providerCallId}`;
+  await assertTenantMutationAtPool(pool, context);
   const chain = await inTenantTransaction(pool, tenantId, async (client) => {
+    await assertTenantOperation(client, tenantId, 'conversation_start', 'share');
     let call = await client.query<{id:string;conversation_id:string}>('SELECT id,conversation_id FROM calls WHERE tenant_id=$1 AND provider=$2 AND provider_call_id=$3',[tenantId,provider,input.providerCallId]);
     if (!call.rowCount) {
       const conversationId=randomUUID(); const callId=randomUUID();

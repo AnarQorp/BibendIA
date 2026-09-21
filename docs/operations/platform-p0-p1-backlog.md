@@ -12,7 +12,7 @@ Each item is independently verifiable. `OPEN` is not a release claim.
 | P0.2 | BOUNDARY COMPLETE | `PrincipalContext`, vendor-neutral auth adapter, audience/session separation and deny-by-default routing. Production OIDC adapter awaits IdP approval | 8 auth/API tests: public declaration, fail-closed, wrong audience/kind and test-adapter production guard |
 | P0.3 | COMPLETE | users, external identities, memberships, platform grants, pilot capability matrix and server-derived TenantContext; `x-tenant-id` removed as authority | 8 dedicated integration cases plus capability unit tests and RLS omission test |
 | P0.4 | COMPLETE | Twilio request signatures, ElevenLabs webhook HMAC, dedicated tool credential, replay guard, Inbox and server-side endpoint binding | crypto unit tests plus HTTP/integration invalid-signature, replay-conflict, wrong-agent, unknown-DID and RLS tests |
-| P0.5 | OPEN | tenant lifecycle, suspension, fallback and kill switch | command, race and receipt tests |
+| P0.5 | COMPLETE | enforced tenant lifecycle, audited reversible kill switch, safe provider fallback and final Outbox effect guard | policy/unit tests plus Platform command, scope, audit, RLS, provider-metadata and claimed-before-kill integration cases |
 | P0.6 | OPEN | PII classification, minimization, encryption, lookup hashes and log redaction | static/log/round-trip tests |
 | P0.7 | OPEN | multi-tenant worker, Outbox publish/retry/dead-letter/reconciliation | restart, lease-expiry and duplicate-delivery tests |
 | P0.8 | OPEN | liveness/readiness, graceful shutdown, migration job and immutable artifact | runtime smoke and failure-mode tests |

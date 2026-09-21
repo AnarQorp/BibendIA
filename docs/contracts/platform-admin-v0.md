@@ -1,6 +1,7 @@
 # Platform Admin v0 backend contract
 
-Status: approved design contract; endpoints are not implemented until their backlog item says so.
+Status: approved design contract. The tenant control subset documented below is implemented by P0.5;
+other endpoints remain design contracts until their backlog item says so.
 
 This is the contract raQel may use to build `admin.bibendia.com`. Base path: `/v1/platform`.
 All responses include `correlationId`. Errors use `{ code, message, correlationId }` and never
@@ -41,12 +42,16 @@ capabilities, verification state and safe error summaries.
 
 ## Lifecycle and kill switch commands
 
-- `POST /tenants/:tenantId/activate`
-- `POST /tenants/:tenantId/suspend`
-- `POST /tenants/:tenantId/resume`
-- `POST /tenants/:tenantId/deactivate`
+- `GET /tenants/:tenantId/control`
+- `POST /tenants/:tenantId/lifecycle`
 - `POST /tenants/:tenantId/kill-switch/enable`
 - `POST /tenants/:tenantId/kill-switch/disable`
+
+Control read response:
+
+```json
+{"data":{"lifecycle":"pilot","lifecycleUpdatedAt":"ISO-8601|null","lifecycleUpdatedBy":{"type":"platform_user","id":"uuid"},"lifecycleReason":"reason|null","killSwitch":{"enabled":false,"updatedAt":"ISO-8601|null","updatedBy":null,"reason":null},"version":3},"correlationId":"string"}
+```
 
 Command body:
 
@@ -54,9 +59,14 @@ Command body:
 {"reason":"operator-visible reason","idempotencyKey":"string","expectedVersion":3}
 ```
 
-Success returns `{ tenant, receipt, correlationId }`. Concurrent state mismatch returns `409
-VERSION_CONFLICT`; missing capability returns `403 FORBIDDEN`; step-up required returns `403
-STEP_UP_REQUIRED`.
+The lifecycle command additionally requires `target` equal to `provisioning`, `pilot`, `active`,
+`suspended` or `deactivated`. Unknown fields are rejected. Success returns `{ receipt,
+correlationId }`; the receipt carries the before/after values, control version, event ID, timestamp
+and evidence reference. Concurrent state mismatch or invalid transition returns `409`; an
+operational lock returns `423`; missing capability/scope returns `403`.
+
+`SUPPORT_READONLY` may call the control read within its grant scope but can never call either
+mutation. Deactivated is terminal. The backend, not the UI, owns the transition matrix.
 
 ## UI safety requirements
 

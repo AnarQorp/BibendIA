@@ -4,6 +4,7 @@ import type { ActionReceipt } from '../../domain/receipt.js';
 import type { Appointment } from './model.js';
 import type { CreateAppointmentCommand } from '../../ports/scheduling.js';
 import { inTenantTransaction } from '../../persistence/pool.js';
+import { assertTenantOperation } from '../tenant-control/tenant-control.js';
 
 interface AppointmentRow {
   id: string; tenant_id: string; workshop_id: string; case_id: string; customer_id: string; vehicle_id: string;
@@ -26,6 +27,8 @@ export async function createAppointmentTransactional(
   command: CreateAppointmentCommand,
 ): Promise<ActionReceipt<Appointment>> {
   return inTenantTransaction(pool, context.tenantId, async (client) => {
+    // The shared tenant advisory lock linearizes this mutation against control updates.
+    await assertTenantOperation(client, context.tenantId, 'domain_mutation', 'share');
     const hold = await client.query<{ start_at: Date; end_at: Date }>(
       'SELECT start_at,end_at FROM slot_holds WHERE tenant_id=$1 AND slot_token=$2 AND expires_at > now() FOR UPDATE',
       [context.tenantId, command.slotToken],

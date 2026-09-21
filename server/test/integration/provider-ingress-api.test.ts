@@ -21,7 +21,7 @@ const app = buildApi(pool, { providerIngress: {
 } });
 
 beforeAll(async () => {
-  await pool.query("INSERT INTO tenants(id,name) VALUES($1,'Provider API')", [ids.tenant]);
+  await pool.query("INSERT INTO tenants(id,name,lifecycle_status) VALUES($1,'Provider API','pilot')", [ids.tenant]);
   await inTenantTransaction(pool, ids.tenant, async (client) => {
     await client.query("INSERT INTO workshops(id,tenant_id,name) VALUES($1,$2,'Provider API workshop')", [ids.workshop, ids.tenant]);
     await client.query("INSERT INTO channel_endpoints(id,tenant_id,workshop_id,provider,external_account_id,called_endpoint) VALUES($1,$2,$3,'twilio',$4,'+34944000999')", [ids.twilioEndpoint, ids.tenant, ids.workshop, twilioAccountId]);
@@ -75,5 +75,25 @@ describe('provider ingress HTTP boundary', () => {
     const wrongAgentSignature = `t=${timestamp},v0=${createHmac('sha256', 'eleven-webhook-secret').update(`${timestamp}.${wrongAgentRaw}`).digest('hex')}`;
     expect((await app.inject({ method: 'POST', url: elevenPath, payload: wrongAgentRaw, headers: { 'content-type': 'application/json', 'elevenlabs-signature': wrongAgentSignature } })).statusCode).toBe(403);
     expect((await app.inject({ method: 'POST', url: elevenPath, payload: raw, headers: { 'content-type': 'application/json', 'elevenlabs-signature': 'invalid' } })).statusCode).toBe(401);
+  });
+
+  it('captures verified provider ingress but provider metadata cannot bypass the kill switch', async () => {
+    await pool.query('UPDATE tenants SET kill_switch_enabled=true WHERE id=$1', [ids.tenant]);
+    try {
+      const body = {
+        AccountSid: twilioAccountId, CallSid: `CA${randomUUID()}`, To: '+34944000999',
+        From: '+34600000000', CallStatus: 'ringing', SequenceNumber: '0',
+        tenant_id: randomUUID(), lifecycle_status: 'active', kill_switch_enabled: 'false',
+      };
+      const signature = twilio.getExpectedTwilioSignature('twilio-api-secret', `${publicApiBaseUrl}${twilioPath}`, body);
+      const response = await app.inject({
+        method: 'POST', url: twilioPath, payload: new URLSearchParams(body).toString(),
+        headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-twilio-signature': signature },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({ disposition: 'claimed', fallbackRequired: true, decision: { allowed: false, code: 'KILL_SWITCH_ENABLED' } });
+    } finally {
+      await pool.query('UPDATE tenants SET kill_switch_enabled=false WHERE id=$1', [ids.tenant]);
+    }
   });
 });
