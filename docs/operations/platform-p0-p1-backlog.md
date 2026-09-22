@@ -14,7 +14,7 @@ Each item is independently verifiable. `OPEN` is not a release claim.
 | P0.4 | COMPLETE | Twilio request signatures, ElevenLabs webhook HMAC, dedicated tool credential, replay guard, Inbox and server-side endpoint binding | crypto unit tests plus HTTP/integration invalid-signature, replay-conflict, wrong-agent, unknown-DID and RLS tests |
 | P0.5 | COMPLETE | enforced tenant lifecycle, audited reversible kill switch, safe provider fallback and final Outbox effect guard | policy/unit tests plus Platform command, scope, audit, RLS, provider-metadata and claimed-before-kill integration cases |
 | P0.6 | COMPLETE | PII inventory/minimization, AES-GCM envelopes, tenant-bound HMAC exact lookup, safe logs, legacy quarantine and retention markers | crypto/tamper/key failure tests plus DB plaintext scan, tenant lookup/RLS and Support redaction integration cases |
-| P0.7 | OPEN | multi-tenant worker, Outbox publish/retry/dead-letter/reconciliation | restart, lease-expiry and duplicate-delivery tests |
+| P0.7 | COMPLETE | multi-tenant worker, leased Outbox state machine, bounded retry, unknown outcome/dead-letter and reconciliation boundary | clean 001→008 migration plus concurrency, crash, lease, retry, lifecycle, reconciliation, RLS and PII-minimization tests |
 | P0.8 | OPEN | liveness/readiness, graceful shutdown, migration job and immutable artifact | runtime smoke and failure-mode tests |
 | P0.9 | OPEN | audited Platform command/query API sufficient to operate Jarrisons without SQL | Platform API E2E and audit/receipt assertions |
 

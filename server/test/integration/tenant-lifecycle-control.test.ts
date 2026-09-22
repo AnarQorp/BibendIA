@@ -6,7 +6,7 @@ import { inAuthorizedTenantTransaction } from '../../src/auth/tenant-authorizati
 import { buildApi } from '../../src/api/app.js';
 import { createPool, inTenantTransaction } from '../../src/persistence/pool.js';
 import { changeTenantLifecycle, setTenantKillSwitch } from '../../src/modules/tenant-control/tenant-control.js';
-import { claimOutboxBatch, publishClaimedOutboxEvent } from '../../src/worker/outbox.js';
+import { claimOutboxBatch, dispatchClaimedOutboxEvent } from '../../src/worker/outbox.js';
 
 const pool = createPool('migrator');
 const ids = {
@@ -95,6 +95,23 @@ describe('P0.5 tenant lifecycle and kill switch', () => {
     })).statusCode).toBe(403);
   });
 
+  it('gives scoped Support a PII-free Outbox operational view', async () => {
+    await inTenantTransaction(pool, ids.tenantA, (client) => client.query(
+      `INSERT INTO outbox_events(tenant_id,aggregate_type,aggregate_id,event_type,payload_jsonb,delivery_state,
+       last_error_code,reconciliation_required,correlation_id)
+       VALUES($1,'appointment',$2,'appointment.created',$3,'unknown_outcome','SAFE_TIMEOUT',true,'corr-safe')`,
+      [ids.tenantA, randomUUID(), JSON.stringify({ appointmentId: randomUUID() })],
+    ));
+    const response = await request('GET', `/v1/platform/tenants/${ids.tenantA}/outbox`, 'Bearer readonly-a');
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ redacted: true, data: { attention: [{
+      delivery_state: 'unknown_outcome', last_error_code: 'SAFE_TIMEOUT', correlation_id: 'corr-safe',
+    }] } });
+    const serialized = response.body;
+    expect(serialized).not.toContain('payload_jsonb');
+    expect((await request('GET', `/v1/platform/tenants/${ids.tenantB}/outbox`, 'Bearer readonly-a')).statusCode).toBe(403);
+  });
+
   it('denies Workshop, capability-less Platform, and cross-scope control commands', async () => {
     const command = { reason: 'Attempted control change', idempotencyKey: randomUUID(), expectedVersion: 1 };
     expect((await request('POST', `/v1/platform/tenants/${ids.tenantA}/kill-switch/enable`, 'Bearer workshop-a', command)).statusCode).toBe(403);
@@ -162,8 +179,11 @@ describe('P0.5 tenant lifecycle and kill switch', () => {
     expect(claimed).toBeTruthy();
     await kill(true);
     let effectExecuted = false;
-    await expect(publishClaimedOutboxEvent(pool, ids.tenantA, claimed.id, async () => {
-      effectExecuted = true;
+    await expect(dispatchClaimedOutboxEvent(pool, ids.tenantA, claimed.id, claimed.lease_token, {
+      async execute() {
+        effectExecuted = true;
+        return { outcome: 'succeeded', receiptRef: 'test:receipt' };
+      },
     })).rejects.toMatchObject({ code: 'KILL_SWITCH_ENABLED' });
     expect(effectExecuted).toBe(false);
   });

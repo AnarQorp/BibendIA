@@ -87,9 +87,9 @@ export async function createAppointmentTransactional(
       [context.tenantId, context.actor.type, context.actor.id, appointment.id, context.correlationId, command.confirmationEvidenceRef],
     );
     await client.query(
-      `INSERT INTO outbox_events (tenant_id,aggregate_type,aggregate_id,event_type,payload_jsonb)
-       VALUES ($1,'appointment',$2,'appointment.created',$3)`,
-      [context.tenantId, appointment.id, JSON.stringify({ appointmentId: appointment.id })],
+      `INSERT INTO outbox_events (tenant_id,aggregate_type,aggregate_id,event_type,payload_jsonb,external_idempotency_key,correlation_id)
+       VALUES ($1,'appointment',$2,'appointment.created',$3,$4,$5)`,
+      [context.tenantId, appointment.id, JSON.stringify({ appointmentId: appointment.id }), `appointment.created:${appointment.id}`, context.correlationId],
     );
     return {
       outcome: 'succeeded', actionIntentId: intent.rows[0].id, idempotencyKey: command.idempotencyKey,
