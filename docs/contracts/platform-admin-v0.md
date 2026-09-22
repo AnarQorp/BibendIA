@@ -45,6 +45,14 @@ IDs, workshop/case references, status, timestamps and version; it never receives
 phone, plate, transcript, symptoms, notes, ciphertext or cryptographic metadata. A future exceptional
 PII workflow requires a separate approved capability and audit contract; it is not part of Admin v0.
 
+### Outbox operations
+
+`GET /tenants/:tenantId/outbox` requires `platform:incidents:read` inside the authorized tenant
+scope. It returns aggregate counts by delivery state plus attention items containing IDs, event
+type, state, age, attempts, lease/retry times, safe error code, receipt reference, reconciliation
+flag and correlation ID. It never returns payloads, provider responses, secrets or PII. Admin must
+label `unknown_outcome` as requiring reconciliation/manual attention and must not offer blind retry.
+
 ## Lifecycle and kill switch commands
 
 - `GET /tenants/:tenantId/control`

@@ -121,6 +121,29 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
     });
     return { data, redacted: true, correlationId: request.id };
   });
+  app.get('/v1/platform/tenants/:tenantId/outbox', {
+    config: { auth: { mode: 'authenticated', audience: 'platform', principalKinds: ['platform_user'] } },
+  }, async (request, reply) => {
+    const tenantId = tenantSelector(request.params);
+    if (!tenantId) return reply.code(400).send({ error: 'INVALID_TENANT_SELECTOR' });
+    if (!request.principal) return reply.code(401).send({ error: 'AUTHENTICATION_REQUIRED' });
+    const data = await inAuthorizedTenantTransaction(pool, {
+      principal: request.principal, requestedTenantId: tenantId, capability: 'platform:incidents:read', correlationId: request.id,
+    }, async (client, context) => {
+      await assertTenantOperation(client, context.tenantId, 'platform_read');
+      const summary = await client.query(`SELECT delivery_state,count(*)::int AS count,
+        min(occurred_at) AS oldest_at,max(attempts)::int AS max_attempts
+        FROM outbox_events WHERE tenant_id=$1 GROUP BY delivery_state ORDER BY delivery_state`, [context.tenantId]);
+      const attention = await client.query(`SELECT id,event_type,aggregate_type,aggregate_id,delivery_state,occurred_at,
+        attempts,max_attempts,next_attempt_at,lease_until,last_error_code,last_error_at,receipt_ref,reconciliation_required,
+        reconciliation_checked_at,correlation_id
+        FROM outbox_events o
+        WHERE o.tenant_id=$1 AND delivery_state IN ('in_progress','failed_safe_to_retry','unknown_outcome','dead_letter')
+        ORDER BY occurred_at LIMIT 100`, [context.tenantId]);
+      return { summary: summary.rows, attention: attention.rows };
+    });
+    return { data, redacted: true, correlationId: request.id };
+  });
   app.post('/v1/platform/tenants/:tenantId/lifecycle', {
     config: { auth: { mode: 'authenticated', audience: 'platform', principalKinds: ['platform_user'] } },
   }, async (request, reply) => {
