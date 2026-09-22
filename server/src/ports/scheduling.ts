@@ -3,7 +3,7 @@ import type { Appointment, AppointmentSlot, ServiceRequest } from '../modules/sc
 import type { TenantContext } from '../domain/ids.js';
 
 export interface FindSlotsQuery {
-  serviceRequest: ServiceRequest;
+  serviceRequest: Pick<ServiceRequest, 'estimatedDurationMinutes' | 'capacityRequirements'>;
   window: { from: string; to: string };
   /** Pilot-safe result cap. The PostgreSQL adapter rejects values outside 1..20. */
   limit?: number;

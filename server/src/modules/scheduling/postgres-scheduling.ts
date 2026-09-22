@@ -121,11 +121,13 @@ export async function findSlots(
          VALUES($1,$2,$3,$4,$5,$6,$7,now()+($8::int * interval '1 second'))
          ON CONFLICT (tenant_id,workshop_id,start_at,end_at,duration_minutes) DO UPDATE
            SET candidate_token=CASE
-                 WHEN slot_candidates.held_at IS NULL OR slot_candidates.expires_at <= now() THEN EXCLUDED.candidate_token
+                 WHEN slot_candidates.expires_at <= now() THEN EXCLUDED.candidate_token
                  ELSE slot_candidates.candidate_token END,
-               capacity_requirements=EXCLUDED.capacity_requirements,
+               capacity_requirements=CASE
+                 WHEN slot_candidates.expires_at <= now() THEN EXCLUDED.capacity_requirements
+                 ELSE slot_candidates.capacity_requirements END,
                expires_at=CASE
-                 WHEN slot_candidates.held_at IS NULL OR slot_candidates.expires_at <= now() THEN EXCLUDED.expires_at
+                 WHEN slot_candidates.expires_at <= now() THEN EXCLUDED.expires_at
                  ELSE slot_candidates.expires_at END,
                held_at=CASE WHEN slot_candidates.expires_at <= now() THEN NULL ELSE slot_candidates.held_at END,
                hold_id=CASE WHEN slot_candidates.expires_at <= now() THEN NULL ELSE slot_candidates.hold_id END

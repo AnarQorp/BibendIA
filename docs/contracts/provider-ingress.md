@@ -41,6 +41,14 @@ Provider identifiers in body, URL or headers are assertions to validate, never t
   external account, tenant or workshop authority.
 - Tenant/workshop come exclusively from the active service-principal binding.
 
+## ElevenLabs scheduling tools
+
+
+`POST /v1/providers/elevenlabs/tools/find-slots` and
+`POST /v1/providers/elevenlabs/tools/hold-slot` reuse the same dedicated tool credential and
+server-side binding. Their strict contracts, retry identity and opaque-token sequence are defined
+in [elevenlabs-scheduling-tools.md](elevenlabs-scheduling-tools.md). Neither request accepts tenant,
+workshop, account or agent authority.
+
 Successful ingress returns `200` with `ok`, `disposition` and `correlationId`. Missing/invalid
 credentials return `401`; valid credentials without a unique active binding return `403`.
-
