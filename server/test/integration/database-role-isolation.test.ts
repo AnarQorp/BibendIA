@@ -86,4 +86,13 @@ describe('P0.1 database role isolation', () => {
       (client) => client.query('CREATE TABLE forbidden_runtime_ddl(id integer)'),
     )).rejects.toMatchObject({ code: '42501' });
   });
+
+  it('does not let Worker runtime read migration state or create schema objects', async () => {
+    await expect(inTenantTransaction(
+      pool, tenantA, (client) => client.query('SELECT name FROM schema_migrations'), 'bibendia_worker',
+    )).rejects.toMatchObject({ code: '42501' });
+    await expect(inTenantTransaction(
+      pool, tenantA, (client) => client.query('CREATE TABLE forbidden_worker_ddl(id integer)'), 'bibendia_worker',
+    )).rejects.toMatchObject({ code: '42501' });
+  });
 });

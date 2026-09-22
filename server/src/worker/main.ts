@@ -1,32 +1,41 @@
+import { createServer } from 'node:http';
 import { createPool } from '../persistence/pool.js';
-import { claimOutboxBatch, dispatchClaimedOutboxEvent, listWorkerTenantIds, type OutboxEffectAdapter } from './outbox.js';
+import { loadWorkerRuntimeConfig } from '../runtime/config.js';
+import { checkDatabaseReadiness } from '../runtime/readiness.js';
+import { operationalLog } from '../runtime/logging.js';
 
-// No external appointment publisher exists yet. Production must surface this as a permanent,
-// inspectable failure rather than pretending that an integration ran.
-const unavailableAdapter: OutboxEffectAdapter = {
-  async execute() { return { outcome: 'permanent_failure', code: 'EFFECT_ADAPTER_NOT_CONFIGURED' }; },
-};
-
+const config = loadWorkerRuntimeConfig();
 const pool = createPool('worker');
-const workerId = process.env.WORKER_ID ?? `worker-${process.pid}`;
-const abort = new AbortController();
-let shuttingDown = false;
+let stopping = false;
 
-for (const signal of ['SIGTERM', 'SIGINT'] as const) process.once(signal, () => {
-  shuttingDown = true;
-  abort.abort();
+const server = createServer(async (request, response) => {
+  response.setHeader('content-type', 'application/json');
+  if (request.url === '/health/live') return end(response, 200, { status: 'live', service: 'worker', version: config.version, commit: config.commit });
+  if (request.url === '/health/ready') {
+    const database = await checkDatabaseReadiness(pool, 'bibendia_worker');
+    return database.ready
+      ? end(response, 200, { status: 'ready', service: 'worker', mode: config.mode, version: config.version, commit: config.commit, schemaVersion: database.schemaVersion })
+      : end(response, 503, { status: 'not_ready', service: 'worker', code: database.code });
+  }
+  return end(response, 404, { error: 'NOT_FOUND' });
 });
 
-try {
-  for (const tenantId of await listWorkerTenantIds(pool)) {
-    if (shuttingDown) break;
-    const events = await claimOutboxBatch(pool, tenantId, 20, workerId);
-    for (const event of events) {
-      if (shuttingDown) break; // unstarted claims expire and are safely reclaimable.
-      const adapter = event.event_type === 'appointment.created' ? unavailableAdapter : unavailableAdapter;
-      await dispatchClaimedOutboxEvent(pool, tenantId, event.id, event.lease_token, adapter, abort.signal);
-    }
-  }
-} finally {
-  await pool.end();
+server.listen(config.healthPort, '0.0.0.0', () => operationalLog('info', 'worker', config, 'WORKER_RUNTIME_STARTED', { mode: config.mode, port: config.healthPort, workerId: config.workerId }));
+
+const shutdown = (signal: string) => {
+  if (stopping) return;
+  stopping = true;
+  operationalLog('info', 'worker', config, 'SHUTDOWN_STARTED', { signal, workerId: config.workerId });
+  const deadline = setTimeout(() => process.exit(1), config.shutdownTimeoutMs).unref();
+  server.close(async (error) => {
+    try { await pool.end(); clearTimeout(deadline); process.exitCode = error ? 1 : 0; }
+    catch { process.exitCode = 1; }
+  });
+};
+process.once('SIGINT', () => shutdown('SIGINT'));
+process.once('SIGTERM', () => shutdown('SIGTERM'));
+
+function end(response: import('node:http').ServerResponse, status: number, body: object): void {
+  response.statusCode = status;
+  response.end(JSON.stringify(body));
 }
