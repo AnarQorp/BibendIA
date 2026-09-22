@@ -48,5 +48,13 @@ describe('provider authentication adapter', () => {
     expect(await adapter.authenticate(request({ path, authorization: 'Bearer wrong' }), 'provider')).toBeNull();
     expect(await adapter.authenticate(request({ path, authorization: 'Bearer tool-secret' }), 'provider'))
       .toMatchObject({ serviceId: principalIds.eleven, externalAccountId: 'agent-123' });
+    for (const schedulingPath of [
+      '/v1/providers/elevenlabs/tools/find-slots',
+      '/v1/providers/elevenlabs/tools/hold-slot',
+    ]) {
+      expect(await adapter.authenticate(request({ path: schedulingPath, authorization: 'Bearer wrong' }), 'provider')).toBeNull();
+      expect(await adapter.authenticate(request({ path: schedulingPath, authorization: 'Bearer tool-secret' }), 'provider'))
+        .toMatchObject({ serviceId: principalIds.eleven, externalAccountId: 'agent-123' });
+    }
   });
 });

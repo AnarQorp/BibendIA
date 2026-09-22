@@ -20,6 +20,7 @@ import {
 } from '../security/pii-protection.js';
 import { safeErrorAttributes } from '../security/safe-logging.js';
 import type { ReadinessResult } from '../runtime/readiness.js';
+import { findSlots, holdSlot } from '../modules/scheduling/postgres-scheduling.js';
 
 export type ApiSecurityOptions = {
   authentication?: AuthenticationAdapter;
@@ -265,6 +266,73 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
       return reply.code(400).send({ok:false,code:'VALIDATION',safeMessage:'No pude validar los datos; dejaré el caso para atención humana.'});
     }
   });
+  app.post('/v1/providers/elevenlabs/tools/find-slots', {
+    config: { rawBody: true, auth: { mode: 'authenticated', audience: 'provider', principalKinds: ['service'] } },
+  }, async (request, reply) => {
+    const principal = voiceProviderPrincipal(request.principal, reply);
+    if (!principal) return;
+    const input = providerFindSlotsSchema.parse(request.body);
+    const correlationId = `elevenlabs:${input.providerCallId}:find-slots`;
+    const authorized = await inAuthorizedProviderTransaction(pool, {
+      principal, provider: 'elevenlabs', correlationId,
+    }, async (client, tenantContext) => {
+      const disposition = await claimInboxEvent(client, {
+        context: tenantContext, principal, provider: 'elevenlabs',
+        externalEventId: `tool:find-slots:${input.providerCallId}:${input.requestId}`,
+        rawBody: canonicalJson(request.body),
+      });
+      const workshop = await client.query<{ timezone: string }>(
+        'SELECT timezone FROM workshops WHERE tenant_id=$1 AND id=$2',
+        [tenantContext.tenantId, tenantContext.workshopId],
+      );
+      if (workshop.rowCount !== 1) throw new ProviderAuthorizationError('ENDPOINT_NOT_RESOLVED');
+      return { context: tenantContext, timezone: workshop.rows[0].timezone, disposition };
+    });
+    try {
+      const slots = await findSlots(pool, authorized.context, {
+        window: { from: input.windowFrom, to: input.windowTo }, limit: input.limit,
+        serviceRequest: {
+          estimatedDurationMinutes: input.durationMinutes,
+          capacityRequirements: [{ resourceType: 'mechanic', quantity: 1 }],
+        },
+      });
+      return { ok: true, disposition: authorized.disposition, options: slots.map((slot) => ({
+        candidateId: slot.token, startAt: slot.startAt, endAt: slot.endAt,
+        timezone: authorized.timezone, expiresAt: slot.expiresAt,
+      })), correlationId };
+    } catch (error) {
+      if (error instanceof TenantControlError) throw error;
+      request.log.warn({ correlationId, code: 'SLOT_QUERY_REJECTED' }, 'provider slot query rejected');
+      return reply.code(400).send({ ok: false, code: 'SLOT_QUERY_REJECTED', correlationId });
+    }
+  });
+  app.post('/v1/providers/elevenlabs/tools/hold-slot', {
+    config: { rawBody: true, auth: { mode: 'authenticated', audience: 'provider', principalKinds: ['service'] } },
+  }, async (request, reply) => {
+    const principal = voiceProviderPrincipal(request.principal, reply);
+    if (!principal) return;
+    const input = providerHoldSlotSchema.parse(request.body);
+    const correlationId = `elevenlabs:${input.providerCallId}:hold-slot`;
+    const authorized = await inAuthorizedProviderTransaction(pool, {
+      principal, provider: 'elevenlabs', correlationId,
+    }, async (client, tenantContext) => ({
+      context: tenantContext,
+      disposition: await claimInboxEvent(client, {
+        context: tenantContext, principal, provider: 'elevenlabs',
+        externalEventId: `tool:hold-slot:${input.providerCallId}:${input.requestId}`,
+        rawBody: canonicalJson(request.body),
+      }),
+    }));
+    try {
+      const held = await holdSlot(pool, authorized.context, input.candidateId, 10 * 60);
+      return { ok: true, disposition: authorized.disposition, slotToken: held.token, startAt: held.startAt, endAt: held.endAt,
+        expiresAt: held.expiresAt, correlationId };
+    } catch (error) {
+      if (error instanceof TenantControlError) throw error;
+      request.log.warn({ correlationId, code: 'SLOT_HOLD_REJECTED' }, 'provider slot hold rejected');
+      return reply.code(409).send({ ok: false, code: 'SLOT_HOLD_REJECTED', correlationId });
+    }
+  });
   return app;
 }
 
@@ -313,6 +381,21 @@ const elevenLabsEventSchema = z.object({
   data: z.object({ agent_id: z.string().min(1), conversation_id: z.string().min(1) }).passthrough(),
 }).passthrough();
 
+const providerFindSlotsSchema = z.object({
+  providerCallId: z.string().min(1).max(200),
+  requestId: z.string().min(8).max(200),
+  durationMinutes: z.number().int().min(15).max(480),
+  windowFrom: z.string().datetime({ offset: true }),
+  windowTo: z.string().datetime({ offset: true }),
+  limit: z.number().int().min(1).max(5).default(3),
+}).strict();
+
+const providerHoldSlotSchema = z.object({
+  providerCallId: z.string().min(1).max(200),
+  requestId: z.string().min(8).max(200),
+  candidateId: z.string().uuid(),
+}).strict();
+
 const controlCommandSchema = z.object({
   reason: z.string().trim().min(3).max(500), idempotencyKey: z.string().min(8).max(200), expectedVersion: z.number().int().positive(),
 }).strict();
@@ -328,6 +411,15 @@ function tenantSelector(params: unknown): string | null {
 function servicePrincipal(principal: PrincipalContext | null): ServicePrincipal {
   if (!principal || principal.kind !== 'service') throw new ProviderAuthorizationError('PROVIDER_NOT_ALLOWED');
   return principal;
+}
+
+function voiceProviderPrincipal(principal: PrincipalContext | null, reply: { code(code: number): { send(payload: unknown): unknown } }): ServicePrincipal | null {
+  const service = servicePrincipal(principal);
+  if (service.serviceType !== 'voice_provider') {
+    reply.code(403).send({ error: 'PRINCIPAL_NOT_ALLOWED' });
+    return null;
+  }
+  return service;
 }
 
 type ProtectedAppointmentRow = {

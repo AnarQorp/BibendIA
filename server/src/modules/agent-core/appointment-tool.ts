@@ -17,6 +17,11 @@ export const appointmentToolInput = z.object({
 });
 export type AppointmentToolInput = z.infer<typeof appointmentToolInput>;
 const normalizeName = (value: string) => value.normalize('NFD').replace(/\p{Diacritic}/gu, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+const tenantPolicySchema = z.object({
+  operating_mode: z.enum(['standard', 'pilot_supervised']),
+  policy_version: z.string().min(1).max(200),
+});
+const caseRiskSchema = z.enum(['low', 'medium', 'high']);
 
 export async function executeAppointmentTool(pool: pg.Pool, context: TenantContext, raw: unknown, pii: PiiProtection) {
   const input = appointmentToolInput.parse(raw);
@@ -27,6 +32,11 @@ export async function executeAppointmentTool(pool: pg.Pool, context: TenantConte
   await assertTenantMutationAtPool(pool, context);
   const chain = await inTenantTransaction(pool, tenantId, async (client) => {
     await assertTenantOperation(client, tenantId, 'conversation_start', 'share');
+    const policySettings = await client.query<{ operating_mode: string; policy_version: string }>(
+      'SELECT operating_mode,policy_version FROM tenants WHERE id=$1', [tenantId],
+    );
+    if (policySettings.rowCount !== 1) throw new Error('TENANT_POLICY_UNAVAILABLE');
+    const effectivePolicy = tenantPolicySchema.parse(policySettings.rows[0]);
     let call = await client.query<{id:string;conversation_id:string}>('SELECT id,conversation_id FROM calls WHERE tenant_id=$1 AND provider=$2 AND provider_call_id=$3',[tenantId,provider,input.providerCallId]);
     if (!call.rowCount) {
       const conversationId=randomUUID(); const callId=randomUUID();
@@ -35,8 +45,8 @@ export async function executeAppointmentTool(pool: pg.Pool, context: TenantConte
       call={rows:[{id:callId,conversation_id:conversationId}],rowCount:1,command:'',oid:0,fields:[]};
     }
     const callRow=call.rows[0];
-    let caseRow=await client.query<{id:string}>('SELECT id FROM reception_cases WHERE tenant_id=$1 AND conversation_id=$2',[tenantId,callRow.conversation_id]);
-    if(!caseRow.rowCount){ caseRow=await client.query("INSERT INTO reception_cases(tenant_id,conversation_id,intent,status) VALUES($1,$2,$3,'ready_to_decide') RETURNING id",[tenantId,callRow.conversation_id,input.serviceIntent]); }
+    let caseRow=await client.query<{id:string;risk_level:string}>('SELECT id,risk_level FROM reception_cases WHERE tenant_id=$1 AND conversation_id=$2',[tenantId,callRow.conversation_id]);
+    if(!caseRow.rowCount){ caseRow=await client.query("INSERT INTO reception_cases(tenant_id,conversation_id,intent,status) VALUES($1,$2,$3,'ready_to_decide') RETURNING id,risk_level",[tenantId,callRow.conversation_id,input.serviceIntent]); }
     const plateDigests = pii.lookupDigests(tenantId, 'vehicle.plate', normalizeSpanishPlate(input.plate)).map((item) => item.digest);
     const identity=await client.query<{
       vehicle_id:string; customer_id:string; display_name_ciphertext:Buffer; display_name_nonce:Buffer;
@@ -63,11 +73,20 @@ export async function executeAppointmentTool(pool: pg.Pool, context: TenantConte
     [tenantId,callRow.conversation_id,JSON.stringify({ kind:'explicit_confirmation', explicitConfirmation:true }),
       protectedMessage.ciphertext,protectedMessage.nonce,protectedMessage.authTag,protectedMessage.keyId]);
     if(normalizeName(storedName)!==normalizeName(input.customerName)) await client.query("INSERT INTO audit_events(tenant_id,actor_type,actor_id,event_type,entity_type,entity_id,correlation_id,evidence_ref) VALUES($1,'voice_agent',$2,'identity_name_variant_observed','customer',$3,$4,$5)",[tenantId,context.actor.id,resolved.customer_id,correlationId,`vehicle:${resolved.vehicle_id}`]);
-    return { unresolved:false as const,callId:callRow.id,conversationId:callRow.conversation_id,caseId:caseRow.rows[0].id,customerId:resolved.customer_id,vehicleId:resolved.vehicle_id };
+    const policy=evaluatePolicy(
+      { operatingMode: effectivePolicy.operating_mode, policyVersion: effectivePolicy.policy_version },
+      { requestedLevel:'customer_confirmed',customerConfirmationRecorded:input.explicitConfirmation,
+        requiredFactsVerified:identity.rowCount===1,risk:caseRiskSchema.parse(caseRow.rows[0].risk_level) },
+    );
+    await client.query(
+      `INSERT INTO audit_events(tenant_id,actor_type,actor_id,event_type,entity_type,entity_id,correlation_id,evidence_ref)
+       VALUES($1,'voice_agent',$2,'policy_evaluated','reception_case',$3,$4,$5)`,
+      [tenantId,context.actor.id,caseRow.rows[0].id,correlationId,`policy:${policy.policyVersion}:${policy.effect}`],
+    );
+    return { unresolved:false as const,callId:callRow.id,conversationId:callRow.conversation_id,caseId:caseRow.rows[0].id,customerId:resolved.customer_id,vehicleId:resolved.vehicle_id,policy };
   });
   if(chain.unresolved) return { ok:false,code:'IDENTITY_AMBIGUOUS',safeMessage:'No puedo verificar con seguridad cliente y vehículo; dejaré el caso para atención humana.',...chain };
-  const policy=evaluatePolicy({operatingMode:'pilot_supervised',policyVersion:'pilot-v1'},{requestedLevel:'customer_confirmed',customerConfirmationRecorded:true,requiredFactsVerified:true,risk:'low'});
-  if(policy.effect!=='allow') return {ok:false,code:'POLICY_BLOCKED',safeMessage:'Necesito revisión humana antes de crear la cita.'};
+  if(chain.policy.effect!=='allow') return {ok:false,code:'POLICY_BLOCKED',safeMessage:'Necesito revisión humana antes de crear la cita.'};
   const actionContext:TenantContext={...context,correlationId};
   const receipt=await createAppointmentTransactional(pool,actionContext,{slotToken:input.slotToken,caseId:chain.caseId,customerId:chain.customerId,vehicleId:chain.vehicleId,serviceRequest:{intent:input.serviceIntent,symptoms:input.symptoms,notes:input.notes,estimatedDurationMinutes:input.estimatedDurationMinutes,capacityRequirements:[{resourceType:'mechanic',quantity:1}]},confirmationEvidenceRef:`voice:${chain.callId}:explicit-confirmation`,idempotencyKey:`voice-appointment:${provider}:${input.providerCallId}`},pii);
   return {ok:receipt.outcome==='succeeded'&&Boolean(receipt.evidenceRef),code:'APPOINTMENT_CREATED',safeMessage:'La cita ha quedado confirmada.',receipt,callId:chain.callId,conversationId:chain.conversationId,caseId:chain.caseId};
