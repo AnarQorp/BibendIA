@@ -24,7 +24,7 @@ beforeAll(async () => {
     await insertProtectedVehicle(client, pii, { id: ids.vehicle, tenantId: ids.tenant, plate: '1489 KMR' });
     await client.query("INSERT INTO conversations (id,tenant_id,workshop_id) VALUES ($1,$2,$3)", [ids.conversation, ids.tenant, ids.workshop]);
     await client.query("INSERT INTO reception_cases (id,tenant_id,conversation_id,customer_id,vehicle_id,intent) VALUES ($1,$2,$3,$4,$5,'oil_service')", [ids.case, ids.tenant, ids.conversation, ids.customer, ids.vehicle]);
-    await client.query("INSERT INTO slot_holds (tenant_id,workshop_id,slot_token,start_at,end_at,capacity_requirements,expires_at) VALUES ($1,$2,$3,now()+interval '1 day',now()+interval '1 day 1 hour','[]',now()+interval '1 hour')", [ids.tenant, ids.workshop, slotToken]);
+    await client.query("INSERT INTO slot_holds (tenant_id,workshop_id,slot_token,start_at,end_at,capacity_requirements,expires_at) VALUES ($1,$2,$3,now()+interval '1 day',now()+interval '1 day 1 hour','[{\"resourceType\":\"mechanic\",\"quantity\":1}]',now()+interval '1 hour')", [ids.tenant, ids.workshop, slotToken]);
   });
 });
 

@@ -29,7 +29,7 @@ No persistent application volume is required. stdout/stderr are the logging boun
 1. Take and test a database backup. Inventory `legacy_review_required` records; do not relabel plaintext as ciphertext.
 2. Stop writes or use the release procedure agreed by ZaQ. Run the exact release's migrator as a one-shot job with `MIGRATOR_DATABASE_URL`.
 3. The migrator takes migrations in lexical order and records each transaction in `schema_migrations`. Re-running is a no-op.
-4. Verify the table contains exactly `001_vertical_slice.sql` through `009_runtime_operability.sql`.
+4. Verify the table contains exactly `001_vertical_slice.sql` through `010_real_scheduling_acquisition.sql`.
 5. Start API and disabled Worker using distinct credentials. Route traffic only after readiness passes.
 
 API and Worker never invoke migrations. Their roles are explicitly revoked from `schema_migrations` and cannot own/alter schema. Production migration refuses to proceed unless its login can assume `bibendia_migrator`. Readiness fails closed when the schema is older, newer or divergent from the artifact.
