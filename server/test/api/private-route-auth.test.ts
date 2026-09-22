@@ -13,6 +13,10 @@ describe('API private route policy', () => {
     const app = buildApi(pool);
     apps.push(app);
     expect((await app.inject('/health')).statusCode).toBe(200);
+    expect((await app.inject('/health/live')).json()).toEqual({ status: 'live', service: 'api', version: 'development', commit: '0000000' });
+    const readiness = await app.inject('/health/ready');
+    expect(readiness.statusCode).toBe(503);
+    expect(readiness.json()).toEqual({ status: 'not_ready', service: 'api', code: 'READINESS_NOT_CONFIGURED' });
     expect((await app.inject('/v1/appointments')).statusCode).toBe(404);
     expect((await app.inject(`/v1/workshop/tenants/${tenantId}/appointments`)).statusCode).toBe(401);
     expect((await app.inject({ method: 'POST', url: '/v1/voice/tools/create-appointment', payload: {} })).statusCode).toBe(404);

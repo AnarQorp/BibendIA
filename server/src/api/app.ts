@@ -19,16 +19,20 @@ import {
   PiiProtectionError, UnavailablePiiProtection, type PiiProtection,
 } from '../security/pii-protection.js';
 import { safeErrorAttributes } from '../security/safe-logging.js';
+import type { ReadinessResult } from '../runtime/readiness.js';
 
 export type ApiSecurityOptions = {
   authentication?: AuthenticationAdapter;
   allowedOrigins?: readonly string[];
   providerIngress?: ProviderIngressConfig;
   piiProtection?: PiiProtection;
+  readiness?: () => Promise<ReadinessResult>;
+  runtime?: { service: 'api'; version: string; commit: string };
 };
 
 export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
   const app = Fastify({ logger: {
+    base: options.runtime,
     redact: { paths: ['req.headers.authorization', 'req.headers.cookie', 'req.headers.x-twilio-signature', 'req.headers.elevenlabs-signature'], censor: '[REDACTED]' },
   } });
   const pii = options.piiProtection ?? new UnavailablePiiProtection();
@@ -60,7 +64,16 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
     request.log.error({ ...safeErrorAttributes(error), correlationId: request.id }, 'request failed');
     return reply.code(500).send({ error: 'INTERNAL_ERROR' });
   });
-  app.get('/health', { config: { auth: { mode: 'public' } } }, async () => ({ ok: true }));
+  const identity = options.runtime ?? { service: 'api' as const, version: 'development', commit: '0000000' };
+  const live = async () => ({ status: 'live', ...identity });
+  app.get('/health', { config: { auth: { mode: 'public' } } }, live);
+  app.get('/health/live', { config: { auth: { mode: 'public' } } }, live);
+  app.get('/health/ready', { config: { auth: { mode: 'public' } } }, async (_request, reply) => {
+    const status = options.readiness ? await options.readiness() : { ready: false as const, code: 'READINESS_NOT_CONFIGURED' };
+    return status.ready
+      ? { status: 'ready', ...identity, schemaVersion: status.schemaVersion }
+      : reply.code(503).send({ status: 'not_ready', service: 'api', code: status.code });
+  });
   app.get('/v1/workshop/tenants/:tenantId/appointments', {
     config: { auth: { mode: 'authenticated', audience: 'workshop', principalKinds: ['workshop_user'] } },
   }, async (request, reply) => {
