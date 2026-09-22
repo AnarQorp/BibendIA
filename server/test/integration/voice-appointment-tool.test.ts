@@ -29,7 +29,7 @@ beforeAll(async () => {
     await insertProtectedCustomer(client, pii, { id: ids.customer, tenantId: ids.tenant, displayName: 'Aitor Etxeberria' });
     await insertProtectedVehicle(client, pii, { id: ids.vehicle, tenantId: ids.tenant, plate: '1489 KMR' });
     await client.query('INSERT INTO customer_vehicle_roles (tenant_id,customer_id,vehicle_id) VALUES ($1,$2,$3)', [ids.tenant, ids.customer, ids.vehicle]);
-    await client.query("INSERT INTO slot_holds (tenant_id,workshop_id,slot_token,start_at,end_at,capacity_requirements,expires_at) VALUES ($1,$2,$3,now()+interval '2 days',now()+interval '2 days 1 hour','[]',now()+interval '1 day')", [ids.tenant, ids.workshop, slotToken]);
+    await client.query("INSERT INTO slot_holds (tenant_id,workshop_id,slot_token,start_at,end_at,capacity_requirements,expires_at) VALUES ($1,$2,$3,now()+interval '2 days',now()+interval '2 days 1 hour','[{\"resourceType\":\"mechanic\",\"quantity\":1}]',now()+interval '1 day')", [ids.tenant, ids.workshop, slotToken]);
   });
 });
 

@@ -19,9 +19,9 @@ describe('runtime readiness', () => {
   it('passes only for the expected role and exact schema', async () => {
     const result = await checkDatabaseReadiness(pool([
       { rows: [{ member: true, migrator: false }] }, { rows: [] },
-      { rows: [{ schema_version: '009_runtime_operability.sql', compatible: true }], rowCount: 1 },
+      { rows: [{ schema_version: '010_real_scheduling_acquisition.sql', compatible: true }], rowCount: 1 },
     ]), 'bibendia_api');
-    expect(result).toEqual({ ready: true, schemaVersion: '009_runtime_operability.sql' });
+    expect(result).toEqual({ ready: true, schemaVersion: '010_real_scheduling_acquisition.sql' });
   });
 
   it('fails closed for wrong identity, old/new schema, and database outage', async () => {
