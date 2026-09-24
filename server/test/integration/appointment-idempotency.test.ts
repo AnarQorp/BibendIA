@@ -33,7 +33,8 @@ afterAll(async () => { await pool.end(); });
 describe('PostgreSQL appointment idempotency', () => {
   it('turns concurrent replay into exactly one appointment, action, audit and outbox event', async () => {
     const command: CreateAppointmentCommand = {
-      slotToken, caseId: ids.case, customerId: ids.customer, vehicleId: ids.vehicle,
+      slotToken, caseId: ids.case,
+      identity: { resolution: 'verified', customerId: ids.customer, vehicleId: ids.vehicle },
       serviceRequest: { intent: 'oil_service', symptoms: ['maintenance due'], notes: 'Customer requested oil service', estimatedDurationMinutes: 60, capacityRequirements: [{ resourceType: 'mechanic', quantity: 1 }] },
       confirmationEvidenceRef: 'test:message:confirmed', idempotencyKey: `appointment-${randomUUID()}`,
     };

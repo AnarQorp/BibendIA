@@ -11,6 +11,7 @@ certification claim.
 | Customer phone | Twilio `From`; optional customer record | direct identifier | do not retain caller ID from webhook; if product needs a customer phone, protect it and use tenant-bound HMAC exact lookup |
 | Email | OIDC profile in future | direct identifier | not currently persisted by the product; do not add in P0.6 |
 | Vehicle plate | Voice tool; `vehicles` | indirect/direct identifier depending context; small domain | AES-GCM protected plus keyed, tenant-bound HMAC exact lookup; no plaintext/simple hash/partial search |
+| Provisional appointment identity | Voice tool; unresolved name + plate | unverified direct/indirect identifiers | encrypt on the Appointment; never use it to link, reveal or mutate an existing customer/vehicle record |
 | Customer/vehicle UUIDs | relational tables and events | pseudonymous identifier | keep where needed for integrity/idempotency; never treat as anonymous |
 | Conversation confirmation | tool body; `messages` | conversation PII | encrypt the minimum confirmation text; plaintext metadata only says confirmation occurred |
 | Full transcript/audio | ElevenLabs event/provider | highly sensitive conversation content | BibendIA does not ingest it in the pilot; retain only provider IDs/digests. Provider-side retention is a separate decision |
@@ -37,6 +38,12 @@ certification claim.
 - Encryption and lookup keys are separate. Multiple read/lookup versions may coexist; new writes use
   only the configured active IDs.
 - Partial/fuzzy plate lookup is not implemented.
+
+`customer_vehicle_roles.verification_status` separates a provisioned claim from a verified
+relationship. New callers can acquire an Appointment, but provisional relationships are excluded
+from protected identity resolution. If a supplied plate collides with any existing non-unique or
+unverified state, Core creates no customer/vehicle association and encrypts the minimum identity
+claim directly on the Appointment.
 - PostgreSQL/storage encryption, TLS and encrypted backups remain infrastructure controls owned by
   ZaQ and do not replace application encryption.
 

@@ -7,6 +7,8 @@ import type { CreateAppointmentCommand, FindSlotsQuery } from '../../ports/sched
 import { inTenantTransaction } from '../../persistence/pool.js';
 import { assertTenantOperation } from '../tenant-control/tenant-control.js';
 import type { PiiProtection } from '../../security/pii-protection.js';
+import { normalizeSpanishPlate } from '../../security/pii-protection.js';
+import { insertProtectedCustomer, insertProtectedVehicle } from '../../security/protected-records.js';
 
 const CANDIDATE_TTL_SECONDS = 10 * 60;
 const MAX_WINDOW_DAYS = 31;
@@ -202,7 +204,8 @@ export async function holdSlot(
 }
 
 interface AppointmentRow {
-  id: string; tenant_id: string; workshop_id: string; case_id: string; customer_id: string; vehicle_id: string;
+  id: string; tenant_id: string; workshop_id: string; case_id: string; customer_id: string | null; vehicle_id: string | null;
+  identity_resolution_status: Appointment['identityResolution'];
   service_request: Omit<Appointment['serviceRequest'], 'symptoms' | 'notes'>;
   sensitive_details_ciphertext: Buffer; sensitive_details_nonce: Buffer; sensitive_details_auth_tag: Buffer;
   sensitive_details_key_id: string; start_at: Date; end_at: Date; status: Appointment['status'];
@@ -217,6 +220,7 @@ function toAppointment(row: AppointmentRow, pii: PiiProtection): Appointment {
   return {
     id: row.id as Appointment['id'], tenantId: row.tenant_id as Appointment['tenantId'], workshopId: row.workshop_id as Appointment['workshopId'],
     caseId: row.case_id as Appointment['caseId'], customerId: row.customer_id, vehicleId: row.vehicle_id,
+    identityResolution: row.identity_resolution_status,
     serviceRequest: { ...row.service_request, symptoms: sensitive.symptoms, notes: sensitive.notes },
     startAt: row.start_at.toISOString(), endAt: row.end_at.toISOString(),
     status: row.status, confirmationEvidenceRef: row.confirmation_evidence_ref, version: row.version,
@@ -265,12 +269,52 @@ export async function createAppointmentTransactional(
     );
     if (overlap.rowCount) throw new Error('SLOT_NOT_AVAILABLE');
 
+    let identityResolution = command.identity.resolution;
+    let customerId: string | null = command.identity.resolution === 'verified' ? command.identity.customerId : null;
+    let vehicleId: string | null = command.identity.resolution === 'verified' ? command.identity.vehicleId : null;
+    let identityClaim: ReturnType<PiiProtection['protect']> | null = null;
+
+    if (command.identity.resolution !== 'verified') {
+      const normalizedPlate = normalizeSpanishPlate(command.identity.plate);
+      await client.query(
+        "SELECT pg_advisory_xact_lock(hashtextextended($1::text, 271828))",
+        [`${context.tenantId}:${normalizedPlate}`],
+      );
+      const digests = pii.lookupDigests(context.tenantId, 'vehicle.plate', normalizedPlate).map((item) => item.digest);
+      const existingVehicle = await client.query(
+        `SELECT 1 FROM vehicles
+         WHERE tenant_id=$1 AND pii_migration_state='protected' AND plate_lookup_digest=ANY($2::text[])
+         LIMIT 1`,
+        [context.tenantId, digests],
+      );
+      if (command.identity.resolution === 'provisional_new' && existingVehicle.rowCount === 0) {
+        customerId = randomUUID();
+        vehicleId = randomUUID();
+        await insertProtectedCustomer(client, pii, {
+          id: customerId, tenantId: context.tenantId, displayName: command.identity.customerName,
+        });
+        await insertProtectedVehicle(client, pii, {
+          id: vehicleId, tenantId: context.tenantId, plate: normalizedPlate,
+        });
+        await client.query(
+          `INSERT INTO customer_vehicle_roles(tenant_id,customer_id,vehicle_id,verification_status)
+           VALUES($1,$2,$3,'provisional')`,
+          [context.tenantId, customerId, vehicleId],
+        );
+      } else {
+        identityResolution = 'provisional_ambiguous';
+        identityClaim = pii.protect(context.tenantId, 'appointment.identity_claim', JSON.stringify({
+          customerName: command.identity.customerName, plate: normalizedPlate,
+        }));
+      }
+    }
+
     const intent = await client.query<{ id: string }>(
       `INSERT INTO action_intents (tenant_id,case_id,tool_name,input_jsonb,status,idempotency_key,requested_by_type)
        VALUES ($1,$2,'create_appointment',$3,'executing',$4,$5)
        ON CONFLICT (tenant_id,idempotency_key) DO NOTHING RETURNING id`,
       [context.tenantId, command.caseId, JSON.stringify({
-        caseId: command.caseId, customerId: command.customerId, vehicleId: command.vehicleId, slotToken: command.slotToken,
+        caseId: command.caseId, customerId, vehicleId, identityResolution, slotToken: command.slotToken,
       }), command.idempotencyKey, context.actor.type],
     );
 
@@ -282,17 +326,27 @@ export async function createAppointmentTransactional(
     }));
     const inserted = await client.query<AppointmentRow>(
       `INSERT INTO appointments
-       (tenant_id,workshop_id,case_id,customer_id,vehicle_id,service_request,symptoms,notes,
+       (tenant_id,workshop_id,case_id,customer_id,vehicle_id,identity_resolution_status,
+        identity_claim_ciphertext,identity_claim_nonce,identity_claim_auth_tag,identity_claim_key_id,
+        service_request,symptoms,notes,
         sensitive_details_ciphertext,sensitive_details_nonce,sensitive_details_auth_tag,sensitive_details_key_id,pii_migration_state,
         estimated_duration_minutes,capacity_requirements,start_at,end_at,confirmation_evidence_ref,idempotency_key)
-       VALUES ($1,$2,$3,$4,$5,$6,'{}',NULL,$7,$8,$9,$10,'protected',$11,$12,$13,$14,$15,$16) RETURNING *`,
-      [context.tenantId, context.workshopId, command.caseId, command.customerId, command.vehicleId,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'{}',NULL,$12,$13,$14,$15,'protected',$16,$17,$18,$19,$20,$21)
+       RETURNING *`,
+      [context.tenantId, context.workshopId, command.caseId, customerId, vehicleId, identityResolution,
+       identityClaim?.ciphertext ?? null, identityClaim?.nonce ?? null, identityClaim?.authTag ?? null, identityClaim?.keyId ?? null,
        JSON.stringify({ intent: request.intent, estimatedDurationMinutes: request.estimatedDurationMinutes,
          capacityRequirements: request.capacityRequirements }),
        protectedDetails.ciphertext, protectedDetails.nonce, protectedDetails.authTag, protectedDetails.keyId,
        request.estimatedDurationMinutes, JSON.stringify(request.capacityRequirements), hold.rows[0].start_at,
        hold.rows[0].end_at, command.confirmationEvidenceRef, command.idempotencyKey],
     );
+    if (identityResolution === 'provisional_new') {
+      await client.query(
+        "UPDATE reception_cases SET customer_id=$1,vehicle_id=$2 WHERE tenant_id=$3 AND id=$4",
+        [customerId, vehicleId, context.tenantId, command.caseId],
+      );
+    }
     const appointment = toAppointment(inserted.rows[0], pii);
     const consumed = await client.query(
       `UPDATE slot_holds SET consumed_at=now(),consumed_by_appointment_id=$2

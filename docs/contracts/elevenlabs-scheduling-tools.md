@@ -24,3 +24,10 @@ A hold never creates an appointment. After the customer explicitly confirms, the
 unmodified `slotToken` to the existing `create-appointment` tool. The Core loads `operating_mode`,
 `policy_version`, and ReceptionCase risk from the bound tenant state, records a minimized
 `policy_evaluated` audit event, and then performs final hold validation and single-use consumption.
+
+Appointment acquisition does not grant access to existing identity data. A single verified
+customer/vehicle relation is linked normally. A plate absent from the tenant creates protected
+customer/vehicle records with a `provisional` relation in the same transaction as the Appointment.
+Any existing but non-unique/unverified match remains unlinked: the Appointment stores only the
+supplied name/plate as a tenant-bound encrypted provisional claim. Protected customer-history
+operations continue to require a `verified` relation and fail closed otherwise.

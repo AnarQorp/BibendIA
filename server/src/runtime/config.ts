@@ -1,7 +1,7 @@
 import type { ProviderIngressConfig } from '../auth/provider-authentication-adapter.js';
 import { piiProtectionFromEnvironment, type PiiProtection } from '../security/pii-protection.js';
 
-export const EXPECTED_SCHEMA_VERSION = '010_real_scheduling_acquisition.sql';
+export const EXPECTED_SCHEMA_VERSION = '011_provisional_identity_acquisition.sql';
 export type RuntimeIdentity = { version: string; commit: string };
 
 export type ApiRuntimeConfig = RuntimeIdentity & {

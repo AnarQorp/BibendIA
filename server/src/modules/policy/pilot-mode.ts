@@ -10,6 +10,8 @@ export interface PolicyRequest {
   requestedLevel: AutonomyLevel;
   customerConfirmationRecorded: boolean;
   requiredFactsVerified: boolean;
+  requiresVerifiedIdentity: boolean;
+  identityVerified: boolean;
   risk: 'low' | 'medium' | 'high';
 }
 
@@ -30,6 +32,10 @@ export function evaluatePolicy(settings: TenantPolicySettings, request: PolicyRe
 
   if (!request.requiredFactsVerified) {
     return { effect: 'require_human_approval', policyVersion: settings.policyVersion, reason: 'Required facts are not verified' };
+  }
+
+  if (request.requiresVerifiedIdentity && !request.identityVerified) {
+    return { effect: 'require_human_approval', policyVersion: settings.policyVersion, reason: 'Verified identity is required for protected data access' };
   }
 
   if (request.requestedLevel === 'customer_confirmed' && !request.customerConfirmationRecorded) {

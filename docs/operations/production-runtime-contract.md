@@ -30,7 +30,7 @@ No persistent application volume is required. stdout/stderr are the logging boun
 2. For a new database, use the ephemeral database-owner credential to run `server/bootstrap/001_database_capabilities.sql`, then provision the three independent LOGIN identities exactly as documented in `database-runtime-identities.md`. Re-running the bootstrap is safe. Remove the bootstrap credential from the deployment path.
 3. Stop writes or use the release procedure agreed by ZaQ. Run the exact release's migrator as a one-shot job with `MIGRATOR_DATABASE_URL`.
 4. The migrator takes migrations in lexical order and records each transaction in `schema_migrations`. Re-running is a no-op.
-5. Verify the table contains exactly `001_vertical_slice.sql` through `010_real_scheduling_acquisition.sql`.
+5. Verify the table contains exactly `001_vertical_slice.sql` through `011_provisional_identity_acquisition.sql`.
 6. Start API and disabled Worker using distinct credentials. Route traffic only after readiness passes.
 
 API and Worker never invoke migrations. Their roles are explicitly revoked from `schema_migrations` and cannot own/alter schema. Production migration refuses to proceed unless its login can assume `bibendia_migrator`. The runtime migrator cannot create or grant roles; cluster role administration and the database-level `pgcrypto` prerequisite exist only at the bootstrap boundary. Readiness fails closed when the schema is older, newer or divergent from the artifact.
@@ -40,7 +40,7 @@ Migrations are forward-only. SQL/file rollback is not promised and schema rollba
 ## Health and process semantics
 
 - API `GET /health/live`: process-only liveness; no external calls.
-- API `GET /health/ready`: validates API DB connectivity, exclusive runtime membership in `bibendia_api`, and exact schema 001–010. PII keyrings and all startup configuration were already validated before listen.
+- API `GET /health/ready`: validates API DB connectivity, exclusive runtime membership in `bibendia_api`, and exact schema 001–011. PII keyrings and all startup configuration were already validated before listen.
 - Worker `GET /health/live`: process-only liveness.
 - Worker `GET /health/ready`: validates Worker DB connectivity, membership in `bibendia_worker`, exact schema, and reports `mode: disabled`.
 - Health responses use stable status/error codes only and never return URLs, credentials, exception text, PII or provider responses.

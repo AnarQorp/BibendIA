@@ -66,7 +66,8 @@ beforeAll(async () => {
     correlationId: randomUUID(), actor: { type: 'voice_agent', id: 'pii-integration' },
   };
   await createAppointmentTransactional(pool, context, {
-    slotToken: slot, caseId: ids.caseA, customerId: ids.customerA, vehicleId: ids.vehicleA,
+    slotToken: slot, caseId: ids.caseA,
+    identity: { resolution: 'verified', customerId: ids.customerA, vehicleId: ids.vehicleA },
     serviceRequest: { intent: 'generic_fault', symptoms: [symptom], notes, estimatedDurationMinutes: 60, capacityRequirements: [] },
     confirmationEvidenceRef: 'evidence:pii-test', idempotencyKey: `pii-${randomUUID()}`,
   }, pii);

@@ -89,16 +89,20 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
     }, async (client, context) => {
       await assertTenantOperation(client, context.tenantId, 'workshop_read');
       const result = await client.query<ProtectedAppointmentRow>(
-        `SELECT a.id,a.tenant_id,a.workshop_id,a.case_id,a.customer_id,a.vehicle_id,a.service_request,
+        `SELECT a.id,a.tenant_id,a.workshop_id,a.case_id,a.customer_id,a.vehicle_id,a.identity_resolution_status,
+          a.identity_claim_ciphertext,a.identity_claim_nonce,a.identity_claim_auth_tag,a.identity_claim_key_id,a.service_request,
           a.sensitive_details_ciphertext,a.sensitive_details_nonce,a.sensitive_details_auth_tag,a.sensitive_details_key_id,
           a.start_at,a.end_at,a.status,a.confirmation_evidence_ref,a.version,
           c.display_name_ciphertext AS customer_name_ciphertext,c.display_name_nonce AS customer_name_nonce,
           c.display_name_auth_tag AS customer_name_auth_tag,c.display_name_key_id AS customer_name_key_id,
           v.plate_ciphertext AS vehicle_plate_ciphertext,v.plate_nonce AS vehicle_plate_nonce,
           v.plate_auth_tag AS vehicle_plate_auth_tag,v.plate_key_id AS vehicle_plate_key_id
-         FROM appointments a JOIN customers c ON c.id=a.customer_id JOIN vehicles v ON v.id=a.vehicle_id
+         FROM appointments a
+         LEFT JOIN customers c ON c.id=a.customer_id AND c.tenant_id=a.tenant_id
+         LEFT JOIN vehicles v ON v.id=a.vehicle_id AND v.tenant_id=a.tenant_id
          WHERE a.tenant_id=$1 AND a.pii_migration_state='protected'
-           AND c.pii_migration_state='protected' AND v.pii_migration_state='protected'
+           AND (a.identity_resolution_status='provisional_ambiguous'
+             OR (c.pii_migration_state='protected' AND v.pii_migration_state='protected'))
          ORDER BY a.start_at`, [context.tenantId],
       );
       return result.rows.map((row) => revealWorkshopAppointment(row, pii));
@@ -423,11 +427,14 @@ function voiceProviderPrincipal(principal: PrincipalContext | null, reply: { cod
 }
 
 type ProtectedAppointmentRow = {
-  id: string; tenant_id: string; workshop_id: string; case_id: string; customer_id: string; vehicle_id: string;
+  id: string; tenant_id: string; workshop_id: string; case_id: string; customer_id: string | null; vehicle_id: string | null;
+  identity_resolution_status: 'verified' | 'provisional_new' | 'provisional_ambiguous';
+  identity_claim_ciphertext: Buffer | null; identity_claim_nonce: Buffer | null;
+  identity_claim_auth_tag: Buffer | null; identity_claim_key_id: string | null;
   service_request: Record<string, unknown>;
   sensitive_details_ciphertext: Buffer; sensitive_details_nonce: Buffer; sensitive_details_auth_tag: Buffer; sensitive_details_key_id: string;
-  customer_name_ciphertext: Buffer; customer_name_nonce: Buffer; customer_name_auth_tag: Buffer; customer_name_key_id: string;
-  vehicle_plate_ciphertext: Buffer; vehicle_plate_nonce: Buffer; vehicle_plate_auth_tag: Buffer; vehicle_plate_key_id: string;
+  customer_name_ciphertext: Buffer | null; customer_name_nonce: Buffer | null; customer_name_auth_tag: Buffer | null; customer_name_key_id: string | null;
+  vehicle_plate_ciphertext: Buffer | null; vehicle_plate_nonce: Buffer | null; vehicle_plate_auth_tag: Buffer | null; vehicle_plate_key_id: string | null;
   start_at: Date; end_at: Date; status: string; confirmation_evidence_ref: string; version: number;
 };
 
@@ -436,19 +443,28 @@ function revealWorkshopAppointment(row: ProtectedAppointmentRow, pii: PiiProtect
     ciphertext: row.sensitive_details_ciphertext, nonce: row.sensitive_details_nonce,
     authTag: row.sensitive_details_auth_tag, keyId: row.sensitive_details_key_id,
   })) as { symptoms: string[]; notes?: string };
+  const identity = row.identity_resolution_status === 'provisional_ambiguous'
+    ? JSON.parse(pii.reveal(row.tenant_id, 'appointment.identity_claim', {
+      ciphertext: row.identity_claim_ciphertext!, nonce: row.identity_claim_nonce!,
+      authTag: row.identity_claim_auth_tag!, keyId: row.identity_claim_key_id!,
+    })) as { customerName: string; plate: string }
+    : {
+      customerName: pii.reveal(row.tenant_id, 'customer.display_name', {
+        ciphertext: row.customer_name_ciphertext!, nonce: row.customer_name_nonce!,
+        authTag: row.customer_name_auth_tag!, keyId: row.customer_name_key_id!,
+      }),
+      plate: pii.reveal(row.tenant_id, 'vehicle.plate', {
+        ciphertext: row.vehicle_plate_ciphertext!, nonce: row.vehicle_plate_nonce!,
+        authTag: row.vehicle_plate_auth_tag!, keyId: row.vehicle_plate_key_id!,
+      }),
+    };
   return {
     id: row.id, tenant_id: row.tenant_id, workshop_id: row.workshop_id, case_id: row.case_id,
-    customer_id: row.customer_id, vehicle_id: row.vehicle_id,
+    customer_id: row.customer_id, vehicle_id: row.vehicle_id, identity_resolution: row.identity_resolution_status,
     service_request: { ...row.service_request, symptoms: sensitive.symptoms, notes: sensitive.notes },
     start_at: row.start_at, end_at: row.end_at, status: row.status,
     confirmation_evidence_ref: row.confirmation_evidence_ref, version: row.version,
-    customer_name: pii.reveal(row.tenant_id, 'customer.display_name', {
-      ciphertext: row.customer_name_ciphertext, nonce: row.customer_name_nonce,
-      authTag: row.customer_name_auth_tag, keyId: row.customer_name_key_id,
-    }),
-    vehicle_plate: pii.reveal(row.tenant_id, 'vehicle.plate', {
-      ciphertext: row.vehicle_plate_ciphertext, nonce: row.vehicle_plate_nonce,
-      authTag: row.vehicle_plate_auth_tag, keyId: row.vehicle_plate_key_id,
-    }),
+    customer_name: identity.customerName,
+    vehicle_plate: identity.plate,
   };
 }

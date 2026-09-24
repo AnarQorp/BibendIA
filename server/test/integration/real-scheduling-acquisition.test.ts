@@ -83,7 +83,8 @@ describe('VS02.1 real scheduling acquisition', () => {
     await expect(holdSlot(pool, contextA, candidate.token, 300)).resolves.toMatchObject({ token: winner.token });
     await expect(holdSlot(pool, contextB, candidate.token, 300)).rejects.toThrow('SLOT_CANDIDATE_NOT_AVAILABLE');
     const invalidCreation = (slotToken: string) => createAppointmentTransactional(pool, contextB, {
-      slotToken, caseId: randomUUID(), customerId: randomUUID(), vehicleId: randomUUID(), serviceRequest,
+      slotToken, caseId: randomUUID(),
+      identity: { resolution: 'verified' as const, customerId: randomUUID(), vehicleId: randomUUID() }, serviceRequest,
       confirmationEvidenceRef: 'test:confirmation', idempotencyKey: randomUUID(),
     }, pii);
     await expect(invalidCreation(winner.token)).rejects.toThrow('SLOT_NOT_AVAILABLE');
@@ -92,7 +93,8 @@ describe('VS02.1 real scheduling acquisition', () => {
       'UPDATE slot_holds SET expires_at=now()-interval \'1 second\' WHERE slot_token=$1', [winner.token],
     ));
     await expect(createAppointmentTransactional(pool, contextA, {
-      slotToken: winner.token, caseId: randomUUID(), customerId: ids.customer, vehicleId: ids.vehicle,
+      slotToken: winner.token, caseId: randomUUID(),
+      identity: { resolution: 'verified', customerId: ids.customer, vehicleId: ids.vehicle },
       serviceRequest, confirmationEvidenceRef: 'test:confirmation', idempotencyKey: randomUUID(),
     }, pii)).rejects.toThrow('SLOT_NOT_AVAILABLE');
     const availableAgain = await findSlots(pool, contextA, {
@@ -153,7 +155,8 @@ describe('VS02.1 real scheduling acquisition', () => {
       )).rows[0].id;
     });
     const command = (key: string) => ({
-      slotToken: held.token, caseId: setup, customerId: ids.customer, vehicleId: ids.vehicle,
+      slotToken: held.token, caseId: setup,
+      identity: { resolution: 'verified' as const, customerId: ids.customer, vehicleId: ids.vehicle },
       serviceRequest, confirmationEvidenceRef: 'test:confirmation', idempotencyKey: key,
     });
     const attempts = await Promise.allSettled([
