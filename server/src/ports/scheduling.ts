@@ -12,8 +12,9 @@ export interface FindSlotsQuery {
 export interface CreateAppointmentCommand {
   slotToken: string;
   caseId: string;
-  customerId: string;
-  vehicleId: string;
+  identity:
+    | { resolution: 'verified'; customerId: string; vehicleId: string }
+    | { resolution: 'provisional_new' | 'provisional_ambiguous'; customerName: string; plate: string };
   serviceRequest: ServiceRequest;
   confirmationEvidenceRef: string;
   idempotencyKey: string;

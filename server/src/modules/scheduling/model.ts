@@ -19,8 +19,9 @@ export interface Appointment {
   tenantId: TenantId;
   workshopId: WorkshopId;
   caseId: ReceptionCaseId;
-  customerId: string;
-  vehicleId: string;
+  customerId: string | null;
+  vehicleId: string | null;
+  identityResolution: 'verified' | 'provisional_new' | 'provisional_ambiguous';
   serviceRequest: ServiceRequest;
   startAt: string;
   endAt: string;

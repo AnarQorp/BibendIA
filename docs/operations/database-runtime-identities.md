@@ -15,7 +15,7 @@ There are two deliberately separate trust boundaries:
    transfers the `public` schema to `bibendia_migrator`. It is restart-safe and is not supplied to
    any application container.
 2. The **runtime migrator identity** is an unprivileged LOGIN granted only
-   `bibendia_migrator`. The migrator immediately assumes that role and applies 001–010. It has no
+   `bibendia_migrator`. The migrator immediately assumes that role and applies 001–011. It has no
    `SUPERUSER`, `CREATEDB`, `CREATEROLE`, `BYPASSRLS`, API or Worker capability.
 
 Application migrations never create, rename or grant cluster roles. This is required because a
@@ -58,7 +58,7 @@ object ownership after bootstrap, and RLS remain canonical application migration
 
 This correction changes historical migrations 001–003 because the project is still preproduction
 and clean installs must never execute role administration as `bibendia_migrator`. A database that
-already records 001–010 is an upgrade/no-op path: the migration ledger remains unchanged and a
+already records 001–011 is an upgrade/no-op path: the migration ledger remains unchanged and a
 restart executes no SQL migration again. Running the bootstrap against it only validates safe role
 attributes, ensures `pgcrypto`, and restores the intended schema owner.
 

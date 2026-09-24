@@ -84,6 +84,42 @@ describe('VS02.2 authenticated ElevenLabs scheduling tools', () => {
     expect(policyAudit.rows[0].evidence_ref).toBe('policy:tenant-policy-v2:allow');
   });
 
+  it('completes find -> hold -> create for a new provisional identity without a preseeded customer', async () => {
+    const providerCallId = `new-customer-${randomUUID()}`;
+    const found = await app.inject({
+      method: 'POST', url: '/v1/providers/elevenlabs/tools/find-slots', headers: auth,
+      payload: { providerCallId, requestId: `find-${randomUUID()}`, ...window(), durationMinutes: 60, limit: 1 },
+    });
+    expect(found.statusCode).toBe(200);
+    const held = await app.inject({
+      method: 'POST', url: '/v1/providers/elevenlabs/tools/hold-slot', headers: auth,
+      payload: { providerCallId, requestId: `hold-${randomUUID()}`, candidateId: found.json().options[0].candidateId },
+    });
+    expect(held.statusCode).toBe(200);
+    const payload = {
+      providerCallId, customerName: 'Marta Etxebarria', plate: '8421 LMK', serviceIntent: 'inspection',
+      symptoms: ['revisión inicial'], estimatedDurationMinutes: 60, slotToken: held.json().slotToken,
+      explicitConfirmation: true, confirmationTranscript: 'Sí, confirmo la cita.',
+    };
+    const created = await app.inject({
+      method: 'POST', url: '/v1/providers/elevenlabs/tools/create-appointment', headers: auth, payload,
+    });
+    expect(created.statusCode).toBe(200);
+    expect(created.json()).toMatchObject({
+      ok: true, code: 'APPOINTMENT_CREATED', receipt: { value: { identityResolution: 'provisional_new' } },
+    });
+    const replay = await app.inject({
+      method: 'POST', url: '/v1/providers/elevenlabs/tools/create-appointment', headers: auth, payload,
+    });
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json().receipt.value.id).toBe(created.json().receipt.value.id);
+    const count = await pool.query(
+      'SELECT count(*)::int count FROM appointments WHERE tenant_id=$1 AND idempotency_key=$2',
+      [ids.tenant, `voice-appointment:elevenlabs:${providerCallId}`],
+    );
+    expect(count.rows[0].count).toBe(1);
+  });
+
   it('fails closed for manipulated candidates and lifecycle controls', async () => {
     const bad = await app.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/hold-slot', headers: auth,
       payload: { providerCallId: `call-${randomUUID()}`, requestId: `hold-${randomUUID()}`, candidateId: randomUUID() } });
