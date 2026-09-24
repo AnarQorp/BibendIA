@@ -17,6 +17,19 @@ try {
     }
   };
   await assumeMigratorRole();
+  if (process.env.NODE_ENV === 'production') {
+    const bootstrap = await client.query<{ extension_ready: boolean; schema_owned: boolean }>(
+      `SELECT
+         EXISTS (SELECT 1 FROM pg_extension WHERE extname='pgcrypto') AS extension_ready,
+         EXISTS (
+           SELECT 1 FROM pg_namespace n JOIN pg_roles r ON r.oid=n.nspowner
+           WHERE n.nspname='public' AND r.rolname='bibendia_migrator'
+         ) AS schema_owned`,
+    );
+    if (!bootstrap.rows[0]?.extension_ready || !bootstrap.rows[0]?.schema_owned) {
+      throw new Error('database capability bootstrap is incomplete');
+    }
+  }
   await client.query('CREATE TABLE IF NOT EXISTS schema_migrations (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())');
   const legacy = await client.query("SELECT to_regclass('public.tenants') AS tenants");
   if (legacy.rows[0].tenants) await client.query("INSERT INTO schema_migrations(name) VALUES ('001_vertical_slice.sql') ON CONFLICT DO NOTHING");

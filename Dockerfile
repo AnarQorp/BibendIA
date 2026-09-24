@@ -34,4 +34,5 @@ CMD ["node", "dist/src/worker/main.js"]
 
 FROM runtime-base AS migrator
 COPY --from=build --chown=node:node /build/server/migrations ./dist/migrations
+COPY --from=build --chown=node:node /build/server/bootstrap ./dist/bootstrap
 CMD ["node", "dist/src/persistence/migrate.js"]

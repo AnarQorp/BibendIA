@@ -1,28 +1,19 @@
--- P0.1: separate schema ownership from API and worker capabilities.
--- Login identities and passwords are provisioned by infrastructure and receive exactly one
--- of these NOLOGIN group roles. Application processes never receive the migrator role.
-
-DO $$ BEGIN
-  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'bibendia_runtime')
-     AND NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'bibendia_api') THEN
-    ALTER ROLE bibendia_runtime RENAME TO bibendia_api;
+-- P0.1: separate schema ownership from API and worker capabilities. These NOLOGIN roles and
+-- pgcrypto are prerequisites created by server/bootstrap/001_database_capabilities.sql.
+-- Migrations never create, rename, grant or otherwise administer cluster roles.
+DO $$
+DECLARE
+  missing_roles text[];
+BEGIN
+  SELECT array_agg(required.name ORDER BY required.name)
+    INTO missing_roles
+    FROM (VALUES ('bibendia_migrator'), ('bibendia_api'), ('bibendia_worker')) required(name)
+    LEFT JOIN pg_roles roles ON roles.rolname = required.name
+    WHERE roles.oid IS NULL;
+  IF missing_roles IS NOT NULL THEN
+    RAISE EXCEPTION 'database capability bootstrap incomplete; missing roles: %', missing_roles;
   END IF;
 END $$;
-
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'bibendia_migrator') THEN
-    CREATE ROLE bibendia_migrator NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'bibendia_api') THEN
-    CREATE ROLE bibendia_api NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'bibendia_worker') THEN
-    CREATE ROLE bibendia_worker NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
-  END IF;
-END $$;
-
--- The bootstrap/migration identity may assume the owner role. Runtime identities must not.
-GRANT bibendia_migrator TO CURRENT_USER;
 
 ALTER SCHEMA public OWNER TO bibendia_migrator;
 DO $$ DECLARE object_record record; BEGIN
@@ -63,6 +54,16 @@ REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM bibendia_api;
 REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM bibendia_api;
 REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM bibendia_worker;
 REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM bibendia_worker;
+
+-- A database that stopped after historical 001/002 may still contain the legacy role. Remove
+-- its object access without requiring CREATEROLE; a bootstrap administrator may drop it later.
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'bibendia_runtime') THEN
+    REVOKE ALL PRIVILEGES ON SCHEMA public FROM bibendia_runtime;
+    REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM bibendia_runtime;
+    REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM bibendia_runtime;
+  END IF;
+END $$;
 
 GRANT USAGE ON SCHEMA public TO bibendia_api, bibendia_worker;
 
