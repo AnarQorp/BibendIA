@@ -16,4 +16,4 @@ CREATE POLICY tenant_isolation ON customer_vehicle_roles USING (tenant_id=nullif
 ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE messages FORCE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation ON messages USING (tenant_id=nullif(current_setting('app.tenant_id',true),'')::uuid) WITH CHECK (tenant_id=nullif(current_setting('app.tenant_id',true),'')::uuid);
-GRANT SELECT,INSERT,UPDATE,DELETE ON customer_vehicle_roles,messages TO bibendia_runtime;
+GRANT SELECT,INSERT,UPDATE,DELETE ON customer_vehicle_roles,messages TO bibendia_api;

@@ -12,7 +12,7 @@ docker build --target worker --build-arg APP_VERSION=1.0.0 --build-arg APP_COMMI
 docker build --target migrator --build-arg APP_VERSION=1.0.0 --build-arg APP_COMMIT_SHA=<40-char-sha> -t bibendia-migrator:<sha> .
 ```
 
-The multi-stage image compiles TypeScript in the build stage. Runtime images contain compiled JavaScript and the locked server-only production dependency set; only the migrator target contains SQL migrations. They run as the non-root `node` user. No secret is a build argument. Deploy by immutable image digest; the OCI revision label and structured runtime logs identify the commit.
+The multi-stage image compiles TypeScript in the build stage. Runtime images contain compiled JavaScript and the locked server-only production dependency set; only the migrator target contains SQL migrations and the version-matched bootstrap SQL under `dist/bootstrap`. They run as the non-root `node` user. No secret is a build argument. Deploy by immutable image digest; the OCI revision label and structured runtime logs identify the commit.
 
 Targets and commands:
 
@@ -27,19 +27,20 @@ No persistent application volume is required. stdout/stderr are the logging boun
 ## Migration and release order
 
 1. Take and test a database backup. Inventory `legacy_review_required` records; do not relabel plaintext as ciphertext.
-2. Stop writes or use the release procedure agreed by ZaQ. Run the exact release's migrator as a one-shot job with `MIGRATOR_DATABASE_URL`.
-3. The migrator takes migrations in lexical order and records each transaction in `schema_migrations`. Re-running is a no-op.
-4. Verify the table contains exactly `001_vertical_slice.sql` through `010_real_scheduling_acquisition.sql`.
-5. Start API and disabled Worker using distinct credentials. Route traffic only after readiness passes.
+2. For a new database, use the ephemeral database-owner credential to run `server/bootstrap/001_database_capabilities.sql`, then provision the three independent LOGIN identities exactly as documented in `database-runtime-identities.md`. Re-running the bootstrap is safe. Remove the bootstrap credential from the deployment path.
+3. Stop writes or use the release procedure agreed by ZaQ. Run the exact release's migrator as a one-shot job with `MIGRATOR_DATABASE_URL`.
+4. The migrator takes migrations in lexical order and records each transaction in `schema_migrations`. Re-running is a no-op.
+5. Verify the table contains exactly `001_vertical_slice.sql` through `010_real_scheduling_acquisition.sql`.
+6. Start API and disabled Worker using distinct credentials. Route traffic only after readiness passes.
 
-API and Worker never invoke migrations. Their roles are explicitly revoked from `schema_migrations` and cannot own/alter schema. Production migration refuses to proceed unless its login can assume `bibendia_migrator`. Readiness fails closed when the schema is older, newer or divergent from the artifact.
+API and Worker never invoke migrations. Their roles are explicitly revoked from `schema_migrations` and cannot own/alter schema. Production migration refuses to proceed unless its login can assume `bibendia_migrator`. The runtime migrator cannot create or grant roles; cluster role administration and the database-level `pgcrypto` prerequisite exist only at the bootstrap boundary. Readiness fails closed when the schema is older, newer or divergent from the artifact.
 
 Migrations are forward-only. SQL/file rollback is not promised and schema rollback may lose meaning or data. For a failed irreversible release: stop traffic, preserve evidence, restore the tested backup, deploy the prior artifact/schema pair, and reconcile external effects before reopening. Existing tenants are deliberately placed into `pilot` by migration 006. Migration 007 preserves legacy values as `legacy_review_required`; those records need the separately controlled PII transformation before production service.
 
 ## Health and process semantics
 
 - API `GET /health/live`: process-only liveness; no external calls.
-- API `GET /health/ready`: validates API DB connectivity, exclusive runtime membership in `bibendia_api`, and exact schema 001–009. PII keyrings and all startup configuration were already validated before listen.
+- API `GET /health/ready`: validates API DB connectivity, exclusive runtime membership in `bibendia_api`, and exact schema 001–010. PII keyrings and all startup configuration were already validated before listen.
 - Worker `GET /health/live`: process-only liveness.
 - Worker `GET /health/ready`: validates Worker DB connectivity, membership in `bibendia_worker`, exact schema, and reports `mode: disabled`.
 - Health responses use stable status/error codes only and never return URLs, credentials, exception text, PII or provider responses.
