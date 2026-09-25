@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Send, Info } from 'lucide-react';
+import { Send } from 'lucide-react';
 
 export const PilotFormSection: React.FC = () => {
   const [formData, setFormData] = useState({
@@ -9,14 +9,19 @@ export const PilotFormSection: React.FC = () => {
     email: '',
     mensaje: '',
   });
-  const [submittedMessage, setSubmittedMessage] = useState<string | null>(null);
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    // Interfaz de captación preliminar (sin backend simulado ni servicios externos)
-    setSubmittedMessage(
-      'Actualmente estamos preparando las primeras pruebas piloto con talleres. Los canales de contacto se activarán conforme se inicien los grupos de prueba.'
-    );
+
+    const subject = `Solicitud de demo BibendIA — ${formData.taller}`;
+    const body = [
+      `Taller: ${formData.taller}`,
+      `Nombre: ${formData.nombre}`,
+      `Teléfono: ${formData.telefono}`,
+      `Email: ${formData.email}`,
+      `Mensaje: ${formData.mensaje}`,
+    ].join('\n');
+
+    window.location.href = `mailto:info@bibendia.com?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   };
 
   return (
@@ -122,14 +127,6 @@ export const PilotFormSection: React.FC = () => {
               </button>
             </div>
           </form>
-
-          {/* Aviso informativo de estado preliminar */}
-          {submittedMessage && (
-            <div className="mt-4 p-3.5 bg-blue-950/60 border border-blue-800 rounded-lg text-xs text-blue-200 flex items-start gap-2.5">
-              <Info className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
-              <span>{submittedMessage}</span>
-            </div>
-          )}
 
           <p className="mt-4 text-center text-xs text-slate-400">
             Fase de preparación de pruebas piloto con talleres seleccionados.
