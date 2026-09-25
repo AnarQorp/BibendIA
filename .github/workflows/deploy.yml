@@ -66,7 +66,6 @@ jobs:
       SSH_HOST: ${{ vars.BIBENDIA_PROD_SSH_HOST }}
       SSH_USER: ${{ vars.BIBENDIA_PROD_SSH_USER }}
       SSH_PORT: ${{ vars.BIBENDIA_PROD_SSH_PORT }}
-      REMOTE_PATH: ${{ vars.BIBENDIA_PROD_DEPLOY_PATH }}
       SSH_PRIVATE_KEY: ${{ secrets.BIBENDIA_PROD_SSH_PRIVATE_KEY }}
       SSH_KNOWN_HOSTS: ${{ secrets.BIBENDIA_PROD_SSH_KNOWN_HOSTS }}
       SMOKE_URL: https://bibendia.com
@@ -88,7 +87,7 @@ jobs:
           [[ "$SSH_HOST" =~ ^[A-Za-z0-9.-]+$ ]]
           [[ "$SSH_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
           [[ "$port" =~ ^[0-9]+$ ]] && ((port >= 1 && port <= 65535))
-          [[ "$REMOTE_PATH" =~ ^/[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+){2,}$ ]]
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
           test -s release/index.html
           test -d release/assets
 
@@ -102,28 +101,31 @@ jobs:
           printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
-      - name: Verify remote deployment target
+      - name: Deploy artifact with rsync
+        shell: bash
+        run: |
+          set -euo pipefail
+          port="${SSH_PORT:-22}"
+          destination="${SSH_USER}@${SSH_HOST}:${GITHUB_SHA}/"
+          rsync -az --delete \
+            -e "ssh -i ~/.ssh/bibendia_production -p $port -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes" \
+            release/ "$destination"
+
+      - name: Activate release and read status
         shell: bash
         run: |
           set -euo pipefail
           port="${SSH_PORT:-22}"
           ssh -i ~/.ssh/bibendia_production -p "$port" \
             -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
-            "${SSH_USER}@${SSH_HOST}" \
-            "test -d '$REMOTE_PATH' && test -f '$REMOTE_PATH/.bibendia-public-web-root'"
-
-      - name: Deploy artifact with rsync
-        shell: bash
-        run: |
-          set -euo pipefail
-          port="${SSH_PORT:-22}"
-          destination="${SSH_USER}@${SSH_HOST}:${REMOTE_PATH%/}/"
-          rsync -az --delete-delay \
-            --exclude='.bibendia-public-web-root' \
-            -e "ssh -i ~/.ssh/bibendia_production -p $port -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes" \
-            release/ "$destination"
+            "${SSH_USER}@${SSH_HOST}" "activate ${GITHUB_SHA}"
+          ssh -i ~/.ssh/bibendia_production -p "$port" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            "${SSH_USER}@${SSH_HOST}" status
 
       - name: Smoke check production
+        id: smoke
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
@@ -149,4 +151,21 @@ jobs:
           done
 
           echo 'Production smoke check failed: expected landing bundle was not observed.' >&2
+          exit 1
+
+      - name: Roll back failed activation
+        if: ${{ steps.smoke.outcome == 'failure' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          port="${SSH_PORT:-22}"
+          ssh -i ~/.ssh/bibendia_production -p "$port" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            "${SSH_USER}@${SSH_HOST}" rollback
+
+      - name: Fail deployment after rollback
+        if: ${{ steps.smoke.outcome == 'failure' }}
+        shell: bash
+        run: |
+          echo 'Production smoke check failed after activation; rollback was requested.' >&2
           exit 1
