@@ -29,11 +29,14 @@ jobs:
         with:
           node-version: 20
           cache: 'npm'
+          cache-dependency-path: public-web/package-lock.json
 
       - name: Install dependencies
+        working-directory: public-web
         run: npm ci
 
       - name: Build
+        working-directory: public-web
         run: npm run build
 
       - name: Setup Pages
@@ -42,10 +45,9 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: './dist'
+          path: './public-web/dist'
 
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-
 
