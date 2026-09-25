@@ -1,24 +1,19 @@
-name: Deploy to GitHub Pages
+name: Build and deploy public web
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
-  group: 'pages'
-  cancel-in-progress: true
+  group: bibendia-public-web-production
+  cancel-in-progress: false
 
 jobs:
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+  build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -28,26 +23,130 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
+          cache: npm
           cache-dependency-path: public-web/package-lock.json
 
       - name: Install dependencies
         working-directory: public-web
         run: npm ci
 
-      - name: Build
+      - name: Build public web
         working-directory: public-web
         run: npm run build
 
-      - name: Setup Pages
-        uses: actions/configure-pages@v4
+      - name: Validate production artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s public-web/dist/index.html
+          test -d public-web/dist/assets
+          test -n "$(find public-web/dist/assets -maxdepth 1 -type f -name 'index-*.js' -print -quit)"
+          test -n "$(find public-web/dist/assets -maxdepth 1 -type f -name 'index-*.css' -print -quit)"
+          if find public-web/dist -type l -print -quit | grep -q .; then
+            echo 'Refusing to publish an artifact containing symbolic links.' >&2
+            exit 1
+          fi
 
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+      - name: Upload production artifact
+        uses: actions/upload-artifact@v4
         with:
-          path: './public-web/dist'
+          name: bibendia-public-web-${{ github.sha }}
+          path: public-web/dist/
+          if-no-files-found: error
+          retention-days: 14
 
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+  deploy-production:
+    if: ${{ vars.BIBENDIA_PROD_DEPLOY_ENABLED == 'true' }}
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://bibendia.com
+    env:
+      SSH_HOST: ${{ vars.BIBENDIA_PROD_SSH_HOST }}
+      SSH_USER: ${{ vars.BIBENDIA_PROD_SSH_USER }}
+      SSH_PORT: ${{ vars.BIBENDIA_PROD_SSH_PORT }}
+      REMOTE_PATH: ${{ vars.BIBENDIA_PROD_DEPLOY_PATH }}
+      SSH_PRIVATE_KEY: ${{ secrets.BIBENDIA_PROD_SSH_PRIVATE_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.BIBENDIA_PROD_SSH_KNOWN_HOSTS }}
+      SMOKE_URL: https://bibendia.com
+    steps:
+      - name: Download production artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: bibendia-public-web-${{ github.sha }}
+          path: release
 
+      - name: Validate deployment configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          port="${SSH_PORT:-22}"
+
+          test -n "$SSH_PRIVATE_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+          [[ "$SSH_HOST" =~ ^[A-Za-z0-9.-]+$ ]]
+          [[ "$SSH_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          [[ "$port" =~ ^[0-9]+$ ]] && ((port >= 1 && port <= 65535))
+          [[ "$REMOTE_PATH" =~ ^/[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+){2,}$ ]]
+          test -s release/index.html
+          test -d release/assets
+
+      - name: Configure SSH
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/bibendia_production
+          chmod 600 ~/.ssh/bibendia_production
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Verify remote deployment target
+        shell: bash
+        run: |
+          set -euo pipefail
+          port="${SSH_PORT:-22}"
+          ssh -i ~/.ssh/bibendia_production -p "$port" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            "${SSH_USER}@${SSH_HOST}" \
+            "test -d '$REMOTE_PATH' && test -f '$REMOTE_PATH/.bibendia-public-web-root'"
+
+      - name: Deploy artifact with rsync
+        shell: bash
+        run: |
+          set -euo pipefail
+          port="${SSH_PORT:-22}"
+          destination="${SSH_USER}@${SSH_HOST}:${REMOTE_PATH%/}/"
+          rsync -az --delete-delay \
+            --exclude='.bibendia-public-web-root' \
+            -e "ssh -i ~/.ssh/bibendia_production -p $port -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes" \
+            release/ "$destination"
+
+      - name: Smoke check production
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 12); do
+            html="$(curl --fail --silent --show-error --location \
+              --connect-timeout 10 --max-time 20 \
+              --proto '=https' --tlsv1.2 "$SMOKE_URL")"
+            asset="$(printf '%s' "$html" | grep -oE 'assets/index-[A-Za-z0-9_-]+\.js' | head -n 1 || true)"
+            bundle=''
+            if [[ "$asset" == assets/* ]]; then
+              bundle="$(curl --fail --silent --show-error --location \
+                --connect-timeout 10 --max-time 20 \
+                --proto '=https' --tlsv1.2 \
+                "${SMOKE_URL%/}/$asset")"
+            fi
+
+            if [[ "$asset" == assets/* ]] && grep -q 'mailto:info@bibendia.com' <<< "$bundle"; then
+              echo "Production smoke check passed on attempt $attempt."
+              exit 0
+            fi
+
+            sleep 5
+          done
+
+          echo 'Production smoke check failed: expected landing bundle was not observed.' >&2
+          exit 1
