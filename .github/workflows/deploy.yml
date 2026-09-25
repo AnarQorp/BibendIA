@@ -74,7 +74,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: bibendia-public-web-${{ github.sha }}
-          path: release
+          path: public-web/dist
 
       - name: Validate deployment configuration
         shell: bash
@@ -88,8 +88,8 @@ jobs:
           [[ "$SSH_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
           [[ "$port" =~ ^[0-9]+$ ]] && ((port >= 1 && port <= 65535))
           [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
-          test -s release/index.html
-          test -d release/assets
+          test -s public-web/dist/index.html
+          test -d public-web/dist/assets
 
       - name: Configure SSH
         shell: bash
@@ -109,7 +109,7 @@ jobs:
           destination="${SSH_USER}@${SSH_HOST}:${GITHUB_SHA}/"
           rsync -az --delete \
             -e "ssh -i ~/.ssh/bibendia_production -p $port -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes" \
-            release/ "$destination"
+            public-web/dist/ "$destination"
 
       - name: Activate release and read status
         shell: bash
