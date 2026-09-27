@@ -101,7 +101,7 @@ export const Sidebar: React.FC = () => {
             <div className="flex items-center gap-2 overflow-hidden">
               <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 animate-pulse"></span>
               <div className="truncate">
-                <p className="font-bold text-slate-100 truncate">Talleres Etxeberria</p>
+                <p className="font-bold text-slate-100 truncate">Taller BibendIA</p>
                 <p className="text-[11px] text-slate-400">2 mecánicos · 1 apoyo</p>
               </div>
             </div>

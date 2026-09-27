@@ -12,7 +12,12 @@ import { ProveedoresWorkshopView } from './components/views/ProveedoresWorkshopV
 import { ImpactoView } from './components/views/ImpactoView';
 import { IntegracionesView } from './components/views/IntegracionesView';
 import { GlobalAssistantModal } from './components/ai/GlobalAssistantModal';
-import { GuidedDemoPlayer } from './components/demo/GuidedDemoPlayer';
+
+declare const __DEMO_ENABLED__: boolean;
+
+const GuidedDemoPlayer = (typeof __DEMO_ENABLED__ !== 'undefined' && __DEMO_ENABLED__)
+  ? React.lazy(() => import('./components/demo/GuidedDemoPlayer').then(m => ({ default: m.GuidedDemoPlayer })))
+  : null;
 
 const MainContent: React.FC = () => {
   const {
@@ -96,8 +101,12 @@ const MainContent: React.FC = () => {
       {/* Floating Modals */}
       <GlobalAssistantModal />
 
-      {/* Guided Presenter Player: STRICTLY isolated behind demoFeatureEnabled AND demoModeActive */}
-      {demoFeatureEnabled && demoModeActive && <GuidedDemoPlayer />}
+      {/* Guided Presenter Player: STRICTLY isolated behind __DEMO_ENABLED__ and active session */}
+      {typeof __DEMO_ENABLED__ !== 'undefined' && __DEMO_ENABLED__ && demoModeActive && GuidedDemoPlayer && (
+        <React.Suspense fallback={null}>
+          <GuidedDemoPlayer />
+        </React.Suspense>
+      )}
     </div>
   );
 };

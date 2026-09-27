@@ -14,7 +14,7 @@ export const Header: React.FC = () => {
 
   const getSectionTitle = () => {
     switch (activeSection) {
-      case 'midia': return 'Inicio — Talleres Etxeberria';
+      case 'midia': return 'Inicio — Taller';
       case 'bandeja': return 'Bandeja Multicanal';
       case 'agenda': return 'Agenda del Taller';
       case 'presupuestos': return 'Presupuestos';
@@ -43,7 +43,7 @@ export const Header: React.FC = () => {
           <h1 className="text-sm sm:text-base font-bold text-slate-900 flex items-center gap-2 truncate">
             {getSectionTitle()}
           </h1>
-          <p className="text-[11px] sm:text-xs text-slate-500 hidden sm:block">Talleres Etxeberria · Recepción Taller</p>
+          <p className="text-[11px] sm:text-xs text-slate-500 hidden sm:block">Taller Conectado · Recepción Taller</p>
         </div>
       </div>
 

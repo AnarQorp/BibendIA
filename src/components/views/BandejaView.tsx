@@ -1,15 +1,15 @@
 import React, { useState } from 'react';
 import { useDemo } from '../../context/DemoContext';
-import { 
-  MessageSquare, 
-  Phone, 
-  Globe, 
-  Send, 
-  CheckCircle2, 
-  Calendar, 
-  Clock, 
-  User, 
-  Car, 
+import {
+  MessageSquare,
+  Phone,
+  Globe,
+  Send,
+  CheckCircle2,
+  Calendar,
+  Clock,
+  User,
+  Car,
   AlertTriangle,
   FileText,
   Sparkles,
@@ -18,16 +18,16 @@ import {
 } from 'lucide-react';
 
 export const BandejaView: React.FC = () => {
-  const { 
-    conversations, 
-    customers, 
-    vehicles, 
-    confirmMartaAppointment, 
+  const {
+    conversations,
+    customers,
+    vehicles,
+    confirmAppointmentSlot,
     generateQuoteFromPrompt,
-    setActiveSection 
+    setActiveSection
   } = useDemo();
 
-  const [selectedConvId, setSelectedConvId] = useState<string>('conv-marta');
+  const [selectedConvId, setSelectedConvId] = useState<string>('');
   const [channelFilter, setChannelFilter] = useState<'all' | 'whatsapp' | 'phone' | 'web'>('all');
   const [replyInput, setReplyInput] = useState('');
 
@@ -36,7 +36,7 @@ export const BandejaView: React.FC = () => {
     return c.channel === channelFilter;
   });
 
-  const selectedConv = conversations.find(c => c.id === selectedConvId) || conversations[0];
+  const selectedConv = conversations.find(c => c.id === selectedConvId) || filteredConvs[0] || conversations[0];
   const customer = customers.find(c => c.id === selectedConv?.customerId);
   const vehicle = vehicles.find(v => v.id === selectedConv?.vehicleId);
   const understanding = selectedConv?.understanding;
@@ -56,7 +56,7 @@ export const BandejaView: React.FC = () => {
 
   return (
     <div className="min-h-0 lg:h-[calc(100vh-5rem)] p-3 sm:p-6 flex flex-col gap-4 sm:gap-5 animate-fadeIn">
-      
+
       {/* Top Filter Bar */}
       <div className="bg-white border border-slate-200 rounded-2xl p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
         <div className="flex flex-wrap items-center gap-2">
@@ -66,8 +66,8 @@ export const BandejaView: React.FC = () => {
               key={ch}
               onClick={() => setChannelFilter(ch)}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                channelFilter === ch 
-                  ? 'bg-blue-600 text-white shadow-xs' 
+                channelFilter === ch
+                  ? 'bg-blue-600 text-white shadow-xs'
                   : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200'
               }`}
             >
@@ -83,13 +83,13 @@ export const BandejaView: React.FC = () => {
 
       {/* 3 Columns Layout: Inbox List | Chat View | Human Understanding Panel ("BibendIA ha entendido") */}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-5 overflow-y-auto lg:overflow-hidden">
-        
+
         {/* Left Col (3 cols): Conversation List */}
         <div className="lg:col-span-3 bg-white border border-slate-200 rounded-2xl flex flex-col overflow-hidden shadow-xs">
           <div className="p-4 border-b border-slate-100 bg-slate-50/50">
             <h3 className="text-xs font-extrabold text-slate-700 uppercase tracking-wider">Bandeja de Entradas</h3>
           </div>
-          
+
           <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
             {filteredConvs.map(conv => {
               const cust = customers.find(c => c.id === conv.customerId);
@@ -154,8 +154,8 @@ export const BandejaView: React.FC = () => {
                   </div>
 
                   <div className={`p-4 rounded-2xl max-w-md text-xs leading-relaxed shadow-xs ${
-                    isClient 
-                      ? 'bg-slate-100 border border-slate-200 text-slate-800 rounded-tl-none' 
+                    isClient
+                      ? 'bg-slate-100 border border-slate-200 text-slate-800 rounded-tl-none'
                       : isAi
                       ? 'bg-blue-50 border border-blue-200 text-slate-900 rounded-tr-none'
                       : 'bg-slate-900 text-white rounded-tr-none'
@@ -260,32 +260,23 @@ export const BandejaView: React.FC = () => {
               </div>
             )}
 
-            {/* Interactive Slot Proposals for Marta (Dates: Jueves 17 / Viernes 18) */}
-            {selectedConv?.id === 'conv-marta' && (
+            {/* Interactive Slot Proposals */}
+            {selectedConv?.understanding?.suggestedSlots && selectedConv.understanding.suggestedSlots.length > 0 && (
               <div className="space-y-2 pt-3 border-t border-slate-200">
-                <p className="text-xs font-bold text-slate-700">Proponer hueco a Marta:</p>
-                
-                <button
-                  onClick={() => confirmMartaAppointment('2026-09-17', '10:30')}
-                  className="w-full text-left p-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center justify-between shadow-xs transition-all"
-                >
-                  <div className="flex items-center gap-2">
-                    <Calendar className="w-4 h-4" />
-                    <span>Jueves 17 Sept. — 10:30 h</span>
-                  </div>
-                  <span className="text-[11px] bg-white/20 px-2 py-0.5 rounded-md font-extrabold">Agendar</span>
-                </button>
-
-                <button
-                  onClick={() => confirmMartaAppointment('2026-09-18', '08:30')}
-                  className="w-full text-left p-3 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-xl text-xs font-semibold flex items-center justify-between transition-all"
-                >
-                  <div className="flex items-center gap-2">
-                    <Calendar className="w-4 h-4 text-slate-400" />
-                    <span>Viernes 18 Sept. — 08:30 h</span>
-                  </div>
-                  <span className="text-[11px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md font-bold">Agendar</span>
-                </button>
+                <p className="text-xs font-bold text-slate-700">Proponer hueco:</p>
+                {selectedConv.understanding.suggestedSlots.map((slot, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => confirmAppointmentSlot(slot.date, slot.time)}
+                    className="w-full text-left p-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center justify-between shadow-xs transition-all"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Calendar className="w-4 h-4" />
+                      <span>{slot.label}</span>
+                    </div>
+                    <span className="text-[11px] bg-white/20 px-2 py-0.5 rounded-md font-extrabold">Agendar</span>
+                  </button>
+                ))}
               </div>
             )}
           </div>

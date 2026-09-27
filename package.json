@@ -5,7 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build && cp dist/index.html dist/404.html && cp public/.nojekyll dist/.nojekyll",
+    "build": "tsc && npm run build:workshop && npm run build:admin",
+    "build:workshop": "APP_TARGET=workshop vite build && cp dist-workshop/index.html dist-workshop/404.html && cp public/.nojekyll dist-workshop/.nojekyll",
+    "build:admin": "APP_TARGET=admin vite build && cp dist-admin/admin.html dist-admin/index.html && cp dist-admin/admin.html dist-admin/404.html && cp public/.nojekyll dist-admin/.nojekyll",
+    "build:demo": "APP_TARGET=workshop VITE_DEMO_ENABLED=true vite build && cp dist-workshop/index.html dist-workshop/404.html && cp public/.nojekyll dist-workshop/.nojekyll",
     "typecheck:server": "tsc -p server/tsconfig.json",
     "build:server": "tsc -p server/tsconfig.build.json",
     "start:api": "node server/dist/src/api/main.js",

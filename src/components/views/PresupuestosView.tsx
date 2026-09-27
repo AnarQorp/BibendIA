@@ -51,7 +51,7 @@ export const PresupuestosView: React.FC = () => {
             type="text"
             value={promptInput}
             onChange={e => setPromptInput(e.target.value)}
-            placeholder="Ej. Prepárame presupuesto para discos y pastillas del BMW de Ander..."
+            placeholder="Ej. Prepárame presupuesto para sustitución de pastillas de freno..."
             className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:bg-white transition-all font-sans"
           />
           <button
@@ -73,7 +73,9 @@ export const PresupuestosView: React.FC = () => {
           </h3>
 
           <div className="space-y-2.5">
-            {quotes.map(q => {
+            {quotes.length === 0 ? (
+              <p className="text-center py-8 text-xs text-slate-500">No hay presupuestos registrados en el taller.</p>
+            ) : quotes.map(q => {
               const cust = customers.find(c => c.id === q.customerId);
               const veh = vehicles.find(v => v.id === q.vehicleId);
               const isSelected = q.id === activeQuote?.id;
@@ -113,7 +115,7 @@ export const PresupuestosView: React.FC = () => {
         </div>
 
         {/* Right Column (8 cols): Detailed Quote View (Formatted as a Clean Document) */}
-        {activeQuote && (
+        {activeQuote ? (
           <div className="lg:col-span-8 bg-white border border-slate-200 rounded-2xl p-6 space-y-6 shadow-xs">
             
             {/* Header / Meta */}
@@ -229,6 +231,12 @@ export const PresupuestosView: React.FC = () => {
               )}
             </div>
 
+          </div>
+        ) : (
+          <div className="lg:col-span-8 bg-white border border-slate-200 rounded-2xl p-12 text-center text-slate-500 text-xs shadow-xs flex flex-col items-center justify-center gap-2">
+            <FileText className="w-8 h-8 text-slate-300" />
+            <p className="font-semibold text-slate-700">Sin presupuesto seleccionado</p>
+            <p>Genera un presupuesto o selecciona uno del listado.</p>
           </div>
         )}
 

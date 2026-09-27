@@ -28,7 +28,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId = null }) => {
     appointments: demoAppointments,
     customers: demoCustomers,
     vehicles: demoVehicles,
-    confirmMartaAppointment,
+    confirmAppointmentSlot,
     demoModeActive
   } = useDemo();
 
@@ -297,9 +297,9 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId = null }) => {
               <span className="text-xs text-slate-500 font-mono">Carga: Baja</span>
             </div>
             <p className="text-sm font-bold text-slate-900">Jueves 17 — 10:30 h</p>
-            <p className="text-xs text-slate-500">Recomendado para revisión de Marta (75 min)</p>
+            <p className="text-xs text-slate-500">Recomendado para revisión de cliente (75 min)</p>
             <button
-              onClick={() => confirmMartaAppointment('2026-09-17', '10:30')}
+              onClick={() => confirmAppointmentSlot('2026-09-17', '10:30')}
               className="w-full mt-2 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs transition-all shadow-xs"
             >
               Agendar para Jueves 10:30
@@ -316,7 +316,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId = null }) => {
             <p className="text-sm font-bold text-slate-900">Viernes 18 — 08:30 h</p>
             <p className="text-xs text-slate-500">Hueco primera hora para trabajos rápidos (45 min)</p>
             <button
-              onClick={() => confirmMartaAppointment('2026-09-18', '08:30')}
+              onClick={() => confirmAppointmentSlot('2026-09-18', '08:30')}
               className="w-full mt-2 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl text-xs transition-all"
             >
               Agendar para Viernes 08:30
@@ -352,7 +352,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId = null }) => {
 
           <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
             {daysOfWeek.map(d => {
-              const dayApps = demoAppointments.filter(a => a.date === d.date || (d.date === '2026-09-17' && a.id.includes('marta')));
+              const dayApps = demoAppointments.filter(a => a.date === d.date);
               const isSelected = selectedDay === d.date;
 
               return (
@@ -419,7 +419,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId = null }) => {
 
         <div className="space-y-3.5">
           {demoAppointments
-            .filter(a => selectedDay === '2026-09-17' ? (a.date === '2026-09-17' || a.id.includes('marta')) : a.date === selectedDay)
+            .filter(a => a.date === selectedDay)
             .map(app => {
               const customer = demoCustomers.find(c => c.id === app.customerId);
               const vehicle = demoVehicles.find(v => v.id === app.vehicleId);
@@ -464,7 +464,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId = null }) => {
               );
             })}
 
-          {demoAppointments.filter(a => selectedDay === '2026-09-17' ? (a.date === '2026-09-17' || a.id.includes('marta')) : a.date === selectedDay).length === 0 && (
+          {demoAppointments.filter(a => a.date === selectedDay).length === 0 && (
             <div className="p-8 bg-slate-50 border border-slate-200 rounded-xl text-center text-slate-500 text-xs">
               Sin citas agendadas para esta fecha. Carga de taller 100% disponible.
             </div>

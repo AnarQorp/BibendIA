@@ -21,7 +21,7 @@ export const IntegracionesView: React.FC = () => {
           <span className="text-xs font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-md flex items-center gap-1">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Sincronización Complementaria
           </span>
-          <span className="text-xs text-slate-500">· Talleres Etxeberria</span>
+          <span className="text-xs text-slate-500">· Taller Conectado</span>
         </div>
         <h2 className="text-xl font-extrabold text-slate-900 tracking-tight">Configuración & Integración ERP / DMS</h2>
         <p className="text-xs text-slate-600 max-w-3xl leading-relaxed">

@@ -43,7 +43,11 @@ export const SeguimientosView: React.FC = () => {
 
       {/* Opportunities List */}
       <div className="space-y-4">
-        {followups.map(item => {
+        {followups.length === 0 ? (
+          <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center text-slate-500 text-xs shadow-xs">
+            No hay oportunidades de seguimiento pendientes de revisión en este momento.
+          </div>
+        ) : followups.map(item => {
           const customer = customers.find(c => c.id === item.customerId);
           const vehicle = vehicles.find(v => v.id === item.vehicleId);
           const isSent = item.status === 'sent';

@@ -11,12 +11,12 @@ export type NavSection =
 
 export interface Vehicle {
   id: string;
-  plate: string; // e.g. "8421 LMK"
-  brand: string; // e.g. "SEAT"
-  model: string; // e.g. "León 1.5 TSI"
+  plate: string;
+  brand: string;
+  model: string;
   year: number;
   kilometers: number;
-  motorization: string; // e.g. "1.5 TSI 130 CV"
+  motorization: string;
   vin?: string;
   lastServiceDate?: string;
   futureRecommendation?: string;

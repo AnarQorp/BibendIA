@@ -118,10 +118,10 @@ export const MiDiaView: React.FC = () => {
                         {veh && <span className="license-plate">{veh.plate}</span>}
                       </div>
                       <h4 className="text-sm font-bold text-slate-900">
-                        {cust?.name || 'Ander García'} · {veh?.brand || 'BMW'} {veh?.model || '320d'}
+                        {cust?.name || 'Cliente'} · {veh?.brand || 'Vehículo'} {veh?.model || ''}
                       </h4>
                       <p className="text-xs text-slate-600">
-                        "He preparado el presupuesto de discos + pastillas traseras tras la inspección."
+                        "He preparado el presupuesto de recambios y mano de obra tras la inspección."
                       </p>
                     </div>
 
@@ -158,11 +158,10 @@ export const MiDiaView: React.FC = () => {
                       <span className="text-[11px] font-bold text-rose-800 bg-rose-50 border border-rose-200 px-2.5 py-0.5 rounded-md flex items-center gap-1">
                         <AlertTriangle className="w-3 h-3 text-rose-600" /> Consulta técnica post-reparación
                       </span>
-                      <span className="license-plate">7731 CKB</span>
                     </div>
-                    <h4 className="text-sm font-bold text-slate-900">Laura Martín · Volkswagen Golf VII</h4>
+                    <h4 className="text-sm font-bold text-slate-900">Consulta entrante requiere atención técnica</h4>
                     <p className="text-xs text-slate-600">
-                      Cliente reporta un silbido metálico al acelerar tras recoger el vehículo ayer.
+                      Cliente reporta incidencia post-servicio que requiere valoración por el jefe de taller.
                     </p>
                   </div>
 
@@ -195,59 +194,34 @@ export const MiDiaView: React.FC = () => {
             </div>
 
             <div className="space-y-3.5">
-              
-              {/* Phone Call Activity Card (Marta Etxebarria) */}
-              <div className="telemetry-strip-mint bg-white border border-slate-200 rounded-xl p-4 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div className="space-y-1.5">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] font-bold text-slate-700 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-md flex items-center gap-1.5">
-                      <Phone className="w-3 h-3 text-blue-600" /> Llamada atendida
-                    </span>
-                    <span className="text-xs font-bold text-slate-900">Marta Etxebarria</span>
-                    <span className="license-plate">8421 LMK</span>
+              {impactLogs.length > 0 ? (
+                impactLogs.map(log => (
+                  <div key={log.id} className="telemetry-strip-mint bg-white border border-slate-200 rounded-xl p-4 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-bold text-slate-700 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-md flex items-center gap-1.5">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600" /> {log.category === 'booking' ? 'Cita' : log.category === 'quote' ? 'Presupuesto' : 'Intervención'}
+                        </span>
+                        <span className="text-xs font-bold text-slate-900">{log.title}</span>
+                      </div>
+                      <p className="text-xs text-slate-600">{log.details}</p>
+                      <div className="flex items-center gap-2 text-xs font-bold text-slate-900">
+                        <span className="text-slate-500 font-normal">Ahorro estimado:</span>
+                        <span>{log.timeSavedMinutes} min</span>
+                      </div>
+                    </div>
+                    <div className="shrink-0">
+                      <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg flex items-center gap-1">
+                        <Check className="w-3.5 h-3.5 text-emerald-600" /> No necesitas hacer nada
+                      </span>
+                    </div>
                   </div>
-                  <p className="text-xs text-slate-600">
-                    Quería revisión de los 60.000 km + comprobar posible ruido al frenar.
-                  </p>
-                  <div className="flex items-center gap-2 text-xs font-bold text-slate-900">
-                    <span className="text-slate-500 font-normal">Resultado:</span>
-                    <span>Cita concertada · Jueves 17 · 10:30</span>
-                  </div>
+                ))
+              ) : (
+                <div className="text-center py-6 bg-slate-50 border border-slate-200/60 rounded-xl text-slate-500 text-xs">
+                  Sin intervenciones automáticas registradas durante la jornada de hoy.
                 </div>
-
-                <div className="shrink-0">
-                  <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg flex items-center gap-1">
-                    <Check className="w-3.5 h-3.5 text-emerald-600" /> No necesitas hacer nada
-                  </span>
-                </div>
-              </div>
-
-              {/* WhatsApp Activity Card (Roberto López) */}
-              <div className="telemetry-strip-mint bg-white border border-slate-200 rounded-xl p-4 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div className="space-y-1.5">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] font-bold text-slate-700 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-md flex items-center gap-1.5">
-                      <MessageSquare className="w-3 h-3 text-emerald-600" /> WhatsApp
-                    </span>
-                    <span className="text-xs font-bold text-slate-900">Roberto López</span>
-                    <span className="license-plate">4410 HBZ</span>
-                  </div>
-                  <p className="text-xs text-slate-600">
-                    Preguntaba si podía pasar a recoger el vehículo tras el cambio de batería.
-                  </p>
-                  <div className="flex items-center gap-2 text-xs font-bold text-slate-900">
-                    <span className="text-slate-500 font-normal">Resultado:</span>
-                    <span>BibendIA le ha confirmado recogida hoy desde las 17:00.</span>
-                  </div>
-                </div>
-
-                <div className="shrink-0">
-                  <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg flex items-center gap-1">
-                    <Check className="w-3.5 h-3.5 text-emerald-600" /> No necesitas hacer nada
-                  </span>
-                </div>
-              </div>
-
+              )}
             </div>
           </div>
 

@@ -42,14 +42,14 @@ export const GlobalAssistantModal: React.FC = () => {
   };
 
   const workingCommands = [
-    { text: "¿Qué tengo mañana?", category: "Agenda" },
-    { text: "Dale cita a Roberto esta semana para cambio de aceite.", category: "Cita" },
-    { text: "Prepárame presupuesto para discos y pastillas del BMW de Ander.", category: "Presupuesto" },
+    { text: "¿Qué citas tengo programadas para mañana?", category: "Agenda" },
+    { text: "Dar cita para cambio de aceite y filtro.", category: "Cita" },
+    { text: "Preparar presupuesto para discos y pastillas de freno.", category: "Presupuesto" },
     { text: "¿Qué presupuestos llevan más de 3 días esperando?", category: "Seguimiento" },
-    { text: "Avísale a Marta de que el coche está terminado.", category: "Aviso" },
-    { text: "Apunta revisar los discos de Marta dentro de 6 meses.", category: "Recomendación" },
-    { text: "¿Qué clientes debería contactar esta semana?", category: "Clientes" },
-    { text: "El coche de Roberto ya está terminado.", category: "Gestión" }
+    { text: "Avisar al cliente de que el vehículo está terminado.", category: "Aviso" },
+    { text: "Anotar recomendación preventiva de frenos para revisión.", category: "Recomendación" },
+    { text: "¿Qué clientes tienen revisiones pendientes de contactar?", category: "Clientes" },
+    { text: "Registrar intervención finalizada para facturación.", category: "Gestión" }
   ];
 
   return (
@@ -91,7 +91,7 @@ export const GlobalAssistantModal: React.FC = () => {
               type="text"
               value={inputVal}
               onChange={e => setInputVal(e.target.value)}
-              placeholder="Ej. Dale cita al Golf de Laura para el jueves..."
+              placeholder="Ej. Dale cita al vehículo para el jueves a las 10:00..."
               className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3.5 pr-28 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:bg-white transition-all font-sans"
               autoFocus
             />
