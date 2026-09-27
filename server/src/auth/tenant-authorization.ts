@@ -63,6 +63,8 @@ export async function inAuthorizedTenantTransaction<T>(
       : await authorizePlatform(client, principalId.data, tenantId.data, request.capability);
     if (!grantedRole) throw new TenantAuthorizationError('TENANT_ACCESS_DENIED');
 
+    await setLocal(client, 'app.authorized_capability', request.capability);
+
     const tenant = await client.query('SELECT id FROM tenants WHERE id=$1', [tenantId.data]);
     if (tenant.rowCount !== 1) throw new TenantAuthorizationError('TENANT_ACCESS_DENIED');
 

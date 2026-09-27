@@ -8,6 +8,7 @@ export type Capability =
   | 'workshop:configuration:update'
   | 'workshop:memberships:manage'
   | 'platform:tenant:read'
+  | 'platform:tenant:create'
   | 'platform:tenant:update'
   | 'platform:memberships:manage'
   | 'platform:configuration:read'
@@ -26,14 +27,14 @@ const workshopCapabilities: Record<WorkshopRole, readonly Capability[]> = {
 };
 
 const allPlatformCapabilities: readonly Capability[] = [
-  'platform:tenant:read', 'platform:tenant:update', 'platform:memberships:manage',
+  'platform:tenant:read', 'platform:tenant:create', 'platform:tenant:update', 'platform:memberships:manage',
   'platform:configuration:read', 'platform:configuration:update', 'platform:activity:read',
   'platform:cost:read', 'platform:incidents:read', 'platform:audit:read', 'platform:kill-switch:manage',
 ];
 
 const platformCapabilities: Record<PlatformRole, readonly Capability[]> = {
   PLATFORM_ADMIN: allPlatformCapabilities,
-  PLATFORM_OPERATOR: allPlatformCapabilities.filter((capability) => capability !== 'platform:memberships:manage'),
+  PLATFORM_OPERATOR: allPlatformCapabilities.filter((capability) => !['platform:memberships:manage','platform:tenant:create'].includes(capability)),
   SUPPORT_READONLY: ['platform:tenant:read', 'platform:configuration:read', 'platform:activity:read', 'platform:cost:read', 'platform:incidents:read'],
   SECURITY_AUDITOR: ['platform:tenant:read', 'platform:audit:read'],
 };

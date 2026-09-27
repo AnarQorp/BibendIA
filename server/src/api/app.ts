@@ -21,6 +21,7 @@ import {
 import { safeErrorAttributes } from '../security/safe-logging.js';
 import type { ReadinessResult } from '../runtime/readiness.js';
 import { findSlots, holdSlot } from '../modules/scheduling/postgres-scheduling.js';
+import { PlatformAdminError, registerPlatformAdminRoutes } from './platform-admin-routes.js';
 
 export type ApiSecurityOptions = {
   authentication?: AuthenticationAdapter;
@@ -60,6 +61,9 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
     if (error instanceof PiiProtectionError) {
       request.log.error({ ...safeErrorAttributes(error), correlationId: request.id }, 'PII operation failed closed');
       return reply.code(503).send({ error: 'PII_PROTECTION_UNAVAILABLE', correlationId: request.id });
+    }
+    if (error instanceof PlatformAdminError) {
+      return reply.code(error.code === 'ENTITY_NOT_FOUND' ? 404 : 409).send({ error:error.code,correlationId:request.id });
     }
     if (error instanceof z.ZodError) return reply.code(400).send({ error: 'INVALID_PROVIDER_PAYLOAD' });
     request.log.error({ ...safeErrorAttributes(error), correlationId: request.id }, 'request failed');
@@ -189,6 +193,7 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
       return { receipt, correlationId: request.id };
     });
   }
+  registerPlatformAdminRoutes(app,pool);
   app.post('/v1/providers/twilio/voice/events', {
     config: { rawBody: true, auth: { mode: 'authenticated', audience: 'provider', principalKinds: ['service'] } },
   }, async (request, reply) => {

@@ -19,9 +19,9 @@ describe('runtime readiness', () => {
   it('passes only for the expected role and exact schema', async () => {
     const result = await checkDatabaseReadiness(pool([
       { rows: [{ member: true, migrator: false }] }, { rows: [] },
-      { rows: [{ schema_version: '011_provisional_identity_acquisition.sql', compatible: true }], rowCount: 1 },
+      { rows: [{ schema_version: '012_platform_admin_p0_9.sql', compatible: true }], rowCount: 1 },
     ]), 'bibendia_api');
-    expect(result).toEqual({ ready: true, schemaVersion: '011_provisional_identity_acquisition.sql' });
+    expect(result).toEqual({ ready: true, schemaVersion: '012_platform_admin_p0_9.sql' });
   });
 
   it('fails closed for wrong identity, old/new schema, and database outage', async () => {
