@@ -12,6 +12,7 @@ server/dist
 dist
 dist-workshop
 dist-admin
+dist-demo
 dist-ssr
 *.local
 .env

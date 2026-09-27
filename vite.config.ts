@@ -5,7 +5,6 @@ import path from 'path';
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   const target = process.env.APP_TARGET || 'workshop';
-  const isDemoBuild = (process.env.VITE_DEMO_ENABLED || env.VITE_DEMO_ENABLED) === 'true';
 
   if (target === 'admin') {
     return {
@@ -40,7 +39,40 @@ export default defineConfig(({ mode }) => {
     };
   }
 
-  // target === 'workshop' (default)
+  if (target === 'demo') {
+    return {
+      plugins: [react()],
+      base: './',
+      resolve: {
+        alias: {
+          '@': path.resolve(__dirname, './src'),
+        },
+      },
+      define: {
+        __DEMO_ENABLED__: true,
+      },
+      server: {
+        port: 3002,
+        host: true,
+      },
+      build: {
+        outDir: 'dist-demo',
+        emptyOutDir: true,
+        rollupOptions: {
+          input: {
+            demo: path.resolve(__dirname, 'index.html'),
+          },
+          output: {
+            entryFileNames: 'assets/[name]-[hash].js',
+            chunkFileNames: 'assets/[name]-[hash].js',
+            assetFileNames: 'assets/[name]-[hash].[ext]',
+          },
+        },
+      },
+    };
+  }
+
+  // target === 'workshop' (default productive workshop artifact)
   return {
     plugins: [react()],
     base: './',
@@ -50,7 +82,7 @@ export default defineConfig(({ mode }) => {
       },
     },
     define: {
-      __DEMO_ENABLED__: JSON.stringify(isDemoBuild),
+      __DEMO_ENABLED__: false,
     },
     server: {
       port: 3000,
