@@ -5,7 +5,16 @@ export const HeroSection: React.FC = () => {
   return (
     <section className="relative overflow-hidden pt-8 pb-16 md:pt-14 md:pb-24 border-b border-workshop-border">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-center max-w-3xl mx-auto">
+        <div className="text-center max-w-3xl mx-auto flex flex-col items-center">
+          {/* Mobile Mascot Logo - First Element on Mobile Viewports */}
+          <div className="block sm:hidden mb-6">
+            <img
+              src="./assets/logo_BibendIA.png"
+              alt="BibendIA Logo Mascot"
+              className="w-44 h-auto object-contain mx-auto drop-shadow-md"
+            />
+          </div>
+
           {/* Badge */}
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-blue-50 text-cobalt-700 border border-blue-200 mb-6">
             <span className="w-2 h-2 rounded-full bg-cobalt-600 animate-pulse"></span>
