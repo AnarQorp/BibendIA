@@ -1,22 +1,24 @@
 import React, { useState, useEffect } from 'react';
 import {
   Calendar,
-  ShieldCheck,
   RotateCcw,
-  Lock,
   EyeOff,
   AlertCircle
 } from 'lucide-react';
 import { fetchPlatformAppointments, type PlatformAppointmentsState } from '../../../services/platformAdmin';
 
 export interface RedactedAppointmentsViewProps {
-  tenantId: string;
+  tenantId: string | null;
 }
 
 export const RedactedAppointmentsView: React.FC<RedactedAppointmentsViewProps> = ({ tenantId }) => {
   const [state, setState] = useState<PlatformAppointmentsState>({ status: 'idle' });
 
   const loadAppointments = async () => {
+    if (!tenantId) {
+      setState({ status: 'idle' });
+      return;
+    }
     setState({ status: 'loading' });
     const res = await fetchPlatformAppointments(tenantId);
     setState(res);
@@ -24,7 +26,22 @@ export const RedactedAppointmentsView: React.FC<RedactedAppointmentsViewProps> =
 
   useEffect(() => {
     if (tenantId) loadAppointments();
+    else setState({ status: 'idle' });
   }, [tenantId]);
+
+  if (!tenantId) {
+    return (
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center space-y-3">
+        <div className="w-10 h-10 mx-auto rounded-xl bg-slate-800 border border-slate-700 text-slate-400 flex items-center justify-center">
+          <Calendar className="w-5 h-5" />
+        </div>
+        <h3 className="text-sm font-bold text-slate-200">Selección de Tenant no disponible</h3>
+        <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
+          Para consultar citas redactadas de soporte se requiere una selección autorizada de tenant (esperando P0.9 `GET /v1/platform/tenants`).
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

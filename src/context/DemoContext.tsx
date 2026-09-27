@@ -67,7 +67,8 @@ interface DemoContextType {
   stopVoiceInput: () => void;
   submitNaturalLanguageQuery: (query: string) => void;
 
-  // Guided Demo Mode (Discrete / Hidden)
+  // Guided Demo Mode (Guarded by build flag VITE_DEMO_ENABLED)
+  demoFeatureEnabled: boolean;
   demoModeActive: boolean;
   setDemoModeActive: (active: boolean) => void;
   demoStep: number;
@@ -94,8 +95,14 @@ interface DemoContextType {
 const DemoContext = createContext<DemoContextType | undefined>(undefined);
 
 export const DemoProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Check URL or storage for explicit demo activation
-  const isInitialDemo = typeof window !== 'undefined' && (
+  // Strict build/config flag: Demo mode is ONLY available if explicitly enabled
+  const demoFeatureEnabled = (
+    typeof import.meta !== 'undefined' &&
+    (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_DEMO_ENABLED === 'true'
+  );
+
+  // Check URL or storage for explicit demo activation ONLY IF feature flag is true
+  const isInitialDemo = demoFeatureEnabled && typeof window !== 'undefined' && (
     window.location.search.includes('demo=true') ||
     window.location.search.includes('demo=1') ||
     localStorage.getItem('bibendia_demo_active') === 'true'
@@ -112,7 +119,7 @@ export const DemoProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setMobileSidebarOpen(false);
   };
 
-  // Product mode starts empty by default; Demo mode loads synthetic data
+  // Product mode starts empty by default; Demo mode loads synthetic data only if feature flag is active
   const [customers, setCustomers] = useState<Customer[]>(isInitialDemo ? INITIAL_CUSTOMERS : []);
   const [vehicles, setVehicles] = useState<Vehicle[]>(isInitialDemo ? INITIAL_VEHICLES : []);
   const [conversations, setConversations] = useState<Conversation[]>(isInitialDemo ? INITIAL_CONVERSATIONS : []);
@@ -122,6 +129,10 @@ export const DemoProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [impactLogs, setImpactLogs] = useState<AiImpactLog[]>(isInitialDemo ? INITIAL_IMPACT_LOGS : []);
 
   const setDemoModeActive = (active: boolean) => {
+    if (!demoFeatureEnabled) {
+      // In production build without flag, demo mode cannot be activated
+      return;
+    }
     setDemoModeActiveState(active);
     if (typeof window !== 'undefined') {
       if (active) {
@@ -632,6 +643,7 @@ export const DemoProvider: React.FC<{ children: React.ReactNode }> = ({ children
         startVoiceInput,
         stopVoiceInput,
         submitNaturalLanguageQuery,
+        demoFeatureEnabled,
         demoModeActive,
         setDemoModeActive,
         demoStep,

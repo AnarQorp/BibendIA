@@ -24,6 +24,7 @@ export const Sidebar: React.FC = () => {
     conversations,
     quotes,
     followups,
+    demoFeatureEnabled,
     demoModeActive,
     setDemoModeActive,
     mobileSidebarOpen,
@@ -156,26 +157,28 @@ export const Sidebar: React.FC = () => {
             </div>
           </button>
 
-          {/* Demo Mode Toggle (Isolated from production) */}
-          <div className="pt-1 px-0.5">
-            <button
-              onClick={() => setDemoModeActive(!demoModeActive)}
-              className={`w-full flex items-center justify-between px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
-                demoModeActive
-                  ? 'bg-amber-950/50 text-amber-300 border border-amber-700/50'
-                  : 'text-slate-400 hover:text-slate-300 bg-slate-800/40 border border-slate-700/40'
-              }`}
-              title="Alternar entre datos de demostración y modo producto"
-            >
-              <div className="flex items-center gap-2">
-                <Presentation className="w-3.5 h-3.5" />
-                <span>Modo Demo</span>
-              </div>
-              <span className="text-[10px] uppercase font-mono tracking-wider opacity-80">
-                {demoModeActive ? 'ON' : 'OFF'}
-              </span>
-            </button>
-          </div>
+          {/* Demo Mode Toggle (Rendered ONLY if VITE_DEMO_ENABLED build flag is true) */}
+          {demoFeatureEnabled && (
+            <div className="pt-1 px-0.5">
+              <button
+                onClick={() => setDemoModeActive(!demoModeActive)}
+                className={`w-full flex items-center justify-between px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+                  demoModeActive
+                    ? 'bg-amber-950/50 text-amber-300 border border-amber-700/50'
+                    : 'text-slate-400 hover:text-slate-300 bg-slate-800/40 border border-slate-700/40'
+                }`}
+                title="Alternar entre datos de demostración y modo producto"
+              >
+                <div className="flex items-center gap-2">
+                  <Presentation className="w-3.5 h-3.5" />
+                  <span>Modo Demo</span>
+                </div>
+                <span className="text-[10px] uppercase font-mono tracking-wider opacity-80">
+                  {demoModeActive ? 'ON' : 'OFF'}
+                </span>
+              </button>
+            </div>
+          )}
         </div>
       </aside>
     </>

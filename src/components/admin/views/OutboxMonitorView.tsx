@@ -4,22 +4,22 @@ import {
   RotateCcw,
   AlertTriangle,
   CheckCircle2,
-  Clock,
-  Flame,
-  Hash,
-  Layers,
   AlertCircle
 } from 'lucide-react';
 import { fetchPlatformOutbox, type PlatformOutboxState } from '../../../services/platformAdmin';
 
 export interface OutboxMonitorViewProps {
-  tenantId: string;
+  tenantId: string | null;
 }
 
 export const OutboxMonitorView: React.FC<OutboxMonitorViewProps> = ({ tenantId }) => {
   const [state, setState] = useState<PlatformOutboxState>({ status: 'idle' });
 
   const loadOutbox = async () => {
+    if (!tenantId) {
+      setState({ status: 'idle' });
+      return;
+    }
     setState({ status: 'loading' });
     const res = await fetchPlatformOutbox(tenantId);
     setState(res);
@@ -27,7 +27,22 @@ export const OutboxMonitorView: React.FC<OutboxMonitorViewProps> = ({ tenantId }
 
   useEffect(() => {
     if (tenantId) loadOutbox();
+    else setState({ status: 'idle' });
   }, [tenantId]);
+
+  if (!tenantId) {
+    return (
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center space-y-3">
+        <div className="w-10 h-10 mx-auto rounded-xl bg-slate-800 border border-slate-700 text-slate-400 flex items-center justify-center">
+          <Inbox className="w-5 h-5" />
+        </div>
+        <h3 className="text-sm font-bold text-slate-200">Selección de Tenant no disponible</h3>
+        <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
+          Para inspeccionar el Outbox y eventos en reconciliación se requiere una selección autorizada de tenant (esperando P0.9 `GET /v1/platform/tenants`).
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

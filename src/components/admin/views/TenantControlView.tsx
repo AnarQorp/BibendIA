@@ -1,14 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   ShieldAlert,
-  Power,
   RotateCcw,
-  CheckCircle2,
-  AlertTriangle,
-  History,
-  Key,
   Terminal,
-  Activity
+  AlertCircle,
+  Clock
 } from 'lucide-react';
 import {
   fetchPlatformControl,
@@ -18,7 +14,14 @@ import {
 } from '../../../services/platformAdmin';
 
 export interface TenantControlViewProps {
-  tenantId: string;
+  tenantId: string | null;
+}
+
+function generateStableIdempotencyKey(prefix: string): string {
+  const randomPart = typeof crypto !== 'undefined' && crypto.randomUUID
+    ? crypto.randomUUID().slice(0, 8)
+    : Math.random().toString(36).slice(2, 10);
+  return `${prefix}-${Date.now()}-${randomPart}`;
 }
 
 export const TenantControlView: React.FC<TenantControlViewProps> = ({ tenantId }) => {
@@ -28,7 +31,15 @@ export const TenantControlView: React.FC<TenantControlViewProps> = ({ tenantId }
   const [actionMessage, setActionMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Stable idempotency key that is PRESERVED across retries of the same intent
+  const currentLifecycleKeyRef = useRef<string>(generateStableIdempotencyKey('lifecycle'));
+  const currentKillSwitchKeyRef = useRef<string>(generateStableIdempotencyKey('ks'));
+
   const loadControl = async () => {
+    if (!tenantId) {
+      setState({ status: 'idle' });
+      return;
+    }
     setState({ status: 'loading' });
     const res = await fetchPlatformControl(tenantId);
     setState(res);
@@ -37,8 +48,24 @@ export const TenantControlView: React.FC<TenantControlViewProps> = ({ tenantId }
   useEffect(() => {
     if (tenantId) {
       loadControl();
+    } else {
+      setState({ status: 'idle' });
     }
   }, [tenantId]);
+
+  if (!tenantId) {
+    return (
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center space-y-3">
+        <div className="w-10 h-10 mx-auto rounded-xl bg-slate-800 border border-slate-700 text-slate-400 flex items-center justify-center">
+          <Terminal className="w-5 h-5" />
+        </div>
+        <h3 className="text-sm font-bold text-slate-200">Selección de Tenant no disponible</h3>
+        <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
+          Esta vista requiere una selección de tenant autorizada por la plataforma. La lista de tenants será provista de forma segura por el catálogo de P0.9 (`GET /v1/platform/tenants`), sin inputs manuales de usuario.
+        </p>
+      </div>
+    );
+  }
 
   const handleLifecycleChange = async () => {
     if (!reasonInput.trim()) {
@@ -49,19 +76,32 @@ export const TenantControlView: React.FC<TenantControlViewProps> = ({ tenantId }
 
     setIsSubmitting(true);
     setActionMessage(null);
+
+    // Uses stable key; preserved on failure so user retry sends the identical idempotencyKey
+    const idempotencyKey = currentLifecycleKeyRef.current;
+
     const result = await mutateTenantLifecycle(tenantId, {
       target: selectedTarget,
       reason: reasonInput,
       expectedVersion: state.data.version,
+      idempotencyKey,
     });
     setIsSubmitting(false);
 
     if (result.ok) {
-      setActionMessage({ type: 'success', text: `Ciclo de vida actualizado a '${selectedTarget}'. Correlación: ${result.correlationId}` });
+      setActionMessage({
+        type: 'success',
+        text: `Ciclo de vida actualizado a '${selectedTarget}'. Correlación: ${result.correlationId}`
+      });
       setReasonInput('');
+      // Rotate key only after confirmed success
+      currentLifecycleKeyRef.current = generateStableIdempotencyKey('lifecycle');
       loadControl();
     } else {
-      setActionMessage({ type: 'error', text: result.message || 'Error al modificar ciclo de vida' });
+      setActionMessage({
+        type: 'error',
+        text: `${result.message || 'Error al modificar ciclo de vida'}. Reintentar conservará la clave de idempotencia (${idempotencyKey.slice(0, 16)}...).`
+      });
     }
   };
 
@@ -74,9 +114,14 @@ export const TenantControlView: React.FC<TenantControlViewProps> = ({ tenantId }
 
     setIsSubmitting(true);
     setActionMessage(null);
+
+    // Uses stable key; preserved on failure so user retry sends the identical idempotencyKey
+    const idempotencyKey = currentKillSwitchKeyRef.current;
+
     const result = await mutateTenantKillSwitch(tenantId, enable, {
       reason: reasonInput,
       expectedVersion: state.data.version,
+      idempotencyKey,
     });
     setIsSubmitting(false);
 
@@ -86,9 +131,14 @@ export const TenantControlView: React.FC<TenantControlViewProps> = ({ tenantId }
         text: `Kill Switch ${enable ? 'ACTIVADO (Pausado)' : 'DESACTIVADO (Reanudado)'}. Correlación: ${result.correlationId}`
       });
       setReasonInput('');
+      // Rotate key only after confirmed success
+      currentKillSwitchKeyRef.current = generateStableIdempotencyKey('ks');
       loadControl();
     } else {
-      setActionMessage({ type: 'error', text: result.message || 'Error al ejecutar comando de Kill Switch' });
+      setActionMessage({
+        type: 'error',
+        text: `${result.message || 'Error al ejecutar comando'}. Reintentar conservará la clave de idempotencia (${idempotencyKey.slice(0, 16)}...).`
+      });
     }
   };
 
@@ -212,7 +262,7 @@ export const TenantControlView: React.FC<TenantControlViewProps> = ({ tenantId }
               type="text"
               value={reasonInput}
               onChange={e => setReasonInput(e.target.value)}
-              placeholder="Ej. Pausa preventiva por degradación en upstream de telefonía..."
+              placeholder="Indica motivo para registrar en Action Ledger..."
               className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:bg-white"
             />
           </div>
@@ -240,7 +290,7 @@ export const TenantControlView: React.FC<TenantControlViewProps> = ({ tenantId }
                   onClick={handleLifecycleChange}
                   className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition disabled:opacity-50"
                 >
-                  Aplicar
+                  {isSubmitting ? 'Enviando...' : 'Aplicar'}
                 </button>
               </div>
             </div>

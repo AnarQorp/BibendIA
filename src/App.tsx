@@ -11,7 +11,6 @@ import { SeguimientosView } from './components/views/SeguimientosView';
 import { ProveedoresWorkshopView } from './components/views/ProveedoresWorkshopView';
 import { ImpactoView } from './components/views/ImpactoView';
 import { IntegracionesView } from './components/views/IntegracionesView';
-import { AdminLayout } from './components/admin/AdminLayout';
 import { GlobalAssistantModal } from './components/ai/GlobalAssistantModal';
 import { GuidedDemoPlayer } from './components/demo/GuidedDemoPlayer';
 
@@ -20,11 +19,12 @@ const MainContent: React.FC = () => {
     activeSection,
     setActiveSection,
     setAssistantModalOpen,
+    demoFeatureEnabled,
     demoModeActive,
     setDemoModeActive
   } = useDemo();
 
-  const { currentPath, navigate } = useRouter();
+  const { currentPath } = useRouter();
 
   // Synchronize currentPath with activeSection
   useEffect(() => {
@@ -38,26 +38,21 @@ const MainContent: React.FC = () => {
     else if (currentPath === '/configuracion' || currentPath === '/integraciones') setActiveSection('configuracion');
   }, [currentPath, setActiveSection]);
 
-  // Keyboard shortcut handlers (Cmd+K for assistant, Ctrl+Shift+D for demo mode toggle)
+  // Keyboard shortcut handlers: Cmd+K for assistant, Ctrl+Shift+D for demo mode ONLY IF feature enabled
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault();
         setAssistantModalOpen(true);
       }
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'd') {
+      if (demoFeatureEnabled && (e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'd') {
         e.preventDefault();
         setDemoModeActive(!demoModeActive);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [setAssistantModalOpen, demoModeActive, setDemoModeActive]);
-
-  // Check if current route is for Platform Admin surface (isolated shell)
-  if (currentPath.startsWith('/admin')) {
-    return <AdminLayout onBackToWorkshop={() => navigate('/midia')} />;
-  }
+  }, [setAssistantModalOpen, demoFeatureEnabled, demoModeActive, setDemoModeActive]);
 
   const renderActiveView = () => {
     // Route matching with fallback to activeSection
@@ -101,8 +96,8 @@ const MainContent: React.FC = () => {
       {/* Floating Modals */}
       <GlobalAssistantModal />
 
-      {/* Guided Presenter Player: STRICTLY isolated behind demoModeActive */}
-      {demoModeActive && <GuidedDemoPlayer />}
+      {/* Guided Presenter Player: STRICTLY isolated behind demoFeatureEnabled AND demoModeActive */}
+      {demoFeatureEnabled && demoModeActive && <GuidedDemoPlayer />}
     </div>
   );
 };

@@ -31,6 +31,9 @@ export async function fetchPlatformControl(
   tenantId: string,
   baseUrl = ''
 ): Promise<PlatformControlState> {
+  if (!tenantId || tenantId.trim() === '') {
+    return { status: 'idle', message: 'No hay tenant seleccionado.' };
+  }
   try {
     const res = await fetch(`${baseUrl}/v1/platform/tenants/${encodeURIComponent(tenantId)}/control`, {
       method: 'GET',
@@ -50,19 +53,36 @@ export async function fetchPlatformControl(
   }
 }
 
+export interface MutateLifecycleParams {
+  target: 'provisioning' | 'pilot' | 'active' | 'suspended' | 'deactivated';
+  reason: string;
+  expectedVersion: number;
+  idempotencyKey: string;
+}
+
+/**
+ * Executes tenant lifecycle transition.
+ * Invariant: idempotencyKey is supplied by the calling user action layer
+ * and MUST be preserved across retries of the same intent.
+ */
 export async function mutateTenantLifecycle(
   tenantId: string,
-  params: { target: 'provisioning' | 'pilot' | 'active' | 'suspended' | 'deactivated'; reason: string; expectedVersion: number },
+  params: MutateLifecycleParams,
   baseUrl = ''
 ): Promise<{ ok: boolean; message?: string; receipt?: unknown; correlationId?: string }> {
+  if (!params.idempotencyKey) {
+    throw new Error('idempotencyKey is required for lifecycle mutation');
+  }
   try {
     const res = await fetch(`${baseUrl}/v1/platform/tenants/${encodeURIComponent(tenantId)}/lifecycle`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        ...params,
-        idempotencyKey: `lifecycle-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        target: params.target,
+        reason: params.reason,
+        expectedVersion: params.expectedVersion,
+        idempotencyKey: params.idempotencyKey,
       }),
     });
     if (!res.ok) {
@@ -76,12 +96,26 @@ export async function mutateTenantLifecycle(
   }
 }
 
+export interface MutateKillSwitchParams {
+  reason: string;
+  expectedVersion: number;
+  idempotencyKey: string;
+}
+
+/**
+ * Toggles emergency kill switch.
+ * Invariant: idempotencyKey is supplied by the calling user action layer
+ * and MUST be preserved across retries of the same intent.
+ */
 export async function mutateTenantKillSwitch(
   tenantId: string,
   enabled: boolean,
-  params: { reason: string; expectedVersion: number },
+  params: MutateKillSwitchParams,
   baseUrl = ''
 ): Promise<{ ok: boolean; message?: string; receipt?: unknown; correlationId?: string }> {
+  if (!params.idempotencyKey) {
+    throw new Error('idempotencyKey is required for kill-switch mutation');
+  }
   const action = enabled ? 'enable' : 'disable';
   try {
     const res = await fetch(`${baseUrl}/v1/platform/tenants/${encodeURIComponent(tenantId)}/kill-switch/${action}`, {
@@ -89,8 +123,9 @@ export async function mutateTenantKillSwitch(
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        ...params,
-        idempotencyKey: `ks-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        reason: params.reason,
+        expectedVersion: params.expectedVersion,
+        idempotencyKey: params.idempotencyKey,
       }),
     });
     if (!res.ok) {
@@ -108,6 +143,9 @@ export async function fetchPlatformOutbox(
   tenantId: string,
   baseUrl = ''
 ): Promise<PlatformOutboxState> {
+  if (!tenantId || tenantId.trim() === '') {
+    return { status: 'idle', message: 'No hay tenant seleccionado.' };
+  }
   try {
     const res = await fetch(`${baseUrl}/v1/platform/tenants/${encodeURIComponent(tenantId)}/outbox`, {
       method: 'GET',
@@ -136,6 +174,9 @@ export async function fetchPlatformAppointments(
   tenantId: string,
   baseUrl = ''
 ): Promise<PlatformAppointmentsState> {
+  if (!tenantId || tenantId.trim() === '') {
+    return { status: 'idle', message: 'No hay tenant seleccionado.' };
+  }
   try {
     const res = await fetch(`${baseUrl}/v1/platform/tenants/${encodeURIComponent(tenantId)}/appointments`, {
       method: 'GET',

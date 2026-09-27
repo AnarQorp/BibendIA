@@ -1,13 +1,10 @@
 import React, { useState } from 'react';
 import {
   ShieldAlert,
-  Terminal,
   Inbox,
   Calendar,
   Truck,
-  Lock,
-  AlertTriangle,
-  ArrowLeft
+  AlertTriangle
 } from 'lucide-react';
 import { TenantControlView } from './views/TenantControlView';
 import { OutboxMonitorView } from './views/OutboxMonitorView';
@@ -15,13 +12,12 @@ import { RedactedAppointmentsView } from './views/RedactedAppointmentsView';
 import { ProveedoresAdminView } from './views/ProveedoresAdminView';
 
 export interface AdminLayoutProps {
-  onBackToWorkshop?: () => void;
+  // Tenant selection will be provided by P0.9 tenant catalog; null until then
+  selectedTenantId?: string | null;
 }
 
-export const AdminLayout: React.FC<AdminLayoutProps> = ({ onBackToWorkshop }) => {
+export const AdminLayout: React.FC<AdminLayoutProps> = ({ selectedTenantId = null }) => {
   const [activeTab, setActiveTab] = useState<'control' | 'outbox' | 'appointments' | 'proveedores'>('control');
-  // Target tenant selector for administrative operations (default to known pilot tenant Jarrisons or custom)
-  const [targetTenantId, setTargetTenantId] = useState<string>('tenant-jarrisons-pilot');
 
   return (
     <div className="min-h-screen bg-[#0b0f19] text-slate-100 flex flex-col font-sans">
@@ -31,18 +27,9 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ onBackToWorkshop }) =>
         <div className="flex items-center gap-2">
           <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
           <span>
-            <strong>ADMIN v0 (Superficie Interna Restringida):</strong> No expuesta públicamente. Requiere autorización estricta PLATFORM_USER y tokens no delegados.
+            <strong>ADMIN v0 (Superficie Interna Restringida):</strong> Destinada a `admin.bibendia.com`. No expuesta públicamente. Requiere autorización estricta PLATFORM_USER y tokens no delegados.
           </span>
         </div>
-        {onBackToWorkshop && (
-          <button
-            onClick={onBackToWorkshop}
-            className="flex items-center gap-1 px-2.5 py-0.5 rounded bg-amber-900/60 hover:bg-amber-800 text-amber-100 text-[11px] font-semibold transition"
-          >
-            <ArrowLeft className="w-3 h-3" />
-            <span>Volver a Taller</span>
-          </button>
-        )}
       </div>
 
       {/* Admin Navbar */}
@@ -55,22 +42,24 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ onBackToWorkshop }) =>
             <div className="flex items-center gap-2">
               <span className="font-extrabold text-white text-base tracking-tight">BibendIA Platform Admin</span>
               <span className="text-[10px] font-mono uppercase bg-slate-800 text-blue-400 border border-slate-700 px-1.5 py-0.5 rounded">
-                v0.5
+                Superficie Interna
               </span>
             </div>
           </div>
         </div>
 
-        {/* Tenant Selector for Admin Operations */}
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-slate-400 font-mono">Tenant ID:</span>
-          <input
-            type="text"
-            value={targetTenantId}
-            onChange={e => setTargetTenantId(e.target.value)}
-            className="bg-slate-800 border border-slate-700 text-white text-xs font-mono px-3 py-1.5 rounded-lg w-56 focus:outline-none focus:border-blue-500"
-            placeholder="UUID o slug del tenant"
-          />
+        {/* Tenant Authority Display (No arbitrary manual text input) */}
+        <div className="flex items-center gap-2 text-xs">
+          <span className="text-slate-400 font-mono">Tenant objetivo:</span>
+          {selectedTenantId ? (
+            <span className="bg-slate-800 border border-slate-700 text-blue-400 font-mono px-3 py-1.5 rounded-lg">
+              {selectedTenantId}
+            </span>
+          ) : (
+            <span className="bg-slate-800/60 border border-slate-700/60 text-slate-500 font-mono px-3 py-1.5 rounded-lg">
+              Pendiente de selección autorizada (P0.9)
+            </span>
+          )}
         </div>
       </header>
 
@@ -124,15 +113,15 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ onBackToWorkshop }) =>
             }`}
           >
             <Truck className="w-3.5 h-3.5" />
-            <span>Red de Proveedores</span>
+            <span>Proveedores</span>
           </button>
         </div>
 
         {/* Tab Content Area */}
         <div className="text-slate-900">
-          {activeTab === 'control' && <TenantControlView tenantId={targetTenantId} />}
-          {activeTab === 'outbox' && <OutboxMonitorView tenantId={targetTenantId} />}
-          {activeTab === 'appointments' && <RedactedAppointmentsView tenantId={targetTenantId} />}
+          {activeTab === 'control' && <TenantControlView tenantId={selectedTenantId} />}
+          {activeTab === 'outbox' && <OutboxMonitorView tenantId={selectedTenantId} />}
+          {activeTab === 'appointments' && <RedactedAppointmentsView tenantId={selectedTenantId} />}
           {activeTab === 'proveedores' && <ProveedoresAdminView />}
         </div>
 

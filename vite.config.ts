@@ -14,5 +14,13 @@ export default defineConfig({
   server: {
     port: 3000,
     host: true
-  }
+  },
+  build: {
+    rollupOptions: {
+      input: {
+        workshop: path.resolve(__dirname, 'index.html'),
+        admin: path.resolve(__dirname, 'admin.html'),
+      },
+    },
+  },
 });
