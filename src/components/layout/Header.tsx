@@ -29,11 +29,11 @@ export const Header: React.FC = () => {
 
   return (
     <header className="h-16 bg-white border-b border-slate-200 sticky top-0 z-20 backdrop-blur-md px-3 sm:px-6 flex items-center justify-between shadow-xs">
-      {/* Title & Hamburger Menu Button for Mobile */}
-      <div className="flex items-center gap-2.5 min-w-0">
+      {/* Title & Hamburger Menu Button for Mobile/Tablet */}
+      <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
         <button
           onClick={toggleMobileSidebar}
-          className="md:hidden p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition-all shrink-0"
+          className="lg:hidden p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition-all shrink-0"
           title="Abrir menú"
         >
           <Menu className="w-5 h-5" />
@@ -47,21 +47,21 @@ export const Header: React.FC = () => {
         </div>
       </div>
 
-      {/* Bar */}
-      <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
+      {/* Action Bar */}
+      <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
         <button
           onClick={() => setAssistantModalOpen(true)}
-          className="bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl px-2.5 sm:px-3.5 py-1.5 flex items-center gap-2 sm:gap-3 text-xs text-slate-600 w-auto sm:w-64 md:w-72 transition-all shadow-2xs"
+          className="bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl p-2 sm:px-3.5 sm:py-1.5 flex items-center gap-2 text-xs text-slate-600 sm:w-56 md:w-64 lg:w-72 transition-all shadow-2xs shrink-0 sm:shrink"
+          title="Buscar con asistente (⌘K)"
         >
           <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
           <span className="truncate text-slate-500 hidden sm:inline">¿Qué necesitas?...</span>
-          <span className="text-slate-400 sm:hidden text-[11px]">Buscar</span>
           <kbd className="ml-auto bg-slate-200 text-slate-600 text-[10px] font-mono px-1.5 py-0.5 rounded border border-slate-300 hidden md:inline">⌘K</kbd>
         </button>
 
         <button
           onClick={startVoiceInput}
-          className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
+          className={`flex items-center gap-1.5 p-2 sm:px-3 sm:py-1.5 rounded-xl text-xs font-semibold border transition-all shrink-0 ${
             isListening 
               ? 'bg-rose-50 text-rose-700 border-rose-300 animate-pulse' 
               : 'bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200 shadow-2xs'
@@ -72,7 +72,7 @@ export const Header: React.FC = () => {
           <span className="hidden sm:inline">{isListening ? 'Escuchando...' : 'Hablar'}</span>
         </button>
 
-        <div className="hidden lg:flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-3 py-1 rounded-xl text-xs font-medium text-slate-600">
+        <div className="hidden xl:flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-3 py-1 rounded-xl text-xs font-medium text-slate-600">
           <Database className="w-3.5 h-3.5 text-slate-400" />
           <span className="text-slate-500">Gestión:</span>
           <span className="text-emerald-700 font-bold flex items-center gap-1">
@@ -82,7 +82,7 @@ export const Header: React.FC = () => {
 
         <button
           onClick={resetAllState}
-          className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all"
+          className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all shrink-0"
           title="Reiniciar datos de la demo"
         >
           <RotateCcw className="w-4 h-4" />

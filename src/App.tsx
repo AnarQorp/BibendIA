@@ -86,8 +86,8 @@ const MainContent: React.FC = () => {
   };
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-[#f8fafc] relative">
-      {/* Sidebar (drawer on mobile, fixed column on desktop) */}
+    <div className="flex h-[100dvh] w-full overflow-hidden bg-[#f8fafc] relative">
+      {/* Sidebar (drawer on mobile/tablet <lg, fixed column on desktop >=lg) */}
       <Sidebar />
 
       {/* Main Content Area */}

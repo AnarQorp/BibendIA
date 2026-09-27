@@ -47,7 +47,7 @@ export const IntegracionesView: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <span className="text-xs text-slate-500 font-mono">Última sincronización: <strong className="text-slate-900 font-bold">Hace 3 min</strong></span>
             <button className="p-2.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-xl transition-all shadow-2xs">
               <RefreshCw className="w-4 h-4" />
@@ -56,7 +56,7 @@ export const IntegracionesView: React.FC = () => {
         </div>
 
         {/* Synchronized Elements Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 pt-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-2">
           <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
             <div className="flex items-center justify-between text-xs font-bold text-slate-900">
               <span>Clientes & Fichas</span>

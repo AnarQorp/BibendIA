@@ -55,17 +55,17 @@ export const Sidebar: React.FC = () => {
 
   return (
     <>
-      {/* Mobile Backdrop Overlay */}
+      {/* Mobile/Tablet Backdrop Overlay */}
       {mobileSidebarOpen && (
         <div
           onClick={() => setMobileSidebarOpen(false)}
-          className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-40 md:hidden animate-fadeIn"
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-40 lg:hidden animate-fadeIn"
         />
       )}
 
       {/* Sidebar Container */}
       <aside
-        className={`fixed top-0 left-0 bottom-0 z-50 w-72 bg-[#0f172a] text-slate-200 border-r border-slate-800 flex flex-col justify-between h-screen select-none shadow-xl transition-transform duration-300 ease-in-out md:static md:w-64 md:translate-x-0 shrink-0 ${
+        className={`fixed top-0 left-0 bottom-0 z-50 w-72 bg-[#0f172a] text-slate-200 border-r border-slate-800 flex flex-col justify-between h-[100dvh] select-none shadow-xl transition-transform duration-300 ease-in-out lg:static lg:w-64 lg:translate-x-0 shrink-0 ${
           mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
@@ -86,10 +86,10 @@ export const Sidebar: React.FC = () => {
               </div>
             </div>
 
-            {/* Mobile Close Button */}
+            {/* Mobile/Tablet Close Button */}
             <button
               onClick={() => setMobileSidebarOpen(false)}
-              className="md:hidden p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-all"
+              className="lg:hidden p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-all"
               title="Cerrar menú"
             >
               <X className="w-5 h-5" />

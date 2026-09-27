@@ -33,9 +33,9 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ selectedTenantId = nul
       </div>
 
       {/* Admin Navbar */}
-      <header className="h-16 border-b border-slate-800 px-6 flex items-center justify-between bg-slate-900/60 backdrop-blur-md">
+      <header className="border-b border-slate-800 px-4 sm:px-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 min-h-16 py-3 sm:py-0 bg-slate-900/60 backdrop-blur-md">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center font-extrabold text-sm">
+          <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center font-extrabold text-sm shrink-0">
             B
           </div>
           <div>
@@ -49,14 +49,14 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ selectedTenantId = nul
         </div>
 
         {/* Tenant Authority Display (No arbitrary manual text input) */}
-        <div className="flex items-center gap-2 text-xs">
+        <div className="flex items-center gap-2 text-xs self-start sm:self-auto">
           <span className="text-slate-400 font-mono">Tenant objetivo:</span>
           {selectedTenantId ? (
             <span className="bg-slate-800 border border-slate-700 text-blue-400 font-mono px-3 py-1.5 rounded-lg">
               {selectedTenantId}
             </span>
           ) : (
-            <span className="bg-slate-800/60 border border-slate-700/60 text-slate-500 font-mono px-3 py-1.5 rounded-lg">
+            <span className="bg-slate-800/60 border border-slate-700/60 text-slate-500 font-mono px-3 py-1.5 rounded-lg truncate">
               Pendiente de selección autorizada (P0.9)
             </span>
           )}
@@ -64,13 +64,13 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ selectedTenantId = nul
       </header>
 
       {/* Main Admin Area */}
-      <div className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 space-y-6">
+      <div className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-6 space-y-5 sm:space-y-6">
 
         {/* Navigation Tabs */}
-        <div className="flex flex-wrap gap-2 border-b border-slate-800 pb-3">
+        <div className="flex items-center gap-2 border-b border-slate-800 pb-3 overflow-x-auto no-scrollbar py-0.5">
           <button
             onClick={() => setActiveTab('control')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition shrink-0 ${
               activeTab === 'control'
                 ? 'bg-blue-600 text-white shadow-sm'
                 : 'bg-slate-900/80 text-slate-400 hover:text-white border border-slate-800'
@@ -82,7 +82,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ selectedTenantId = nul
 
           <button
             onClick={() => setActiveTab('outbox')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition shrink-0 ${
               activeTab === 'outbox'
                 ? 'bg-blue-600 text-white shadow-sm'
                 : 'bg-slate-900/80 text-slate-400 hover:text-white border border-slate-800'
@@ -94,7 +94,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ selectedTenantId = nul
 
           <button
             onClick={() => setActiveTab('appointments')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition shrink-0 ${
               activeTab === 'appointments'
                 ? 'bg-blue-600 text-white shadow-sm'
                 : 'bg-slate-900/80 text-slate-400 hover:text-white border border-slate-800'
@@ -106,7 +106,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ selectedTenantId = nul
 
           <button
             onClick={() => setActiveTab('proveedores')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition shrink-0 ${
               activeTab === 'proveedores'
                 ? 'bg-blue-600 text-white shadow-sm'
                 : 'bg-slate-900/80 text-slate-400 hover:text-white border border-slate-800'

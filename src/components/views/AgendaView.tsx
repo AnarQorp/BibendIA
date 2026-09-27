@@ -196,7 +196,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId = null }) => {
               {realState.data.map(app => (
                 <div
                   key={app.id}
-                  className="telemetry-strip-cobalt bg-white border border-slate-200 rounded-xl p-4 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-4"
+                  className="telemetry-strip-cobalt bg-white border border-slate-200 rounded-xl p-4 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4"
                 >
                   <div className="flex items-start gap-4">
                     <div className="bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl text-center shrink-0 font-mono">
@@ -288,7 +288,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId = null }) => {
         </div>
 
         {/* 3 Capacity Enriched Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
           <div className="telemetry-strip-mint bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-md">
@@ -323,7 +323,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId = null }) => {
             </button>
           </div>
 
-          <div className="telemetry-strip-amber bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-2">
+          <div className="telemetry-strip-amber bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-2 sm:col-span-2 xl:col-span-1">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded-md">
                 Disponible
@@ -341,16 +341,16 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId = null }) => {
 
       {/* Visual Weekly Workshop Grid */}
       {viewMode === 'week' && (
-        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-            <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
+        <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-xs space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+            <h3 className="text-sm sm:text-base font-extrabold text-slate-900 flex items-center gap-2">
               <CalendarIcon className="w-4 h-4 text-blue-600" />
               <span>Calendario Semanal de Citas y Huecos Libres</span>
             </h3>
             <span className="text-xs text-slate-500 font-mono">Semana del 15 al 19 de Septiembre 2026</span>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3 sm:gap-4">
             {daysOfWeek.map(d => {
               const dayApps = demoAppointments.filter(a => a.date === d.date);
               const isSelected = selectedDay === d.date;
@@ -359,7 +359,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId = null }) => {
                 <div
                   key={d.date}
                   onClick={() => setSelectedDay(d.date)}
-                  className={`bg-white border rounded-2xl p-4 space-y-2.5 cursor-pointer transition-all ${
+                  className={`bg-white border rounded-2xl p-3.5 sm:p-4 space-y-2.5 cursor-pointer transition-all ${
                     isSelected ? 'border-blue-600 ring-2 ring-blue-600/20 shadow-xs' : 'border-slate-200 hover:border-slate-300'
                   }`}
                 >
@@ -368,11 +368,11 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId = null }) => {
                     <span className="text-xs text-slate-500 font-mono">{dayApps.length} citas</span>
                   </div>
 
-                  <div className="space-y-2 min-h-[140px]">
+                  <div className="space-y-2 min-h-[120px] sm:min-h-[140px]">
                     {dayApps.map(app => {
                       const veh = demoVehicles.find(v => v.id === app.vehicleId);
                       return (
-                        <div key={app.id} className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-1">
+                        <div key={app.id} className="p-2 sm:p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-1">
                           <div className="flex items-center justify-between">
                             <span className="font-extrabold text-blue-600 text-xs font-mono">{app.time}</span>
                             {veh && <span className="license-plate">{veh.plate}</span>}
@@ -397,17 +397,17 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId = null }) => {
       )}
 
       {/* Daily List Schedule */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-4">
-        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-          <h3 className="text-base font-extrabold text-slate-900">
+      <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+          <h3 className="text-sm sm:text-base font-extrabold text-slate-900">
             Detalle de Citas — {daysOfWeek.find(d => d.date === selectedDay)?.full || 'Jueves 17'}
           </h3>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5 w-full sm:w-auto">
             {daysOfWeek.map(d => (
               <button
                 key={d.date}
                 onClick={() => setSelectedDay(d.date)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
                   selectedDay === d.date ? 'bg-blue-600 text-white shadow-xs' : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200'
                 }`}
               >

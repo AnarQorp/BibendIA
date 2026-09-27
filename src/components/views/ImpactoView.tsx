@@ -19,11 +19,11 @@ export const ImpactoView: React.FC = () => {
       </div>
 
       {/* Top 3 Big Results (Clean 2C Light Metric Cards) */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs flex items-center justify-between">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6">
+        <div className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 shadow-xs flex items-center justify-between">
           <div className="space-y-1">
             <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">TIEMPO AHORRADO</span>
-            <span className="text-3xl font-extrabold text-slate-900 font-mono">{stats.timeSavedHoursMinutes}</span>
+            <span className="text-2xl sm:text-3xl font-extrabold text-slate-900 font-mono">{stats.timeSavedHoursMinutes}</span>
             <p className="text-xs text-slate-500">Trabajo administrativo no realizado por ti.</p>
           </div>
           <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-200 text-blue-700 flex items-center justify-center shrink-0">
@@ -31,10 +31,10 @@ export const ImpactoView: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs flex items-center justify-between">
+        <div className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 shadow-xs flex items-center justify-between">
           <div className="space-y-1">
             <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">GESTIONES REALIZADAS</span>
-            <span className="text-3xl font-extrabold text-blue-600 font-mono">{stats.inquiriesHandled}</span>
+            <span className="text-2xl sm:text-3xl font-extrabold text-blue-600 font-mono">{stats.inquiriesHandled}</span>
             <p className="text-xs text-slate-500">Atención multicanal resuelta.</p>
           </div>
           <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-200 text-blue-700 flex items-center justify-center shrink-0">
@@ -42,10 +42,10 @@ export const ImpactoView: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs flex items-center justify-between">
+        <div className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 shadow-xs flex items-center justify-between sm:col-span-2 xl:col-span-1">
           <div className="space-y-1">
             <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">TRABAJO RECUPERADO</span>
-            <span className="text-3xl font-extrabold text-emerald-700 font-mono">{stats.recoveredRevenue.toFixed(2)} €</span>
+            <span className="text-2xl sm:text-3xl font-extrabold text-emerald-700 font-mono">{stats.recoveredRevenue.toFixed(2)} €</span>
             <p className="text-xs text-slate-500">Generado gracias a seguimientos activos.</p>
           </div>
           <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-700 flex items-center justify-center shrink-0">
