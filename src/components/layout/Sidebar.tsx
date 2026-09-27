@@ -1,57 +1,69 @@
 import React from 'react';
 import { useDemo } from '../../context/DemoContext';
+import { useRouter } from '../../router/RouterContext';
 import { NavSection } from '../../types';
-import { 
-  Home, 
-  Inbox, 
-  Calendar, 
-  FileText, 
-  TrendingUp, 
-  Sparkles, 
-  Settings, 
+import {
+  Home,
+  Inbox,
+  Calendar,
+  FileText,
+  TrendingUp,
+  Sparkles,
+  Settings,
   Presentation,
   CheckCircle2,
+  Truck,
+  ShieldCheck,
   X
 } from 'lucide-react';
 
 export const Sidebar: React.FC = () => {
-  const { 
-    activeSection, 
-    setActiveSection, 
-    conversations, 
-    quotes, 
-    followups, 
-    demoModeActive, 
+  const {
+    activeSection,
+    setActiveSection,
+    conversations,
+    quotes,
+    followups,
+    demoModeActive,
     setDemoModeActive,
     mobileSidebarOpen,
     setMobileSidebarOpen
   } = useDemo();
 
+  const { currentPath, navigate } = useRouter();
+
   const unreadMessagesCount = conversations.filter(c => c.unread).length;
   const pendingQuotesCount = quotes.filter(q => q.status === 'pending_approval').length;
   const pendingFollowupsCount = followups.filter(f => f.status === 'pending').length;
 
-  const mainNavItems: { id: NavSection; label: string; icon: React.ReactNode; badge?: number }[] = [
-    { id: 'midia', label: 'Inicio', icon: <Home className="w-4 h-4" /> },
-    { id: 'bandeja', label: 'Bandeja', icon: <Inbox className="w-4 h-4" />, badge: unreadMessagesCount },
-    { id: 'agenda', label: 'Agenda', icon: <Calendar className="w-4 h-4" /> },
-    { id: 'presupuestos', label: 'Presupuestos', icon: <FileText className="w-4 h-4" />, badge: pendingQuotesCount },
-    { id: 'seguimientos', label: 'Seguimientos', icon: <TrendingUp className="w-4 h-4" />, badge: pendingFollowupsCount },
-    { id: 'impacto', label: 'Lo que ha hecho por ti', icon: <Sparkles className="w-4 h-4 text-emerald-400" /> },
+  const mainNavItems: { id: NavSection; path: string; label: string; icon: React.ReactNode; badge?: number }[] = [
+    { id: 'midia', path: '/midia', label: 'Inicio', icon: <Home className="w-4 h-4" /> },
+    { id: 'bandeja', path: '/bandeja', label: 'Bandeja', icon: <Inbox className="w-4 h-4" />, badge: unreadMessagesCount },
+    { id: 'agenda', path: '/agenda', label: 'Agenda', icon: <Calendar className="w-4 h-4" /> },
+    { id: 'presupuestos', path: '/presupuestos', label: 'Presupuestos', icon: <FileText className="w-4 h-4" />, badge: pendingQuotesCount },
+    { id: 'seguimientos', path: '/seguimientos', label: 'Seguimientos', icon: <TrendingUp className="w-4 h-4" />, badge: pendingFollowupsCount },
+    { id: 'proveedores', path: '/proveedores', label: 'Proveedores', icon: <Truck className="w-4 h-4" /> },
+    { id: 'impacto', path: '/impacto', label: 'Lo que ha hecho por ti', icon: <Sparkles className="w-4 h-4 text-emerald-400" /> },
   ];
+
+  const handleNavClick = (item: { id: NavSection; path: string }) => {
+    setActiveSection(item.id);
+    navigate(item.path);
+    setMobileSidebarOpen(false);
+  };
 
   return (
     <>
       {/* Mobile Backdrop Overlay */}
       {mobileSidebarOpen && (
-        <div 
-          onClick={() => setMobileSidebarOpen(false)} 
+        <div
+          onClick={() => setMobileSidebarOpen(false)}
           className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-40 md:hidden animate-fadeIn"
         />
       )}
 
       {/* Sidebar Container */}
-      <aside 
+      <aside
         className={`fixed top-0 left-0 bottom-0 z-50 w-72 bg-[#0f172a] text-slate-200 border-r border-slate-800 flex flex-col justify-between h-screen select-none shadow-xl transition-transform duration-300 ease-in-out md:static md:w-64 md:translate-x-0 shrink-0 ${
           mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
@@ -59,10 +71,11 @@ export const Sidebar: React.FC = () => {
         <div>
           {/* Brand Header */}
           <div className="p-5 border-b border-slate-800/80 flex items-center justify-between">
-              <img 
-                src="./assets/logo_BibendIA.png" 
-                alt="BibendIA Logo" 
-                className="w-9 h-9 object-contain rounded-xl bg-white/10 p-0.5 border border-slate-700/60 shadow-sm shrink-0" 
+            <div className="flex items-center gap-3">
+              <img
+                src="./assets/logo_BibendIA.png"
+                alt="BibendIA Logo"
+                className="w-9 h-9 object-contain rounded-xl bg-white/10 p-0.5 border border-slate-700/60 shadow-sm shrink-0"
               />
               <div>
                 <div className="flex items-center gap-1.5">
@@ -70,6 +83,7 @@ export const Sidebar: React.FC = () => {
                 </div>
                 <p className="text-[11px] font-medium text-slate-400">Recepción por Excepción</p>
               </div>
+            </div>
 
             {/* Mobile Close Button */}
             <button
@@ -95,11 +109,11 @@ export const Sidebar: React.FC = () => {
           {/* Main Navigation */}
           <nav className="px-3 py-2 space-y-1">
             {mainNavItems.map(item => {
-              const isActive = activeSection === item.id;
+              const isActive = activeSection === item.id || currentPath === item.path;
               return (
                 <button
                   key={item.id}
-                  onClick={() => setActiveSection(item.id)}
+                  onClick={() => handleNavClick(item)}
                   className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
                     isActive
                       ? 'bg-blue-600 text-white shadow-sm font-bold'
@@ -126,9 +140,9 @@ export const Sidebar: React.FC = () => {
         {/* Secondary Area */}
         <div className="p-3 border-t border-slate-800/80 space-y-1.5">
           <button
-            onClick={() => setActiveSection('integraciones')}
+            onClick={() => handleNavClick({ id: 'configuracion', path: '/configuracion' })}
             className={`w-full flex items-center justify-between px-3.5 py-2 rounded-xl text-xs font-semibold transition-all ${
-              activeSection === 'integraciones'
+              activeSection === 'configuracion' || activeSection === 'integraciones' || currentPath === '/configuracion' || currentPath === '/integraciones'
                 ? 'bg-slate-800 text-white border border-slate-700'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent'
             }`}
@@ -142,6 +156,7 @@ export const Sidebar: React.FC = () => {
             </div>
           </button>
 
+          {/* Demo Mode Toggle (Isolated from production) */}
           <div className="pt-1 px-0.5">
             <button
               onClick={() => setDemoModeActive(!demoModeActive)}
@@ -150,7 +165,7 @@ export const Sidebar: React.FC = () => {
                   ? 'bg-amber-950/50 text-amber-300 border border-amber-700/50'
                   : 'text-slate-400 hover:text-slate-300 bg-slate-800/40 border border-slate-700/40'
               }`}
-              title="Modo presentación guiada de 10 pasos"
+              title="Alternar entre datos de demostración y modo producto"
             >
               <div className="flex items-center gap-2">
                 <Presentation className="w-3.5 h-3.5" />

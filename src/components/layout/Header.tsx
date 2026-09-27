@@ -19,7 +19,9 @@ export const Header: React.FC = () => {
       case 'agenda': return 'Agenda del Taller';
       case 'presupuestos': return 'Presupuestos';
       case 'seguimientos': return 'Seguimientos y Retención';
+      case 'proveedores': return 'Proveedores y Recambios';
       case 'impacto': return 'Lo que BibendIA ha hecho por ti';
+      case 'configuracion': return 'Configuración del Taller';
       case 'integraciones': return 'Configuración e Integraciones';
       default: return 'BibendIA';
     }

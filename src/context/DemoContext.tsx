@@ -1,22 +1,22 @@
 import React, { createContext, useContext, useState } from 'react';
-import { 
-  NavSection, 
-  Customer, 
-  Vehicle, 
-  Conversation, 
-  Appointment, 
-  Quote, 
-  FollowUpOpportunity, 
-  AiImpactLog 
+import {
+  NavSection,
+  Customer,
+  Vehicle,
+  Conversation,
+  Appointment,
+  Quote,
+  FollowUpOpportunity,
+  AiImpactLog
 } from '../types';
-import { 
-  INITIAL_CUSTOMERS, 
-  INITIAL_VEHICLES, 
-  INITIAL_CONVERSATIONS, 
-  INITIAL_APPOINTMENTS, 
-  INITIAL_QUOTES, 
-  INITIAL_FOLLOWUPS, 
-  INITIAL_IMPACT_LOGS 
+import {
+  INITIAL_CUSTOMERS,
+  INITIAL_VEHICLES,
+  INITIAL_CONVERSATIONS,
+  INITIAL_APPOINTMENTS,
+  INITIAL_QUOTES,
+  INITIAL_FOLLOWUPS,
+  INITIAL_IMPACT_LOGS
 } from '../data/mockData';
 
 export interface CommandResult {
@@ -34,7 +34,7 @@ export interface CommandResult {
 interface DemoContextType {
   activeSection: NavSection;
   setActiveSection: (section: NavSection) => void;
-  
+
   // Data lists
   customers: Customer[];
   vehicles: Vehicle[];
@@ -43,7 +43,7 @@ interface DemoContextType {
   quotes: Quote[];
   followups: FollowUpOpportunity[];
   impactLogs: AiImpactLog[];
-  
+
   // Stats summary (Fixed realistic economic metrics)
   stats: {
     timeSavedHoursMinutes: string;
@@ -55,7 +55,7 @@ interface DemoContextType {
     followupsDone: number;
     recoveredClients: number;
   };
-  
+
   // Voice & Assistant state
   isListening: boolean;
   voiceQuery: string;
@@ -66,7 +66,7 @@ interface DemoContextType {
   startVoiceInput: () => void;
   stopVoiceInput: () => void;
   submitNaturalLanguageQuery: (query: string) => void;
-  
+
   // Guided Demo Mode (Discrete / Hidden)
   demoModeActive: boolean;
   setDemoModeActive: (active: boolean) => void;
@@ -74,12 +74,12 @@ interface DemoContextType {
   nextDemoStep: () => void;
   prevDemoStep: () => void;
   resetDemoStep: () => void;
-  
+
   // Mobile responsive sidebar drawer state
   mobileSidebarOpen: boolean;
   setMobileSidebarOpen: (open: boolean) => void;
   toggleMobileSidebar: () => void;
-  
+
   // State Mutators
   approveQuote: (quoteId: string) => void;
   confirmMartaAppointment: (slotDate: string, slotTime: string) => void;
@@ -94,55 +94,95 @@ interface DemoContextType {
 const DemoContext = createContext<DemoContextType | undefined>(undefined);
 
 export const DemoProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  // Check URL or storage for explicit demo activation
+  const isInitialDemo = typeof window !== 'undefined' && (
+    window.location.search.includes('demo=true') ||
+    window.location.search.includes('demo=1') ||
+    localStorage.getItem('bibendia_demo_active') === 'true'
+  );
+
+  const [demoModeActive, setDemoModeActiveState] = useState<boolean>(isInitialDemo);
   const [activeSection, setActiveSection] = useState<NavSection>('midia');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState<boolean>(false);
-  
+
   const toggleMobileSidebar = () => setMobileSidebarOpen(prev => !prev);
 
   const handleSetActiveSection = (section: NavSection) => {
     setActiveSection(section);
     setMobileSidebarOpen(false);
   };
-  
-  const [customers, setCustomers] = useState<Customer[]>(INITIAL_CUSTOMERS);
-  const [vehicles, setVehicles] = useState<Vehicle[]>(INITIAL_VEHICLES);
-  const [conversations, setConversations] = useState<Conversation[]>(INITIAL_CONVERSATIONS);
-  const [appointments, setAppointments] = useState<Appointment[]>(INITIAL_APPOINTMENTS);
-  const [quotes, setQuotes] = useState<Quote[]>(INITIAL_QUOTES);
-  const [followups, setFollowups] = useState<FollowUpOpportunity[]>(INITIAL_FOLLOWUPS);
-  const [impactLogs, setImpactLogs] = useState<AiImpactLog[]>(INITIAL_IMPACT_LOGS);
-  
+
+  // Product mode starts empty by default; Demo mode loads synthetic data
+  const [customers, setCustomers] = useState<Customer[]>(isInitialDemo ? INITIAL_CUSTOMERS : []);
+  const [vehicles, setVehicles] = useState<Vehicle[]>(isInitialDemo ? INITIAL_VEHICLES : []);
+  const [conversations, setConversations] = useState<Conversation[]>(isInitialDemo ? INITIAL_CONVERSATIONS : []);
+  const [appointments, setAppointments] = useState<Appointment[]>(isInitialDemo ? INITIAL_APPOINTMENTS : []);
+  const [quotes, setQuotes] = useState<Quote[]>(isInitialDemo ? INITIAL_QUOTES : []);
+  const [followups, setFollowups] = useState<FollowUpOpportunity[]>(isInitialDemo ? INITIAL_FOLLOWUPS : []);
+  const [impactLogs, setImpactLogs] = useState<AiImpactLog[]>(isInitialDemo ? INITIAL_IMPACT_LOGS : []);
+
+  const setDemoModeActive = (active: boolean) => {
+    setDemoModeActiveState(active);
+    if (typeof window !== 'undefined') {
+      if (active) {
+        localStorage.setItem('bibendia_demo_active', 'true');
+        setCustomers(INITIAL_CUSTOMERS);
+        setVehicles(INITIAL_VEHICLES);
+        setConversations(INITIAL_CONVERSATIONS);
+        setAppointments(INITIAL_APPOINTMENTS);
+        setQuotes(INITIAL_QUOTES);
+        setFollowups(INITIAL_FOLLOWUPS);
+        setImpactLogs(INITIAL_IMPACT_LOGS);
+      } else {
+        localStorage.removeItem('bibendia_demo_active');
+        setCustomers([]);
+        setVehicles([]);
+        setConversations([]);
+        setAppointments([]);
+        setQuotes([]);
+        setFollowups([]);
+        setImpactLogs([]);
+      }
+    }
+  };
+
   // Voice & Assistant state
   const [isListening, setIsListening] = useState<boolean>(false);
   const [voiceQuery, setVoiceQuery] = useState<string>('');
   const [assistantModalOpen, setAssistantModalOpen] = useState<boolean>(false);
   const [activeCommandResult, setActiveCommandResult] = useState<CommandResult | null>(null);
-  
-  // Hidden Demo Mode state
-  const [demoModeActive, setDemoModeActive] = useState<boolean>(false);
+
   const [demoStep, setDemoStep] = useState<number>(1);
-  
-  // Stats calculation
+
+  // Stats calculation (0 in product mode when impactLogs is empty)
   const totalMinutesSaved = impactLogs.reduce((acc, log) => acc + log.timeSavedMinutes, 0);
   const hours = Math.floor(totalMinutesSaved / 60);
   const mins = totalMinutesSaved % 60;
   const timeSavedHoursMinutes = `${hours} h ${mins} min`;
-  
-  // P0 metric fix: Managed quotes total vs Recovered revenue from follow-ups
-  const managedQuotesTotal = quotes.reduce((acc, q) => acc + q.total, 0) + 1150.00; // Total quotes managed
+
+  const managedQuotesTotal = quotes.reduce((acc, q) => acc + q.total, 0);
   const recoveredRevenue = impactLogs
     .filter(log => log.isRecovery)
-    .reduce((acc, log) => acc + (log.revenueImpact || 0), 217.78); // Baseline recovered 680€ total
+    .reduce((acc, log) => acc + (log.revenueImpact || 0), 0);
 
-  const stats = {
-    timeSavedHoursMinutes,
-    managedQuotesTotal,
+  const stats = demoModeActive ? {
+    timeSavedHoursMinutes: timeSavedHoursMinutes === '0 h 0 min' ? '4 h 35 min' : timeSavedHoursMinutes,
+    managedQuotesTotal: managedQuotesTotal || 2480.00,
     recoveredRevenue: Math.max(680.00, recoveredRevenue),
     inquiriesHandled: 31,
-    appointmentsBooked: appointments.length + 12,
-    quotesPrepared: quotes.length + 7,
+    appointmentsBooked: appointments.length || 16,
+    quotesPrepared: quotes.length || 9,
     followupsDone: 17,
     recoveredClients: 3
+  } : {
+    timeSavedHoursMinutes,
+    managedQuotesTotal,
+    recoveredRevenue,
+    inquiriesHandled: 0,
+    appointmentsBooked: appointments.length,
+    quotesPrepared: quotes.length,
+    followupsDone: 0,
+    recoveredClients: 0
   };
 
   const addImpactLog = (log: Omit<AiImpactLog, 'id' | 'timestamp'>) => {
@@ -162,7 +202,7 @@ export const DemoProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!targetQuote || targetQuote.status === 'sent') return; // Guard against duplicates
 
     setQuotes(prev => prev.map(q => q.id === quoteId ? { ...q, status: 'sent' } : q));
-    
+
     addImpactLog({
       title: `Presupuesto ${targetQuote.number} enviado a cliente`,
       details: `Enviado por WhatsApp. Importe: ${targetQuote.total.toFixed(2)} €`,
@@ -191,9 +231,9 @@ export const DemoProvider: React.FC<{ children: React.ReactNode }> = ({ children
       workloadLevel: 'medium',
       slotQuality: 'optimal'
     };
-    
+
     setAppointments(prev => [newApp, ...prev]);
-    
+
     setConversations(prev => prev.map(conv => {
       if (conv.id === 'conv-marta') {
         return {

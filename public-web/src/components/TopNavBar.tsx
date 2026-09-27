@@ -3,6 +3,7 @@ import { Menu, X } from 'lucide-react';
 
 export const TopNavBar: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const accessUrl = (typeof import.meta !== 'undefined' && (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_AUTH_ACCESS_URL) || '#acceso';
 
   return (
     <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-sm border-b border-workshop-border">
@@ -33,7 +34,13 @@ export const TopNavBar: React.FC = () => {
           </nav>
 
           {/* Desktop CTA Action */}
-          <div className="hidden md:flex items-center">
+          <div className="hidden md:flex items-center gap-3">
+            <a
+              href={accessUrl}
+              className="text-sm font-medium text-slate-700 hover:text-cobalt-600 transition px-3 py-1.5 rounded-md hover:bg-slate-50"
+            >
+              Acceso
+            </a>
             <a
               href="#solicitar-demo"
               className="inline-flex items-center justify-center px-4 py-2 text-sm font-semibold text-white bg-cobalt-600 hover:bg-cobalt-700 active:bg-cobalt-800 rounded-md shadow-sm transition focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-cobalt-600"
@@ -44,6 +51,12 @@ export const TopNavBar: React.FC = () => {
 
           {/* Mobile Menu Button & Direct CTA */}
           <div className="flex items-center gap-2 md:hidden">
+            <a
+              href={accessUrl}
+              className="px-2.5 py-1 text-xs font-medium text-slate-700 hover:text-cobalt-600 rounded-md border border-slate-200"
+            >
+              Acceso
+            </a>
             <a
               href="#solicitar-demo"
               className="px-3 py-1.5 text-xs font-semibold text-white bg-cobalt-600 hover:bg-cobalt-700 rounded-md shadow-sm"
@@ -101,7 +114,14 @@ export const TopNavBar: React.FC = () => {
           >
             Compatibilidad
           </a>
-          <div className="pt-2">
+          <div className="pt-2 border-t border-slate-100 space-y-2">
+            <a
+              href={accessUrl}
+              onClick={() => setMobileMenuOpen(false)}
+              className="block w-full text-center px-4 py-2 text-sm font-medium text-slate-700 hover:text-cobalt-600 bg-slate-50 hover:bg-slate-100 rounded-md border border-slate-200 transition"
+            >
+              Acceso
+            </a>
             <a
               href="#solicitar-demo"
               onClick={() => setMobileMenuOpen(false)}
