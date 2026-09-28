@@ -25,4 +25,31 @@ describe('production runtime configuration', () => {
     expect(loadWorkerRuntimeConfig(base).mode).toBe('disabled');
     expect(() => loadWorkerRuntimeConfig({ ...base, WORKER_MODE: 'enabled' })).toThrow(/WORKER_ADAPTER_NOT_CONFIGURED/);
   });
+
+  it('parses and validates TRUSTED_PROXY_CIDRS with strict fail-closed semantics', () => {
+    // Absent -> undefined
+    expect(loadApiRuntimeConfig(base).trustedProxyCidrs).toBeUndefined();
+
+    // Empty/whitespace -> undefined
+    expect(loadApiRuntimeConfig({ ...base, TRUSTED_PROXY_CIDRS: '' }).trustedProxyCidrs).toBeUndefined();
+    expect(loadApiRuntimeConfig({ ...base, TRUSTED_PROXY_CIDRS: '   ' }).trustedProxyCidrs).toBeUndefined();
+
+    // Single valid IP
+    expect(loadApiRuntimeConfig({ ...base, TRUSTED_PROXY_CIDRS: '127.0.0.1' }).trustedProxyCidrs).toEqual(['127.0.0.1']);
+
+    // List with IPv4, CIDRs, IPv6
+    expect(loadApiRuntimeConfig({ ...base, TRUSTED_PROXY_CIDRS: '127.0.0.1, 10.0.0.0/8, ::1, 172.16.0.0/12' }).trustedProxyCidrs)
+      .toEqual(['127.0.0.1', '10.0.0.0/8', '::1', '172.16.0.0/12']);
+
+    // Invalid values throw TRUSTED_PROXY_CIDRS_INVALID
+    expect(() => loadApiRuntimeConfig({ ...base, TRUSTED_PROXY_CIDRS: 'true' })).toThrow(/TRUSTED_PROXY_CIDRS_INVALID/);
+    expect(() => loadApiRuntimeConfig({ ...base, TRUSTED_PROXY_CIDRS: 'false' })).toThrow(/TRUSTED_PROXY_CIDRS_INVALID/);
+    expect(() => loadApiRuntimeConfig({ ...base, TRUSTED_PROXY_CIDRS: '*' })).toThrow(/TRUSTED_PROXY_CIDRS_INVALID/);
+    expect(() => loadApiRuntimeConfig({ ...base, TRUSTED_PROXY_CIDRS: '127.0.0.1/33' })).toThrow(/TRUSTED_PROXY_CIDRS_INVALID/);
+    expect(() => loadApiRuntimeConfig({ ...base, TRUSTED_PROXY_CIDRS: '::1/129' })).toThrow(/TRUSTED_PROXY_CIDRS_INVALID/);
+    expect(() => loadApiRuntimeConfig({ ...base, TRUSTED_PROXY_CIDRS: '127.0.0.1/abc' })).toThrow(/TRUSTED_PROXY_CIDRS_INVALID/);
+    expect(() => loadApiRuntimeConfig({ ...base, TRUSTED_PROXY_CIDRS: 'not-an-ip' })).toThrow(/TRUSTED_PROXY_CIDRS_INVALID/);
+    expect(() => loadApiRuntimeConfig({ ...base, TRUSTED_PROXY_CIDRS: '127.0.0.1,,10.0.0.1' })).toThrow(/TRUSTED_PROXY_CIDRS_INVALID/);
+    expect(() => loadApiRuntimeConfig({ ...base, TRUSTED_PROXY_CIDRS: ',' })).toThrow(/TRUSTED_PROXY_CIDRS_INVALID/);
+  });
 });

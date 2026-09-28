@@ -10,6 +10,7 @@ const app = buildApi(pool, {
   readiness: () => checkDatabaseReadiness(pool, 'bibendia_api'),
   publicLead: config.publicLeadTenantId ? { tenantId: config.publicLeadTenantId } : undefined,
   runtime: { service: 'api', version: config.version, commit: config.commit },
+  trustProxy: config.trustedProxyCidrs,
 });
 await app.listen({ host: '0.0.0.0', port: config.port });
 

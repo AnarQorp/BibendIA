@@ -1,3 +1,4 @@
+import net from 'node:net';
 import type { ProviderIngressConfig } from '../auth/provider-authentication-adapter.js';
 import { piiProtectionFromEnvironment, type PiiProtection } from '../security/pii-protection.js';
 
@@ -11,6 +12,7 @@ export type ApiRuntimeConfig = RuntimeIdentity & {
   providerIngress?: ProviderIngressConfig;
   piiProtection: PiiProtection;
   publicLeadTenantId?: string;
+  trustedProxyCidrs?: readonly string[];
 };
 
 export type WorkerRuntimeConfig = RuntimeIdentity & {
@@ -37,6 +39,7 @@ export function loadApiRuntimeConfig(env: NodeJS.ProcessEnv = process.env): ApiR
     providerIngress: providerIngressFromEnvironment(env),
     piiProtection: piiProtectionFromEnvironment(env),
     publicLeadTenantId: optionalUuid(env.PUBLIC_LEAD_ACQUISITION_TENANT_ID),
+    trustedProxyCidrs: parseTrustedProxyCidrs(env.TRUSTED_PROXY_CIDRS),
   };
 }
 
@@ -100,3 +103,40 @@ function providerIngressFromEnvironment(env: NodeJS.ProcessEnv): ProviderIngress
     elevenLabsTool: groups.elevenLabsTool.every(Boolean) ? { servicePrincipalId: groups.elevenLabsTool[0]!, externalAccountId: groups.elevenLabsTool[1]!, secret: groups.elevenLabsTool[2]! } : undefined,
   };
 }
+
+function parseTrustedProxyCidrs(value: string | undefined): readonly string[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  const trimmed = value.trim();
+  if (trimmed === '') return undefined;
+
+  const rawParts = trimmed.split(',');
+  const result: string[] = [];
+  for (const raw of rawParts) {
+    const token = raw.trim();
+    if (!token || !isValidIpOrCidr(token)) {
+      throw new RuntimeConfigError('TRUSTED_PROXY_CIDRS_INVALID');
+    }
+    result.push(token);
+  }
+  if (result.length === 0) throw new RuntimeConfigError('TRUSTED_PROXY_CIDRS_INVALID');
+  return Object.freeze(result);
+}
+
+function isValidIpOrCidr(token: string): boolean {
+  if (token.includes('/')) {
+    const parts = token.split('/');
+    if (parts.length !== 2) return false;
+    const [ip, prefixStr] = parts;
+    if (!/^\d+$/.test(prefixStr)) return false;
+    const prefix = Number(prefixStr);
+    if (net.isIPv4(ip)) {
+      return prefix >= 0 && prefix <= 32;
+    }
+    if (net.isIPv6(ip)) {
+      return prefix >= 0 && prefix <= 128;
+    }
+    return false;
+  }
+  return net.isIP(token) !== 0;
+}
+

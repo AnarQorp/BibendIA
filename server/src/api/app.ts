@@ -32,13 +32,20 @@ export type ApiSecurityOptions = {
   readiness?: () => Promise<ReadinessResult>;
   runtime?: { service: 'api'; version: string; commit: string };
   publicLead?: { tenantId:string;retentionDays?:number;dedupeMinutes?:number;rateLimit?:number };
+  trustProxy?: readonly string[];
 };
 
 export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
-  const app = Fastify({ logger: {
-    base: options.runtime,
-    redact: { paths: ['req.headers.authorization', 'req.headers.cookie', 'req.headers.x-twilio-signature', 'req.headers.elevenlabs-signature'], censor: '[REDACTED]' },
-  } });
+  const trustProxy = (options.trustProxy && options.trustProxy.length > 0)
+    ? [...options.trustProxy]
+    : false;
+  const app = Fastify({
+    trustProxy,
+    logger: {
+      base: options.runtime,
+      redact: { paths: ['req.headers.authorization', 'req.headers.cookie', 'req.headers.x-twilio-signature', 'req.headers.elevenlabs-signature'], censor: '[REDACTED]' },
+    },
+  });
   const pii = options.piiProtection ?? new UnavailablePiiProtection();
   const origins = new Set(options.allowedOrigins ?? ['http://127.0.0.1:3131']);
   app.register(cors, { origin: (origin, callback) => callback(null, !origin || origins.has(origin)) });
