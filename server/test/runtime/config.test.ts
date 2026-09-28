@@ -26,6 +26,21 @@ describe('production runtime configuration', () => {
     expect(() => loadWorkerRuntimeConfig({ ...base, WORKER_MODE: 'enabled' })).toThrow(/WORKER_ADAPTER_NOT_CONFIGURED/);
   });
 
+  it('loads human auth atomically, requires the pilot tenant and enforces separate MFA policy', () => {
+    const auth = {
+      ...base, OIDC_ISSUER: 'https://bibendia.eu.auth0.com', HUMAN_SESSION_KEY: key,
+      OIDC_WORKSHOP_CLIENT_ID: 'workshop-client', OIDC_WORKSHOP_CLIENT_SECRET: 'workshop-secret',
+      OIDC_PLATFORM_CLIENT_ID: 'platform-client', OIDC_PLATFORM_CLIENT_SECRET: 'platform-secret',
+      HUMAN_AUTH_PILOT_TENANT_ID: '00000000-0000-4000-8000-000000000001',
+    };
+    const config = loadApiRuntimeConfig(auth).humanAuthentication!;
+    expect(config.workshop.requireMfa).toBe(false);
+    expect(config.platform.requireMfa).toBe(true);
+    expect(config.workshop.cookieName).not.toBe(config.platform.cookieName);
+    expect(() => loadApiRuntimeConfig({ ...auth, HUMAN_AUTH_PILOT_TENANT_ID: undefined })).toThrow(/INCOMPLETE/);
+    expect(() => loadApiRuntimeConfig({ ...auth, HUMAN_SESSION_KEY: Buffer.alloc(16).toString('base64url') })).toThrow(/SESSION_KEY_INVALID/);
+  });
+
   it('parses and validates TRUSTED_PROXY_CIDRS with strict fail-closed semantics', () => {
     // Absent -> undefined
     expect(loadApiRuntimeConfig(base).trustedProxyCidrs).toBeUndefined();

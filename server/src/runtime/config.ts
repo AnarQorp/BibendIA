@@ -1,5 +1,6 @@
 import net from 'node:net';
 import type { ProviderIngressConfig } from '../auth/provider-authentication-adapter.js';
+import type { HumanAuthenticationConfig } from '../auth/oidc-authentication-adapter.js';
 import { piiProtectionFromEnvironment, type PiiProtection } from '../security/pii-protection.js';
 
 export const EXPECTED_SCHEMA_VERSION = '013_public_lead_acquisition.sql';
@@ -13,6 +14,7 @@ export type ApiRuntimeConfig = RuntimeIdentity & {
   piiProtection: PiiProtection;
   publicLeadTenantId?: string;
   trustedProxyCidrs?: readonly string[];
+  humanAuthentication?: HumanAuthenticationConfig;
 };
 
 export type WorkerRuntimeConfig = RuntimeIdentity & {
@@ -40,7 +42,48 @@ export function loadApiRuntimeConfig(env: NodeJS.ProcessEnv = process.env): ApiR
     piiProtection: piiProtectionFromEnvironment(env),
     publicLeadTenantId: optionalUuid(env.PUBLIC_LEAD_ACQUISITION_TENANT_ID),
     trustedProxyCidrs: parseTrustedProxyCidrs(env.TRUSTED_PROXY_CIDRS),
+    humanAuthentication: humanAuthenticationFromEnvironment(env),
   };
+}
+
+function humanAuthenticationFromEnvironment(env: NodeJS.ProcessEnv): HumanAuthenticationConfig | undefined {
+  const names = [
+    'OIDC_ISSUER', 'OIDC_WORKSHOP_CLIENT_ID', 'OIDC_WORKSHOP_CLIENT_SECRET',
+    'OIDC_PLATFORM_CLIENT_ID', 'OIDC_PLATFORM_CLIENT_SECRET', 'HUMAN_SESSION_KEY', 'HUMAN_AUTH_PILOT_TENANT_ID',
+  ] as const;
+  const configured = names.some((name) => Boolean(env[name]));
+  if (!configured) return undefined;
+  for (const name of names) if (!env[name]?.trim()) throw new RuntimeConfigError('HUMAN_AUTH_CONFIG_INCOMPLETE');
+
+  const issuer = requiredOrigin(env.OIDC_ISSUER, 'OIDC_ISSUER_INVALID');
+  const sessionKey = env.HUMAN_SESSION_KEY!.trim();
+  let decoded: Buffer;
+  try { decoded = Buffer.from(sessionKey, 'base64url'); } catch { throw new RuntimeConfigError('HUMAN_SESSION_KEY_INVALID'); }
+  if (decoded.length !== 32) throw new RuntimeConfigError('HUMAN_SESSION_KEY_INVALID');
+  const authorizationTenantId = requiredUuid(env.HUMAN_AUTH_PILOT_TENANT_ID, 'HUMAN_AUTH_PILOT_TENANT_INVALID');
+
+  return {
+    issuer,
+    sessionKey,
+    sessionTtlSeconds: integer(env.HUMAN_SESSION_TTL_SECONDS ?? '28800', 300, 86400, 'HUMAN_SESSION_TTL_INVALID'),
+    workshop: {
+      audience: 'workshop', clientId: env.OIDC_WORKSHOP_CLIENT_ID!.trim(), clientSecret: env.OIDC_WORKSHOP_CLIENT_SECRET!.trim(),
+      origin: requiredOrigin(env.WORKSHOP_ORIGIN, 'WORKSHOP_ORIGIN_INVALID'), cookieName: '__Host-bibendia_workshop', requireMfa: false,
+      authorizationTenantId,
+    },
+    platform: {
+      audience: 'platform', clientId: env.OIDC_PLATFORM_CLIENT_ID!.trim(), clientSecret: env.OIDC_PLATFORM_CLIENT_SECRET!.trim(),
+      origin: requiredOrigin(env.PLATFORM_ORIGIN, 'PLATFORM_ORIGIN_INVALID'), cookieName: '__Host-bibendia_platform', requireMfa: true,
+      authorizationTenantId,
+    },
+  };
+}
+
+function requiredUuid(value: string | undefined, code: string): string {
+  if (!value || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {
+    throw new RuntimeConfigError(code);
+  }
+  return value;
 }
 
 function optionalUuid(value:string|undefined):string|undefined {
@@ -139,4 +182,3 @@ function isValidIpOrCidr(token: string): boolean {
   }
   return net.isIP(token) !== 0;
 }
-

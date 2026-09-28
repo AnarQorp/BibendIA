@@ -23,6 +23,8 @@ import type { ReadinessResult } from '../runtime/readiness.js';
 import { findSlots, holdSlot } from '../modules/scheduling/postgres-scheduling.js';
 import { PlatformAdminError, registerPlatformAdminRoutes } from './platform-admin-routes.js';
 import { registerPublicLeadRoute } from './public-lead-route.js';
+import { OidcAuthenticationAdapter } from '../auth/oidc-authentication-adapter.js';
+import { registerHumanAuthRoutes } from './human-auth-routes.js';
 
 export type ApiSecurityOptions = {
   authentication?: AuthenticationAdapter;
@@ -33,6 +35,7 @@ export type ApiSecurityOptions = {
   runtime?: { service: 'api'; version: string; commit: string };
   publicLead?: { tenantId:string;retentionDays?:number;dedupeMinutes?:number;rateLimit?:number };
   trustProxy?: readonly string[];
+  humanAuthentication?: OidcAuthenticationAdapter;
 };
 
 export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
@@ -50,11 +53,12 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
   const origins = new Set(options.allowedOrigins ?? ['http://127.0.0.1:3131']);
   app.register(cors, { origin: (origin, callback) => callback(null, !origin || origins.has(origin)) });
   registerSignedBodyParsers(app);
-  const baseAuthentication = options.authentication ?? new DenyAllAuthenticationAdapter();
+  const baseAuthentication = options.humanAuthentication ?? options.authentication ?? new DenyAllAuthenticationAdapter();
   const authentication = options.providerIngress
     ? new ProviderAuthenticationAdapter(baseAuthentication, options.providerIngress)
     : baseAuthentication;
   registerAuthenticationBoundary(app, authentication);
+  if (options.humanAuthentication) registerHumanAuthRoutes(app, pool, options.humanAuthentication);
   app.setErrorHandler((error, request, reply) => {
     if ((error as { statusCode?: number }).statusCode === 413) {
       return reply.code(413).send({ error: 'PAYLOAD_TOO_LARGE', correlationId: request.id });

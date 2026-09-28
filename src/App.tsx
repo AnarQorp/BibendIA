@@ -12,6 +12,7 @@ import { ProveedoresWorkshopView } from './components/views/ProveedoresWorkshopV
 import { ImpactoView } from './components/views/ImpactoView';
 import { IntegracionesView } from './components/views/IntegracionesView';
 import { GlobalAssistantModal } from './components/ai/GlobalAssistantModal';
+import { AuthSessionGate } from './components/auth/AuthSessionGate';
 
 declare const __DEMO_ENABLED__: boolean;
 
@@ -19,7 +20,7 @@ const GuidedDemoPlayer = (typeof __DEMO_ENABLED__ !== 'undefined' && __DEMO_ENAB
   ? React.lazy(() => import('./components/demo/GuidedDemoPlayer').then(m => ({ default: m.GuidedDemoPlayer })))
   : null;
 
-const MainContent: React.FC = () => {
+const MainContent: React.FC<{ tenantId: string }> = ({ tenantId }) => {
   const {
     activeSection,
     setActiveSection,
@@ -65,7 +66,7 @@ const MainContent: React.FC = () => {
       return <ProveedoresWorkshopView />;
     }
     if (currentPath === '/agenda' || activeSection === 'agenda') {
-      return <AgendaView />;
+      return <AgendaView tenantId={tenantId} />;
     }
     if (currentPath === '/bandeja' || activeSection === 'bandeja') {
       return <BandejaView />;
@@ -112,13 +113,9 @@ const MainContent: React.FC = () => {
 };
 
 export function App() {
-  return (
-    <RouterProvider>
-      <DemoProvider>
-        <MainContent />
-      </DemoProvider>
-    </RouterProvider>
-  );
+  const content = (tenantId: string) => <RouterProvider><DemoProvider><MainContent tenantId={tenantId} /></DemoProvider></RouterProvider>;
+  if (typeof __DEMO_ENABLED__ !== 'undefined' && __DEMO_ENABLED__) return content('');
+  return <AuthSessionGate expectedAudience="workshop">{(session) => content(session.tenantIds[0])}</AuthSessionGate>;
 }
 
 export default App;
