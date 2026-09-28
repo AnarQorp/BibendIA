@@ -19,13 +19,13 @@ export const TopNavBar: React.FC = () => {
               />
               <span className="font-bold text-xl tracking-tight text-graphite">BibendIA</span>
             </a>
-            <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200">
+            <span className="hidden lg:inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200">
               Recepción inteligente
             </span>
           </div>
 
           {/* Desktop Navigation */}
-          <nav className="hidden md:flex items-center space-x-6 text-sm font-medium text-slate-700">
+          <nav className="hidden lg:flex items-center space-x-6 text-sm font-medium text-slate-700">
             <a href="#como-opera" className="hover:text-cobalt-600 transition">Cómo opera</a>
             <a href="#el-dia-a-dia" className="hover:text-cobalt-600 transition">El día a día</a>
             <a href="#canales" className="hover:text-cobalt-600 transition">Canales</a>
@@ -34,7 +34,7 @@ export const TopNavBar: React.FC = () => {
           </nav>
 
           {/* Desktop CTA Action */}
-          <div className="hidden md:flex items-center gap-3">
+          <div className="hidden lg:flex items-center gap-3">
             <a
               href={accessUrl}
               className="text-sm font-medium text-slate-700 hover:text-cobalt-600 transition px-3 py-1.5 rounded-md hover:bg-slate-50"
@@ -50,7 +50,7 @@ export const TopNavBar: React.FC = () => {
           </div>
 
           {/* Mobile Menu Button & Direct CTA */}
-          <div className="flex items-center gap-2 md:hidden">
+          <div className="flex items-center gap-2 lg:hidden">
             <a
               href={accessUrl}
               className="px-2.5 py-1 text-xs font-medium text-slate-700 hover:text-cobalt-600 rounded-md border border-slate-200"
@@ -78,7 +78,7 @@ export const TopNavBar: React.FC = () => {
 
       {/* Mobile Dropdown Menu */}
       {mobileMenuOpen && (
-        <div className="md:hidden border-b border-workshop-border bg-white px-4 pt-2 pb-4 space-y-2 shadow-lg">
+        <div className="lg:hidden border-b border-workshop-border bg-white px-4 pt-2 pb-4 space-y-2 shadow-lg">
           <a
             href="#como-opera"
             onClick={() => setMobileMenuOpen(false)}
