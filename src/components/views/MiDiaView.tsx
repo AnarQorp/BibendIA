@@ -1,28 +1,31 @@
 import React, { useState } from 'react';
 import { useDemo } from '../../context/DemoContext';
 import { useWorkshopAppointments } from '../../context/WorkshopAppointmentsContext';
-import { 
-  AlertCircle, 
-  ArrowRight, 
-  Wrench, 
-  Check, 
+import {
+  AlertCircle,
+  ArrowRight,
+  Wrench,
+  Check,
   ChevronRight,
   Database,
   MessageSquare,
   Phone,
   CheckCircle2,
   AlertTriangle,
-  Sparkles
+  Sparkles,
+  Lock,
+  Clock,
+  RotateCcw
 } from 'lucide-react';
 import { formatAppointmentTime } from '../../services/workshopAppointments';
 
 export const MiDiaView: React.FC = () => {
-  const { 
-    quotes, 
-    approveQuote, 
-    appointments, 
-    completeAppointmentWork, 
-    sendAppointmentToDMS, 
+  const {
+    quotes,
+    approveQuote,
+    appointments,
+    completeAppointmentWork,
+    sendAppointmentToDMS,
     impactLogs,
     setActiveSection,
     vehicles,
@@ -36,7 +39,8 @@ export const MiDiaView: React.FC = () => {
     appointments: realAppointments,
     todayAppointments: realTodayAppointments,
     provisionalAppointments: realProvisionalAppointments,
-    state: appointmentState
+    state: appointmentState,
+    refresh: refreshRealAppointments
   } = useWorkshopAppointments();
 
   const [selectedAppId, setSelectedAppId] = useState<string | null>(null);
@@ -46,6 +50,91 @@ export const MiDiaView: React.FC = () => {
   // PRODUCT MODE: Real Backend Data Derived Operations
   // -------------------------------------------------------------
   if (!demoModeActive) {
+    // State 1: Awaiting Tenant Resolution
+    if (appointmentState.status === 'awaiting_tenant') {
+      return (
+        <div className="p-3 sm:p-6 max-w-7xl mx-auto space-y-4 sm:space-y-6 animate-fadeIn">
+          <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center shadow-xs space-y-3">
+            <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-200 text-blue-700 flex items-center justify-center mx-auto">
+              <Lock className="w-6 h-6 stroke-[1.75]" />
+            </div>
+            <div className="max-w-md mx-auto space-y-1">
+              <h3 className="text-sm font-extrabold text-slate-900">Contexto de Taller Pendiente de Sesión</h3>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Para consultar las citas y la jornada de Mi Día, se requiere una sesión activa con membresía autorizada en un taller. De acuerdo con el modelo de seguridad P0.2 / P0.3, la identidad del taller se deriva de forma segura en el servidor.
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // State 2: Loading State
+    if (appointmentState.status === 'loading') {
+      return (
+        <div className="p-3 sm:p-6 max-w-7xl mx-auto space-y-4 sm:space-y-6 animate-fadeIn">
+          <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center shadow-xs space-y-3">
+            <div className="w-7 h-7 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
+            <p className="text-xs font-semibold text-slate-600">Consultando jornada y citas contra el contrato real de taller...</p>
+          </div>
+        </div>
+      );
+    }
+
+    // State 3: Unauthorized (401 / 403)
+    if (appointmentState.status === 'unauthorized') {
+      return (
+        <div className="p-3 sm:p-6 max-w-7xl mx-auto space-y-4 sm:space-y-6 animate-fadeIn">
+          <div className="bg-white border border-amber-200 rounded-2xl p-6 shadow-xs space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 flex items-center justify-center shrink-0">
+                <Lock className="w-5 h-5" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-sm font-extrabold text-slate-900">Autenticación de Taller Requerida (401 / 403)</h3>
+                <p className="text-xs text-slate-600 leading-relaxed max-w-2xl">
+                  {appointmentState.message}
+                </p>
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs font-mono text-slate-600 mt-2">
+                  <p className="font-bold text-slate-800">Invariante de Seguridad P0.2 / P0.3:</p>
+                  <p className="text-[11px] text-slate-500 pt-0.5">
+                    El backend rechaza peticiones anónimas o sin autorización válida de taller. El frontend no inventa tokens ni simula estar conectado mientras el flujo de autenticación esté en integración.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // State 4: Error State (Explicit, with correlationId and retry)
+    if (appointmentState.status === 'error') {
+      return (
+        <div className="p-3 sm:p-6 max-w-7xl mx-auto space-y-4 sm:space-y-6 animate-fadeIn">
+          <div className="bg-rose-50 border border-rose-200 rounded-2xl p-6 shadow-xs space-y-3">
+            <div className="flex items-center gap-2 text-rose-800 font-bold text-sm">
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+              <span>Error de Conexión al Sincronizar Mi Día</span>
+            </div>
+            <p className="text-xs text-rose-700 leading-relaxed">{appointmentState.message}</p>
+            {appointmentState.correlationId && (
+              <p className="text-[11px] font-mono text-rose-600">ID Correlación: {appointmentState.correlationId}</p>
+            )}
+            <div className="pt-1">
+              <button
+                onClick={refreshRealAppointments}
+                className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-semibold transition"
+              >
+                Reintentar
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // States 5 & 6: Empty or Success (Demonstrably healthy response from backend)
     const hasProvisional = realProvisionalAppointments.length > 0;
     const exceptionsCount = realProvisionalAppointments.length;
 
@@ -61,7 +150,7 @@ export const MiDiaView: React.FC = () => {
                 <span className="text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-mono">Modo Productivo</span>
               </div>
               <p className="text-sm text-slate-600 leading-relaxed">
-                Agenda sincronizada con el motor de captación de BibendIA. Hay <strong className="text-slate-900 font-bold">{realAppointments.length} {realAppointments.length === 1 ? 'cita confirmada' : 'citas confirmadas'}</strong> en el taller ({realTodayAppointments.length} programadas para hoy).
+                Agenda sincronizada con el backend de BibendIA. Hay <strong className="text-slate-900 font-bold">{realAppointments.length} {realAppointments.length === 1 ? 'cita confirmada' : 'citas confirmadas'}</strong> en el taller ({realTodayAppointments.length} programadas para hoy).
               </p>
             </div>
 
@@ -106,7 +195,10 @@ export const MiDiaView: React.FC = () => {
                       <div className="space-y-1.5">
                         <div className="flex items-center gap-2">
                           <span className="text-[11px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded-md flex items-center gap-1">
-                            <AlertTriangle className="w-3.5 h-3.5 text-amber-600" /> Identidad Provisional (Pendiente de confirmar)
+                            <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                            {app.identity_resolution === 'provisional_ambiguous'
+                              ? 'Identidad Ambigua (Requiere revisión)'
+                              : 'Identidad Provisional (Nueva)'}
                           </span>
                           <span className="license-plate">{app.vehicle_plate}</span>
                         </div>
@@ -132,7 +224,7 @@ export const MiDiaView: React.FC = () => {
                 ) : (
                   <div className="p-6 bg-slate-50 border border-slate-200/60 rounded-xl text-slate-600 text-xs text-center space-y-1">
                     <p className="font-bold text-slate-800">Todo al día</p>
-                    <p className="text-slate-500">No hay citas con identidad ambigua ni excepciones pendientes de revisión humana.</p>
+                    <p className="text-slate-500">No hay citas con identidad provisional ni excepciones pendientes de revisión humana.</p>
                   </div>
                 )}
               </div>
@@ -145,7 +237,7 @@ export const MiDiaView: React.FC = () => {
                   <h3 className="text-base font-extrabold text-slate-900 tracking-tight">Hoy en la Agenda del Taller</h3>
                   <p className="text-xs text-slate-500">Citas programadas para la jornada actual.</p>
                 </div>
-                <button 
+                <button
                   onClick={() => setActiveSection('agenda')}
                   className="text-xs font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1"
                 >
@@ -197,7 +289,7 @@ export const MiDiaView: React.FC = () => {
                   </div>
                 ) : (
                   <div className="p-8 bg-slate-50 border border-slate-200 rounded-xl text-center text-slate-500 text-xs">
-                    Sin citas registradas en el taller. La capacidad está 100% disponible.
+                    Sin citas registradas en el taller para la jornada de hoy.
                   </div>
                 )}
               </div>
@@ -240,7 +332,7 @@ export const MiDiaView: React.FC = () => {
                   ))
                 ) : (
                   <div className="text-center py-6 bg-slate-50 border border-slate-200/60 rounded-xl text-slate-500 text-xs">
-                    Sin citas registradas aún. El agente telefónico está activo para recibir solicitudes.
+                    Sin citas registradas aún. Integración de voz preparada · pendiente de activación productiva y smoke real.
                   </div>
                 )}
               </div>
@@ -258,15 +350,18 @@ export const MiDiaView: React.FC = () => {
 
               <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2 text-xs text-slate-600">
                 <p className="font-bold text-slate-900">Capacidades Activas:</p>
-                <p className="flex items-center gap-1.5 text-emerald-700"><Check className="w-3 h-3 text-emerald-600" /> Captura telefónica con agente de voz</p>
                 <p className="flex items-center gap-1.5 text-emerald-700"><Check className="w-3 h-3 text-emerald-600" /> Gestión de huecos y citas en Agenda</p>
                 <p className="flex items-center gap-1.5 text-emerald-700"><Check className="w-3 h-3 text-emerald-600" /> Protección PII y descifrado verificado</p>
+                <p className="flex items-center gap-1.5 text-emerald-700"><Check className="w-3 h-3 text-emerald-600" /> Sincronización contra backend canónico</p>
               </div>
 
               <div className="p-3.5 bg-amber-50/70 border border-amber-200 rounded-xl space-y-2 text-xs text-amber-900">
                 <p className="font-bold text-amber-950">Fronteras en Preparación:</p>
+                <p className="flex items-center gap-1.5 text-amber-900 font-semibold pt-0.5">
+                  <Clock className="w-3.5 h-3.5 text-amber-600" /> Voz IA (Twilio / ElevenLabs): integración preparada · pendiente de activación productiva y smoke real
+                </p>
                 <p className="text-[11px] leading-relaxed text-amber-900/80">
-                  Los módulos de presupuestación automática contra catálogo y la bandeja de transcripciones de chat están en desarrollo para la siguiente iteración de backend. Cero mocks en build productivo.
+                  Los módulos de voz interactiva, presupuestación automática contra catálogo y la bandeja de chat están en desarrollo o pendientes de activación productiva. Cero mocks en build productivo.
                 </p>
               </div>
             </div>

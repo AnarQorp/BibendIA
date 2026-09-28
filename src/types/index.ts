@@ -133,6 +133,8 @@ export interface AiImpactLog {
 // REAL BACKEND CONTRACT INTERFACES (P0.3 / P0.5)
 // ==========================================
 
+export type IdentityResolution = 'verified' | 'provisional_new' | 'provisional_ambiguous';
+
 export interface WorkshopAppointmentResponse {
   id: string;
   tenant_id: string;
@@ -140,7 +142,7 @@ export interface WorkshopAppointmentResponse {
   case_id: string;
   customer_id: string | null;
   vehicle_id: string | null;
-  identity_resolution?: 'resolved' | 'provisional_ambiguous' | string;
+  identity_resolution?: IdentityResolution | string;
   service_request: {
     intent?: string;
     symptoms?: string[];

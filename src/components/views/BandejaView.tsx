@@ -37,7 +37,9 @@ export const BandejaView: React.FC = () => {
   const {
     appointments: realAppointments,
     todayAppointments,
-    provisionalAppointments
+    provisionalAppointments,
+    state: appointmentState,
+    refresh: refreshAppointments
   } = useWorkshopAppointments();
 
   const { navigate } = useRouter();
@@ -69,7 +71,7 @@ export const BandejaView: React.FC = () => {
                 </h2>
               </div>
               <p className="text-xs sm:text-sm text-slate-600 font-medium">
-                BibendIA procesa llamadas de clientes y solicitudes entrantes de forma autónoma. Las citas confirmadas se transfieren automáticamente a la Agenda.
+                Integración multicanal en preparación. Cuando se activen los canales de voz y mensajería, las citas confirmadas se transferirán automáticamente a la Agenda.
               </p>
             </div>
 
@@ -89,6 +91,57 @@ export const BandejaView: React.FC = () => {
           </div>
         </div>
 
+        {/* State Banner: Explicit handling of non-success/empty states */}
+        {appointmentState.status === 'error' && (
+          <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 sm:p-5 shadow-xs space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-rose-800 font-bold text-sm">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>Error al Consultar Citas en Backend</span>
+              </div>
+              <button
+                onClick={refreshAppointments}
+                className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-semibold transition"
+              >
+                Reintentar
+              </button>
+            </div>
+            <p className="text-xs text-rose-700 leading-relaxed">{appointmentState.message}</p>
+            {appointmentState.correlationId && (
+              <p className="text-[11px] font-mono text-rose-600">ID Correlación: {appointmentState.correlationId}</p>
+            )}
+          </div>
+        )}
+
+        {appointmentState.status === 'unauthorized' && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 sm:p-5 shadow-xs space-y-1">
+            <div className="flex items-center gap-2 text-amber-800 font-bold text-sm">
+              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>Autenticación de Taller Requerida (401 / 403)</span>
+            </div>
+            <p className="text-xs text-amber-700 leading-relaxed">{appointmentState.message}</p>
+          </div>
+        )}
+
+        {appointmentState.status === 'awaiting_tenant' && (
+          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-xs space-y-1">
+            <div className="flex items-center gap-2 text-slate-800 font-bold text-sm">
+              <Clock className="w-4 h-4 text-slate-600 shrink-0" />
+              <span>Contexto de Taller Pendiente de Sesión</span>
+            </div>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Esperando resolución de taller autorizado desde la sesión activa.
+            </p>
+          </div>
+        )}
+
+        {appointmentState.status === 'loading' && (
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 text-center shadow-xs space-y-2">
+            <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
+            <p className="text-xs font-semibold text-slate-600">Consultando estado de citas con el backend...</p>
+          </div>
+        )}
+
         {/* Integration Status Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs flex flex-col justify-between space-y-3">
@@ -103,7 +156,7 @@ export const BandejaView: React.FC = () => {
             <div>
               <h3 className="text-sm font-bold text-slate-900">Voz IA (Twilio / ElevenLabs)</h3>
               <p className="text-xs text-slate-500 mt-1">
-                Integración de voz preparada · pendiente de activación productiva.
+                Integración de voz preparada · pendiente de activación productiva y smoke real.
               </p>
             </div>
             <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
@@ -117,16 +170,46 @@ export const BandejaView: React.FC = () => {
               <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600">
                 <Calendar className="w-5 h-5" />
               </div>
-              <span className="text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200 font-mono">
-                {totalAppointments} Citas
-              </span>
+              {appointmentState.status === 'success' ? (
+                <span className="text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200 font-mono">
+                  {totalAppointments} Citas
+                </span>
+              ) : appointmentState.status === 'empty' ? (
+                <span className="text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200 font-mono">
+                  0 Citas
+                </span>
+              ) : appointmentState.status === 'error' ? (
+                <span className="text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 border border-rose-200 font-mono">
+                  Error
+                </span>
+              ) : appointmentState.status === 'unauthorized' ? (
+                <span className="text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 border border-amber-200 font-mono">
+                  No Autorizado
+                </span>
+              ) : appointmentState.status === 'loading' ? (
+                <span className="text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200 font-mono">
+                  Cargando...
+                </span>
+              ) : (
+                <span className="text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200 font-mono">
+                  Pendiente
+                </span>
+              )}
             </div>
             <div>
               <h3 className="text-sm font-bold text-slate-900">Citas en Taller</h3>
               <p className="text-xs text-slate-500 mt-1">
-                {totalAppointments > 0
+                {appointmentState.status === 'success'
                   ? `${totalAppointments} citas registradas en backend (${todayCount} para hoy).`
-                  : 'Sin citas registradas aún para este taller.'}
+                  : appointmentState.status === 'empty'
+                  ? 'Sin citas registradas aún para este taller.'
+                  : appointmentState.status === 'error'
+                  ? `Error de sincronización con backend.${appointmentState.correlationId ? ` Ref: ${appointmentState.correlationId}` : ''}`
+                  : appointmentState.status === 'unauthorized'
+                  ? 'Acceso no autorizado (401/403). Sesión de taller requerida.'
+                  : appointmentState.status === 'loading'
+                  ? 'Consultando citas en backend...'
+                  : 'Esperando sesión activa de taller.'}
               </p>
             </div>
             <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
@@ -168,10 +251,10 @@ export const BandejaView: React.FC = () => {
                 Arquitectura de Adquisición y Cero Mocks en Producción
               </h3>
               <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
-                En la versión actual, las llamadas telefónicas procesadas por el agente de voz negocian el hueco y persisten la cita directamente en la base de datos central del taller mediante <code className="px-1.5 py-0.5 bg-slate-100 text-slate-800 rounded text-xs font-mono font-bold">GET /v1/workshop/tenants/:tenantId/appointments</code>.
+                En la arquitectura actual, la integración de telefonía con agente de voz está preparada y pendiente de activación productiva y smoke real. Una vez activada, las citas capturadas se persistirán en la base de datos central del taller mediante <code className="px-1.5 py-0.5 bg-slate-100 text-slate-800 rounded text-xs font-mono font-bold">GET /v1/workshop/tenants/:tenantId/appointments</code>.
               </p>
               <p className="text-xs sm:text-sm text-slate-600 leading-relaxed pt-1">
-                Por política de soberanía e integridad de datos (P0.2/P0.3), no se presentan conversaciones simuladas o mensajes ficticios en el entorno productivo. Cualquier cita generada por las llamadas aparecerá de inmediato en la sección de <strong>Agenda</strong> y en <strong>Mi Día</strong>.
+                Por política de soberanía e integridad de datos (P0.2/P0.3), no se presentan conversaciones simuladas o mensajes ficticios en el entorno productivo. Cualquier cita generada aparecerá de inmediato en la sección de <strong>Agenda</strong> y en <strong>Mi Día</strong>.
               </p>
             </div>
           </div>

@@ -173,10 +173,11 @@ export function isAppointmentToday(startAt: string): boolean {
 }
 
 /**
- * Checks if the appointment has provisional/ambiguous identity (schema 011).
+ * Checks if the appointment has provisional identity (provisional_new or provisional_ambiguous)
+ * per canonical backend contract. Both require human workshop review.
  */
 export function isProvisionalIdentity(app: WorkshopAppointmentResponse): boolean {
-  return app.identity_resolution === 'provisional_ambiguous';
+  return app.identity_resolution === 'provisional_new' || app.identity_resolution === 'provisional_ambiguous';
 }
 
 /**

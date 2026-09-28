@@ -157,7 +157,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId }
                 <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs font-mono text-slate-600 mt-2">
                   <p className="font-bold text-slate-800">Invariante de Seguridad P0.2 / P0.3:</p>
                   <p className="text-[11px] text-slate-500 pt-0.5">
-                    El backend rechaza peticiones anónimas o con `x-tenant-id` manipulado. El frontend no inventa tokens ni simula estar conectado mientras el flujo OIDC esté en integración.
+                    El backend rechaza peticiones anónimas o sin autorización válida de taller. El frontend no inventa tokens ni simula estar conectado mientras el flujo de autenticación esté en integración.
                   </p>
                 </div>
               </div>
@@ -195,7 +195,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId }
             </div>
             <h3 className="text-sm font-bold text-slate-800">No hay citas registradas en este taller</h3>
             <p className="text-xs text-slate-500 max-w-sm mx-auto">
-              Cuando el agente de voz o la recepción capturen una cita confirmada, aparecerá aquí con los datos del vehículo y cliente desvelados.
+              Cuando la recepción o la integración de voz (preparada · pendiente de activación productiva) capturen una cita confirmada, aparecerá aquí con los datos del vehículo y cliente desvelados.
             </p>
           </div>
         )}
@@ -256,7 +256,10 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId }
                           {/* Identity resolution badge */}
                           {isProvisional ? (
                             <span className="text-xs font-bold text-amber-800 bg-amber-50 border border-amber-300 px-2.5 py-1 rounded-lg flex items-center gap-1.5">
-                              <AlertTriangle className="w-3.5 h-3.5 text-amber-600" /> Identidad Provisional (Revisar)
+                              <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                              {app.identity_resolution === 'provisional_ambiguous'
+                                ? 'Identidad Ambigua (Revisar)'
+                                : 'Identidad Provisional (Nueva)'}
                             </span>
                           ) : (
                             <span className="text-xs font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg flex items-center gap-1.5">
