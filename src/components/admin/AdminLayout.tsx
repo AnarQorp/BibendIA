@@ -49,14 +49,14 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ selectedTenantId = nul
         </div>
 
         {/* Tenant Authority Display (No arbitrary manual text input) */}
-        <div className="flex items-center gap-2 text-xs self-start sm:self-auto">
+        <div className="flex w-full min-w-0 flex-col items-start gap-2 text-xs self-start sm:w-auto sm:flex-row sm:items-center sm:self-auto">
           <span className="text-slate-400 font-mono">Tenant objetivo:</span>
           {selectedTenantId ? (
             <span className="bg-slate-800 border border-slate-700 text-blue-400 font-mono px-3 py-1.5 rounded-lg">
               {selectedTenantId}
             </span>
           ) : (
-            <span className="bg-slate-800/60 border border-slate-700/60 text-slate-500 font-mono px-3 py-1.5 rounded-lg truncate">
+            <span className="max-w-full min-w-0 bg-slate-800/60 border border-slate-700/60 text-slate-500 font-mono px-3 py-1.5 rounded-lg truncate">
               Pendiente de selección autorizada (P0.9)
             </span>
           )}
