@@ -213,7 +213,7 @@ async function runRegressionSuite() {
   }
 
   // ---------------------------------------------------------------------------
-  // TEST 2: Desktop Viewport (1280x800) Layout Regression Check
+  // TEST 2: Desktop Viewport (1280x800) Production Layout Check
   // ---------------------------------------------------------------------------
   console.log('\n[TEST 2] Desktop Viewport (1280x800) Production Layout Check:');
   try {
@@ -228,8 +228,79 @@ async function runRegressionSuite() {
       console.error(`  [FAIL] Desktop horizontal overflow detected: ${desktopData.overflowPx}px.`);
       overallPassed = false;
     }
+
+    if (!desktopData.logo || !desktopData.logo.visible) {
+      console.error('  [FAIL] Logo missing or not visible on Desktop layout!');
+      overallPassed = false;
+    } else {
+      console.log(`  [PASS] Desktop Logo Visible: width=${desktopData.logo.width}px, height=${desktopData.logo.height}px.`);
+      if (desktopData.badge && desktopData.title) {
+        if (desktopData.logo.top < desktopData.badge.top && desktopData.badge.top < desktopData.title.top) {
+          console.log(`  [PASS] Desktop Hierarchy Asserted: LogoTop (${desktopData.logo.top.toFixed(1)}px) < BadgeTop (${desktopData.badge.top.toFixed(1)}px) < TitleTop (${desktopData.title.top.toFixed(1)}px).`);
+        } else {
+          console.error(`  [FAIL] Desktop hierarchy order assertion failed!`);
+          overallPassed = false;
+        }
+      }
+    }
   } catch (e) {
     console.error('  [FAIL] Test 2 threw exception:', e.message);
+    overallPassed = false;
+  }
+
+  // ---------------------------------------------------------------------------
+  // TEST 3: Tablet Viewport (768x1024) Layout Check
+  // ---------------------------------------------------------------------------
+  console.log('\n[TEST 3] Tablet Viewport (768x1024) Layout Check:');
+  try {
+    const tabletData = await runTestScenario(768, 1024, false);
+
+    console.log(`  > Measured Viewport & Document: innerWidth=${tabletData.innerWidth}, clientWidth=${tabletData.clientWidth}, scrollWidth=${tabletData.scrollWidth}`);
+    console.log(`  > Measured Horizontal Overflow: ${tabletData.overflowPx}px`);
+
+    if (tabletData.overflowPx === 0) {
+      console.log('  [PASS] Tablet Horizontal Overflow: 0px.');
+    } else {
+      console.error(`  [FAIL] Tablet horizontal overflow detected: ${tabletData.overflowPx}px.`);
+      overallPassed = false;
+    }
+
+    if (!tabletData.logo || !tabletData.logo.visible) {
+      console.error('  [FAIL] Logo missing or not visible on Tablet layout!');
+      overallPassed = false;
+    } else {
+      console.log(`  [PASS] Tablet Logo Visible: width=${tabletData.logo.width}px, height=${tabletData.logo.height}px.`);
+    }
+  } catch (e) {
+    console.error('  [FAIL] Test 3 threw exception:', e.message);
+    overallPassed = false;
+  }
+
+  // ---------------------------------------------------------------------------
+  // TEST 4: Wide Desktop Viewport (1920x1080) Layout Check
+  // ---------------------------------------------------------------------------
+  console.log('\n[TEST 4] Wide Desktop Viewport (1920x1080) Layout Check:');
+  try {
+    const wideData = await runTestScenario(1920, 1080, false);
+
+    console.log(`  > Measured Viewport & Document: innerWidth=${wideData.innerWidth}, clientWidth=${wideData.clientWidth}, scrollWidth=${wideData.scrollWidth}`);
+    console.log(`  > Measured Horizontal Overflow: ${wideData.overflowPx}px`);
+
+    if (wideData.overflowPx === 0) {
+      console.log('  [PASS] Wide Desktop Horizontal Overflow: 0px.');
+    } else {
+      console.error(`  [FAIL] Wide Desktop horizontal overflow detected: ${wideData.overflowPx}px.`);
+      overallPassed = false;
+    }
+
+    if (!wideData.logo || !wideData.logo.visible) {
+      console.error('  [FAIL] Logo missing or not visible on Wide Desktop layout!');
+      overallPassed = false;
+    } else {
+      console.log(`  [PASS] Wide Desktop Logo Visible: width=${wideData.logo.width}px, height=${wideData.logo.height}px.`);
+    }
+  } catch (e) {
+    console.error('  [FAIL] Test 4 threw exception:', e.message);
     overallPassed = false;
   }
 

@@ -6,17 +6,36 @@ export const HeroSection: React.FC = () => {
     <section className="relative overflow-hidden pt-8 pb-16 md:pt-14 md:pb-24 border-b border-workshop-border">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center max-w-3xl mx-auto flex flex-col items-center">
-          {/* Mobile Mascot Logo - First Element on Mobile Viewports */}
-          <div className="block sm:hidden mb-6">
-            <img
-              src="./assets/logo_BibendIA.png"
-              alt="BibendIA Logo Mascot"
-              className="w-44 h-auto object-contain mx-auto drop-shadow-md"
+          {/* Premium 3D Hero Brand Stage */}
+          <div className="relative mb-5 sm:mb-7 flex flex-col items-center justify-center group cursor-default select-none">
+            {/* Ambient Multi-Spectrum Depth Aura */}
+            <div
+              className="absolute -top-4 sm:-top-6 left-1/2 -translate-x-1/2 w-48 h-48 sm:w-72 sm:h-72 lg:w-88 lg:h-88 rounded-full bg-[radial-gradient(circle_at_50%_45%,rgba(37,99,235,0.18)_0%,rgba(56,189,248,0.10)_35%,rgba(241,245,249,0)_70%)] pointer-events-none -z-10 blur-xl transform-gpu group-hover:scale-105 transition-transform duration-700"
+              aria-hidden="true"
             />
+
+            {/* Tactile 3D Relief Pedestal Plaque */}
+            <div className="relative rounded-[24px] sm:rounded-[32px] p-2 sm:p-3 bg-gradient-to-b from-white/95 via-slate-50/90 to-[#EDF2F7]/85 backdrop-blur-sm border border-white ring-1 ring-slate-200/70 shadow-[0_12px_28px_-6px_rgba(15,23,42,0.10),0_4px_14px_-2px_rgba(37,99,235,0.06),inset_0_1.5px_1px_rgba(255,255,255,1),inset_0_-2px_4px_rgba(15,23,42,0.04)] transition-all duration-300 ease-out group-hover:-translate-y-1 group-hover:shadow-[0_18px_36px_-6px_rgba(15,23,42,0.14),0_6px_18px_-2px_rgba(37,99,235,0.10)]">
+              {/* Subtle Top Edge Specular Reflection */}
+              <div
+                className="absolute inset-x-4 sm:inset-x-8 top-0 h-[1.5px] bg-gradient-to-r from-transparent via-white to-transparent pointer-events-none rounded-t-full"
+                aria-hidden="true"
+              />
+
+              {/* Inner Chamfered Bezel with Soft Horizon Light */}
+              <div className="relative rounded-[18px] sm:rounded-[24px] px-2.5 py-2 sm:px-4 sm:py-3 bg-gradient-to-b from-white to-[#F8FAFC] border border-slate-100/80 shadow-[inset_0_1px_2.5px_rgba(0,0,0,0.02)] flex items-center justify-center">
+                <img
+                  src="./assets/logo_BibendIA.png"
+                  alt="BibendIA Logo Mascot"
+                  className="w-28 h-auto sm:w-36 md:w-44 lg:w-48 object-contain filter drop-shadow-[0_8px_14px_rgba(15,23,42,0.07)] drop-shadow-[0_2px_5px_rgba(37,99,235,0.05)]"
+                  loading="eager"
+                />
+              </div>
+            </div>
           </div>
 
           {/* Badge */}
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-blue-50 text-cobalt-700 border border-blue-200 mb-6">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-blue-50 text-cobalt-700 border border-blue-200 mb-5 sm:mb-6 shadow-xs">
             <span className="w-2 h-2 rounded-full bg-cobalt-600 animate-pulse"></span>
             Recepción inteligente para talleres mecánicos
           </div>
