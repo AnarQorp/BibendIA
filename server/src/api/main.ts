@@ -8,6 +8,7 @@ const pool = createPool('api');
 const app = buildApi(pool, {
   allowedOrigins: config.allowedOrigins, providerIngress: config.providerIngress, piiProtection: config.piiProtection,
   readiness: () => checkDatabaseReadiness(pool, 'bibendia_api'),
+  publicLead: config.publicLeadTenantId ? { tenantId: config.publicLeadTenantId } : undefined,
   runtime: { service: 'api', version: config.version, commit: config.commit },
 });
 await app.listen({ host: '0.0.0.0', port: config.port });

@@ -22,6 +22,7 @@ import { safeErrorAttributes } from '../security/safe-logging.js';
 import type { ReadinessResult } from '../runtime/readiness.js';
 import { findSlots, holdSlot } from '../modules/scheduling/postgres-scheduling.js';
 import { PlatformAdminError, registerPlatformAdminRoutes } from './platform-admin-routes.js';
+import { registerPublicLeadRoute } from './public-lead-route.js';
 
 export type ApiSecurityOptions = {
   authentication?: AuthenticationAdapter;
@@ -30,6 +31,7 @@ export type ApiSecurityOptions = {
   piiProtection?: PiiProtection;
   readiness?: () => Promise<ReadinessResult>;
   runtime?: { service: 'api'; version: string; commit: string };
+  publicLead?: { tenantId:string;retentionDays?:number;dedupeMinutes?:number;rateLimit?:number };
 };
 
 export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
@@ -47,6 +49,9 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
     : baseAuthentication;
   registerAuthenticationBoundary(app, authentication);
   app.setErrorHandler((error, request, reply) => {
+    if ((error as { statusCode?: number }).statusCode === 413) {
+      return reply.code(413).send({ error: 'PAYLOAD_TOO_LARGE', correlationId: request.id });
+    }
     if (error instanceof TenantAuthorizationError) {
       return reply.code(error.code === 'AUTHENTICATION_EXPIRED' ? 401 : 403).send({ error: error.code });
     }
@@ -194,6 +199,7 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
     });
   }
   registerPlatformAdminRoutes(app,pool);
+  registerPublicLeadRoute(app,pool,pii,options.publicLead);
   app.post('/v1/providers/twilio/voice/events', {
     config: { rawBody: true, auth: { mode: 'authenticated', audience: 'provider', principalKinds: ['service'] } },
   }, async (request, reply) => {

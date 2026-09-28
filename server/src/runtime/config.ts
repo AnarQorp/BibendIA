@@ -1,7 +1,7 @@
 import type { ProviderIngressConfig } from '../auth/provider-authentication-adapter.js';
 import { piiProtectionFromEnvironment, type PiiProtection } from '../security/pii-protection.js';
 
-export const EXPECTED_SCHEMA_VERSION = '012_platform_admin_p0_9.sql';
+export const EXPECTED_SCHEMA_VERSION = '013_public_lead_acquisition.sql';
 export type RuntimeIdentity = { version: string; commit: string };
 
 export type ApiRuntimeConfig = RuntimeIdentity & {
@@ -10,6 +10,7 @@ export type ApiRuntimeConfig = RuntimeIdentity & {
   allowedOrigins: [string, string];
   providerIngress?: ProviderIngressConfig;
   piiProtection: PiiProtection;
+  publicLeadTenantId?: string;
 };
 
 export type WorkerRuntimeConfig = RuntimeIdentity & {
@@ -35,7 +36,14 @@ export function loadApiRuntimeConfig(env: NodeJS.ProcessEnv = process.env): ApiR
     allowedOrigins: [workshopOrigin, platformOrigin],
     providerIngress: providerIngressFromEnvironment(env),
     piiProtection: piiProtectionFromEnvironment(env),
+    publicLeadTenantId: optionalUuid(env.PUBLIC_LEAD_ACQUISITION_TENANT_ID),
   };
+}
+
+function optionalUuid(value:string|undefined):string|undefined {
+  if (!value) return undefined;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) throw new RuntimeConfigError('PUBLIC_LEAD_TENANT_INVALID');
+  return value;
 }
 
 export function loadWorkerRuntimeConfig(env: NodeJS.ProcessEnv = process.env): WorkerRuntimeConfig {
