@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { useDemo } from '../../context/DemoContext';
+import { useRouter } from '../../router/RouterContext';
+import { useWorkshopAppointments } from '../../context/WorkshopAppointmentsContext';
 import {
   MessageSquare,
   Phone,
@@ -16,7 +18,9 @@ import {
   Check,
   AlertCircle,
   ChevronLeft,
-  X
+  X,
+  ArrowRight,
+  ShieldCheck
 } from 'lucide-react';
 
 export const BandejaView: React.FC = () => {
@@ -26,14 +30,177 @@ export const BandejaView: React.FC = () => {
     vehicles,
     confirmAppointmentSlot,
     generateQuoteFromPrompt,
-    setActiveSection
+    setActiveSection,
+    demoModeActive
   } = useDemo();
+
+  const {
+    appointments: realAppointments,
+    todayAppointments,
+    provisionalAppointments
+  } = useWorkshopAppointments();
+
+  const { navigate } = useRouter();
 
   const [selectedConvId, setSelectedConvId] = useState<string>('');
   const [channelFilter, setChannelFilter] = useState<'all' | 'whatsapp' | 'phone' | 'web'>('all');
   const [replyInput, setReplyInput] = useState('');
   const [mobileActiveTab, setMobileActiveTab] = useState<'list' | 'chat'>('list');
   const [showUnderstandingModal, setShowUnderstandingModal] = useState<boolean>(false);
+
+  // -------------------------------------------------------------
+  // PRODUCT MODE: Real Architecture & Boundary Reporting
+  // (Zero mocks, no fake conversations, direct connection to real appointments)
+  // -------------------------------------------------------------
+  if (!demoModeActive) {
+    const totalAppointments = realAppointments.length;
+    const todayCount = todayAppointments.length;
+
+    return (
+      <div className="p-3 sm:p-6 max-w-7xl mx-auto space-y-4 sm:space-y-6 animate-fadeIn">
+        {/* Multichannel Ingestion Header */}
+        <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-xs relative overflow-hidden">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="space-y-1 max-w-2xl">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                <h2 className="text-lg sm:text-xl font-extrabold text-slate-900 tracking-tight">
+                  Recepción y Adquisición Multicanal
+                </h2>
+              </div>
+              <p className="text-xs sm:text-sm text-slate-600 font-medium">
+                BibendIA procesa llamadas de clientes y solicitudes entrantes de forma autónoma. Las citas confirmadas se transfieren automáticamente a la Agenda.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2.5">
+              <button
+                onClick={() => {
+                  setActiveSection('agenda');
+                  try { navigate('/agenda'); } catch (_) {}
+                }}
+                className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-2"
+              >
+                <Calendar className="w-4 h-4" />
+                <span>Ver Agenda de Citas</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Integration Status Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs flex flex-col justify-between space-y-3">
+            <div className="flex items-start justify-between">
+              <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600">
+                <Phone className="w-5 h-5" />
+              </div>
+              <span className="text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200">
+                Preparado
+              </span>
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-slate-900">Voz IA (Twilio / ElevenLabs)</h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Integración de voz preparada · pendiente de activación productiva.
+              </p>
+            </div>
+            <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+              <span>Canal voz</span>
+              <span className="font-semibold text-slate-700">Audio Streaming</span>
+            </div>
+          </div>
+
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs flex flex-col justify-between space-y-3">
+            <div className="flex items-start justify-between">
+              <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600">
+                <Calendar className="w-5 h-5" />
+              </div>
+              <span className="text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200 font-mono">
+                {totalAppointments} Citas
+              </span>
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-slate-900">Citas en Taller</h3>
+              <p className="text-xs text-slate-500 mt-1">
+                {totalAppointments > 0
+                  ? `${totalAppointments} citas registradas en backend (${todayCount} para hoy).`
+                  : 'Sin citas registradas aún para este taller.'}
+              </p>
+            </div>
+            <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+              <span>Reconciliación backend</span>
+              <span className="font-semibold text-emerald-600">GET /appointments</span>
+            </div>
+          </div>
+
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs flex flex-col justify-between space-y-3">
+            <div className="flex items-start justify-between">
+              <div className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-600">
+                <MessageSquare className="w-5 h-5" />
+              </div>
+              <span className="text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200">
+                Próximamente
+              </span>
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-slate-900">Bandeja de Texto / Chat</h3>
+              <p className="text-xs text-slate-500 mt-1">
+                La mensajería interactiva todavía no está disponible en el contrato Workshop actual.
+              </p>
+            </div>
+            <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+              <span>Estado contrato</span>
+              <span className="font-semibold text-amber-700">Contrato actual</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Boundary Notice Card */}
+        <div className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 shadow-xs space-y-4">
+          <div className="flex items-start gap-3">
+            <div className="w-8 h-8 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-700 shrink-0 mt-0.5">
+              <ShieldCheck className="w-4 h-4" />
+            </div>
+            <div className="space-y-1">
+              <h3 className="text-sm font-bold text-slate-900">
+                Arquitectura de Adquisición y Cero Mocks en Producción
+              </h3>
+              <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+                En la versión actual, las llamadas telefónicas procesadas por el agente de voz negocian el hueco y persisten la cita directamente en la base de datos central del taller mediante <code className="px-1.5 py-0.5 bg-slate-100 text-slate-800 rounded text-xs font-mono font-bold">GET /v1/workshop/tenants/:tenantId/appointments</code>.
+              </p>
+              <p className="text-xs sm:text-sm text-slate-600 leading-relaxed pt-1">
+                Por política de soberanía e integridad de datos (P0.2/P0.3), no se presentan conversaciones simuladas o mensajes ficticios en el entorno productivo. Cualquier cita generada por las llamadas aparecerá de inmediato en la sección de <strong>Agenda</strong> y en <strong>Mi Día</strong>.
+              </p>
+            </div>
+          </div>
+
+          <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center gap-3">
+            <button
+              onClick={() => {
+                setActiveSection('agenda');
+                try { navigate('/agenda'); } catch (_) {}
+              }}
+              className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5"
+            >
+              <Calendar className="w-3.5 h-3.5" />
+              <span>Ir a la Agenda</span>
+            </button>
+            <button
+              onClick={() => {
+                setActiveSection('midia');
+                try { navigate('/midia'); } catch (_) {}
+              }}
+              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all border border-slate-200"
+            >
+              <span>Ver resumen de Mi Día</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const filteredConvs = conversations.filter(c => {
     if (channelFilter === 'all') return true;

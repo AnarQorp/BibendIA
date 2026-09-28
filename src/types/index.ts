@@ -138,8 +138,9 @@ export interface WorkshopAppointmentResponse {
   tenant_id: string;
   workshop_id: string;
   case_id: string;
-  customer_id: string;
-  vehicle_id: string;
+  customer_id: string | null;
+  vehicle_id: string | null;
+  identity_resolution?: 'resolved' | 'provisional_ambiguous' | string;
   service_request: {
     intent?: string;
     symptoms?: string[];

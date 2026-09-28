@@ -13,6 +13,7 @@ import { ImpactoView } from './components/views/ImpactoView';
 import { IntegracionesView } from './components/views/IntegracionesView';
 import { GlobalAssistantModal } from './components/ai/GlobalAssistantModal';
 import { AuthSessionGate } from './components/auth/AuthSessionGate';
+import { WorkshopAppointmentsProvider } from './context/WorkshopAppointmentsContext';
 
 declare const __DEMO_ENABLED__: boolean;
 
@@ -113,9 +114,17 @@ const MainContent: React.FC<{ tenantId: string }> = ({ tenantId }) => {
 };
 
 export function App() {
-  const content = (tenantId: string) => <RouterProvider><DemoProvider><MainContent tenantId={tenantId} /></DemoProvider></RouterProvider>;
+  const content = (tenantId: string) => (
+    <RouterProvider>
+      <DemoProvider>
+        <WorkshopAppointmentsProvider tenantId={tenantId || null}>
+          <MainContent tenantId={tenantId} />
+        </WorkshopAppointmentsProvider>
+      </DemoProvider>
+    </RouterProvider>
+  );
   if (typeof __DEMO_ENABLED__ !== 'undefined' && __DEMO_ENABLED__) return content('');
-  return <AuthSessionGate expectedAudience="workshop">{(session) => content(session.tenantIds[0])}</AuthSessionGate>;
+  return <AuthSessionGate expectedAudience="workshop">{(session) => content(session.tenantIds[0] ?? '')}</AuthSessionGate>;
 }
 
 export default App;

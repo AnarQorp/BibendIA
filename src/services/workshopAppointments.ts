@@ -2,6 +2,7 @@ import type { WorkshopAppointmentResponse } from '../types';
 
 export type WorkshopAppointmentsState =
   | { status: 'idle' }
+  | { status: 'awaiting_tenant' }
   | { status: 'loading' }
   | { status: 'unauthorized'; message: string }
   | { status: 'error'; message: string; correlationId?: string }
@@ -9,9 +10,53 @@ export type WorkshopAppointmentsState =
   | { status: 'success'; data: WorkshopAppointmentResponse[]; correlationId?: string };
 
 export interface FetchWorkshopAppointmentsOptions {
-  tenantId: string;
+  tenantId?: string | null;
   baseUrl?: string;
   signal?: AbortSignal;
+}
+
+/**
+ * Resolves the API base URL from runtime window override or build-time env.
+ */
+export function getApiBaseUrl(): string {
+  const windowOverride = typeof window !== 'undefined'
+    ? (window as unknown as { __BIBENDIA_API_URL__?: string }).__BIBENDIA_API_URL__
+    : undefined;
+  const envUrl = windowOverride || (import.meta as unknown as { env?: Record<string, string | undefined> })?.env?.VITE_API_URL;
+  return envUrl ? envUrl.replace(/\/+$/, '') : '';
+}
+
+/**
+ * Resolves the workshop tenantId dynamically without hardcoding:
+ * 1. Runtime window override (for controlled test harnesses / CDP)
+ * 2. URL search params `?tenant=<uuid>`
+ * 3. Build-time / dev env `VITE_WORKSHOP_TENANT_ID`
+ * Returns null if awaiting session resolution.
+ */
+export function getWorkshopTenantId(): string | null {
+  if (typeof window !== 'undefined') {
+    const windowOverride = (window as unknown as { __BIBENDIA_WORKSHOP_TENANT_ID__?: string }).__BIBENDIA_WORKSHOP_TENANT_ID__;
+    if (windowOverride && typeof windowOverride === 'string' && windowOverride.trim()) {
+      return windowOverride.trim();
+    }
+
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const queryTenant = params.get('tenant');
+      if (queryTenant && queryTenant.trim()) {
+        return queryTenant.trim();
+      }
+    } catch {
+      // Ignore URL parsing errors
+    }
+  }
+
+  const envTenant = (import.meta as unknown as { env?: Record<string, string | undefined> })?.env?.VITE_WORKSHOP_TENANT_ID;
+  if (envTenant && typeof envTenant === 'string' && envTenant.trim()) {
+    return envTenant.trim();
+  }
+
+  return null;
 }
 
 /**
@@ -25,14 +70,15 @@ export interface FetchWorkshopAppointmentsOptions {
  * - Accurately differentiates between 401/403 (unauthorized) and data states.
  */
 export async function fetchWorkshopAppointments(
-  options: FetchWorkshopAppointmentsOptions
+  options: FetchWorkshopAppointmentsOptions = {}
 ): Promise<WorkshopAppointmentsState> {
-  const { tenantId, baseUrl = '', signal } = options;
+  const tenantId = options.tenantId ?? getWorkshopTenantId();
+  const baseUrl = options.baseUrl ?? getApiBaseUrl();
+  const { signal } = options;
 
   if (!tenantId || tenantId.trim() === '') {
     return {
-      status: 'error',
-      message: 'No se ha proporcionado un identificador de taller (tenantId) válido.',
+      status: 'awaiting_tenant',
     };
   }
 
@@ -106,5 +152,60 @@ export async function fetchWorkshopAppointments(
       status: 'error',
       message: error instanceof Error ? error.message : 'Error de conexión con la API de taller.',
     };
+  }
+}
+
+/**
+ * Checks whether an appointment start_at ISO timestamp occurs on the current calendar day (local time).
+ */
+export function isAppointmentToday(startAt: string): boolean {
+  try {
+    const appDate = new Date(startAt);
+    const today = new Date();
+    return (
+      appDate.getFullYear() === today.getFullYear() &&
+      appDate.getMonth() === today.getMonth() &&
+      appDate.getDate() === today.getDate()
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Checks if the appointment has provisional/ambiguous identity (schema 011).
+ */
+export function isProvisionalIdentity(app: WorkshopAppointmentResponse): boolean {
+  return app.identity_resolution === 'provisional_ambiguous';
+}
+
+/**
+ * Formats time range e.g. "09:30 - 10:45" or "09:30".
+ */
+export function formatAppointmentTime(startAt: string, endAt?: string): string {
+  try {
+    const start = new Date(startAt).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+    if (endAt) {
+      const end = new Date(endAt).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+      return `${start} – ${end}`;
+    }
+    return start;
+  } catch {
+    return startAt;
+  }
+}
+
+/**
+ * Formats appointment date string e.g. "Jueves 17 de Septiembre".
+ */
+export function formatAppointmentDate(startAt: string): string {
+  try {
+    return new Date(startAt).toLocaleDateString('es-ES', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+    });
+  } catch {
+    return startAt;
   }
 }

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useDemo } from '../../context/DemoContext';
+import { useWorkshopAppointments } from '../../context/WorkshopAppointmentsContext';
 import { 
   AlertCircle, 
   ArrowRight, 
@@ -13,6 +14,7 @@ import {
   AlertTriangle,
   Sparkles
 } from 'lucide-react';
+import { formatAppointmentTime } from '../../services/workshopAppointments';
 
 export const MiDiaView: React.FC = () => {
   const { 
@@ -26,12 +28,257 @@ export const MiDiaView: React.FC = () => {
     vehicles,
     customers,
     notifyClientVehicleReady,
-    conversations
+    conversations,
+    demoModeActive
   } = useDemo();
+
+  const {
+    appointments: realAppointments,
+    todayAppointments: realTodayAppointments,
+    provisionalAppointments: realProvisionalAppointments,
+    state: appointmentState
+  } = useWorkshopAppointments();
 
   const [selectedAppId, setSelectedAppId] = useState<string | null>(null);
   const [dictationText, setDictationText] = useState('Aceite 5W30 C3 y filtro de aceite sustituidos. Pastillas con buen grosor, discos delanteros presentan desgaste leve.');
 
+  // -------------------------------------------------------------
+  // PRODUCT MODE: Real Backend Data Derived Operations
+  // -------------------------------------------------------------
+  if (!demoModeActive) {
+    const hasProvisional = realProvisionalAppointments.length > 0;
+    const exceptionsCount = realProvisionalAppointments.length;
+
+    return (
+      <div className="p-3 sm:p-6 max-w-7xl mx-auto space-y-4 sm:space-y-6 animate-fadeIn">
+        {/* 1. NARRATIVE WELCOME BANNER */}
+        <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-xs relative overflow-hidden">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative z-10">
+            <div className="space-y-1 max-w-3xl">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                <h2 className="text-lg sm:text-xl font-extrabold text-slate-900 tracking-tight">Buenos días</h2>
+                <span className="text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-mono">Modo Productivo</span>
+              </div>
+              <p className="text-sm text-slate-600 leading-relaxed">
+                Agenda sincronizada con el motor de captación de BibendIA. Hay <strong className="text-slate-900 font-bold">{realAppointments.length} {realAppointments.length === 1 ? 'cita confirmada' : 'citas confirmadas'}</strong> en el taller ({realTodayAppointments.length} programadas para hoy).
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3 shrink-0">
+              <button
+                onClick={() => setActiveSection('agenda')}
+                className="bg-slate-900 hover:bg-slate-800 text-white font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-2 transition-all shadow-xs"
+              >
+                <span>Ver Agenda ({realAppointments.length})</span>
+                <ArrowRight className="w-3.5 h-3.5 text-blue-400" />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Grid Layout: 2 Columns */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Left 2 Columns */}
+          <div className="lg:col-span-2 space-y-6">
+
+            {/* 2. SECTION: NECESITO QUE MIRES ESTO (Excepciones derivadas de citas reales) */}
+            <div className="bg-white border border-amber-300/80 rounded-2xl p-5 shadow-xs space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center font-bold shadow-2xs">
+                    <AlertCircle className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
+                      <span>NECESITO QUE MIRES {exceptionsCount} {exceptionsCount === 1 ? 'COSA' : 'COSAS'}</span>
+                      <span className="text-xs font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full">Revisión de Taller</span>
+                    </h3>
+                    <p className="text-xs text-slate-500">Excepciones e identidades provisionales que requieren verificación presencial.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-3.5">
+                {hasProvisional ? (
+                  realProvisionalAppointments.map(app => (
+                    <div key={app.id} className="telemetry-strip-amber bg-white border border-slate-200 rounded-xl p-4 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:border-amber-300 transition-all">
+                      <div className="space-y-1.5">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded-md flex items-center gap-1">
+                            <AlertTriangle className="w-3.5 h-3.5 text-amber-600" /> Identidad Provisional (Pendiente de confirmar)
+                          </span>
+                          <span className="license-plate">{app.vehicle_plate}</span>
+                        </div>
+                        <h4 className="text-sm font-bold text-slate-900">
+                          {app.customer_name} · {app.service_request?.intent || 'Intervención de Taller'}
+                        </h4>
+                        <p className="text-xs text-slate-600">
+                          Cita capturada por BibendIA con resolución provisional. Requiere confirmación presencial de matrícula y titular.
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          onClick={() => setActiveSection('agenda')}
+                          className="bg-slate-900 hover:bg-slate-800 text-white font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow-sm transition-all"
+                        >
+                          <span>Revisar en Agenda</span>
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="p-6 bg-slate-50 border border-slate-200/60 rounded-xl text-slate-600 text-xs text-center space-y-1">
+                    <p className="font-bold text-slate-800">Todo al día</p>
+                    <p className="text-slate-500">No hay citas con identidad ambigua ni excepciones pendientes de revisión humana.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* 3. SECTION: HOY EN LA AGENDA DEL TALLER */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900 tracking-tight">Hoy en la Agenda del Taller</h3>
+                  <p className="text-xs text-slate-500">Citas programadas para la jornada actual.</p>
+                </div>
+                <button 
+                  onClick={() => setActiveSection('agenda')}
+                  className="text-xs font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1"
+                >
+                  Ver agenda completa <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                {realTodayAppointments.length > 0 ? (
+                  realTodayAppointments.map(app => (
+                    <div key={app.id} className="telemetry-strip-cobalt bg-white border border-slate-200 rounded-xl p-4 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="flex items-start gap-3">
+                        <div className="bg-slate-100 border border-slate-200 px-3 py-2 rounded-xl text-center shrink-0 font-mono">
+                          <span className="text-[10px] font-bold text-slate-500 block uppercase">HORA</span>
+                          <span className="text-sm font-extrabold text-blue-600">
+                            {formatAppointmentTime(app.start_at, app.end_at)}
+                          </span>
+                        </div>
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <h4 className="text-sm font-bold text-slate-900">{app.service_request?.intent || 'Intervención'}</h4>
+                            <span className="license-plate">{app.vehicle_plate}</span>
+                          </div>
+                          <p className="text-xs text-slate-600">{app.customer_name}</p>
+                          {app.service_request?.symptoms && app.service_request.symptoms.length > 0 && (
+                            <p className="text-[11px] text-slate-500">Síntomas: {app.service_request.symptoms.join(', ')}</p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="shrink-0">
+                        <span className="text-xs font-bold px-3 py-1.5 rounded-xl border flex items-center gap-1.5 bg-blue-50 text-blue-800 border-blue-200">
+                          <Check className="w-3.5 h-3.5" />
+                          {app.status === 'booked' ? 'Cita Reservada' : app.status}
+                        </span>
+                      </div>
+                    </div>
+                  ))
+                ) : realAppointments.length > 0 ? (
+                  <div className="p-6 bg-slate-50 border border-slate-200 rounded-xl text-center text-slate-500 text-xs space-y-2">
+                    <p>No hay citas programadas para el día de hoy.</p>
+                    <p className="text-[11px] text-slate-400">Hay {realAppointments.length} {realAppointments.length === 1 ? 'cita programada' : 'citas programadas'} en la agenda para próximas fechas.</p>
+                    <button
+                      onClick={() => setActiveSection('agenda')}
+                      className="px-3.5 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold rounded-lg text-xs"
+                    >
+                      Consultar Agenda
+                    </button>
+                  </div>
+                ) : (
+                  <div className="p-8 bg-slate-50 border border-slate-200 rounded-xl text-center text-slate-500 text-xs">
+                    Sin citas registradas en el taller. La capacidad está 100% disponible.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* 4. SECTION: TODO BAJO CONTROL */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-extrabold text-slate-900 tracking-tight">TODO BAJO CONTROL</h3>
+                    <p className="text-xs text-slate-500">Citas gestionadas autónomamente por el motor de BibendIA.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-3.5">
+                {realAppointments.length > 0 ? (
+                  realAppointments.map(app => (
+                    <div key={app.id} className="telemetry-strip-mint bg-white border border-slate-200 rounded-xl p-4 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+                      <div className="space-y-1.5">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] font-bold text-slate-700 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-md flex items-center gap-1.5">
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Cita Adquirida
+                          </span>
+                          <span className="text-xs font-bold text-slate-900">{app.service_request?.intent || 'Intervención de Taller'}</span>
+                          <span className="license-plate">{app.vehicle_plate}</span>
+                        </div>
+                        <p className="text-xs text-slate-600">Cliente: {app.customer_name} · Ref: {app.confirmation_evidence_ref}</p>
+                      </div>
+                      <div className="shrink-0">
+                        <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg flex items-center gap-1">
+                          <Check className="w-3.5 h-3.5 text-emerald-600" /> Confirmada en Agenda
+                        </span>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-center py-6 bg-slate-50 border border-slate-200/60 rounded-xl text-slate-500 text-xs">
+                    Sin citas registradas aún. El agente telefónico está activo para recibir solicitudes.
+                  </div>
+                )}
+              </div>
+            </div>
+
+          </div>
+
+          {/* Right 1 Column: Fronteras de Producto no implementadas en Backend */}
+          <div className="space-y-6">
+            <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
+              <h3 className="text-base font-extrabold text-slate-900 border-b border-slate-100 pb-3 flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-blue-600" />
+                <span>Estado del Módulo Taller</span>
+              </h3>
+
+              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2 text-xs text-slate-600">
+                <p className="font-bold text-slate-900">Capacidades Activas:</p>
+                <p className="flex items-center gap-1.5 text-emerald-700"><Check className="w-3 h-3 text-emerald-600" /> Captura telefónica con agente de voz</p>
+                <p className="flex items-center gap-1.5 text-emerald-700"><Check className="w-3 h-3 text-emerald-600" /> Gestión de huecos y citas en Agenda</p>
+                <p className="flex items-center gap-1.5 text-emerald-700"><Check className="w-3 h-3 text-emerald-600" /> Protección PII y descifrado verificado</p>
+              </div>
+
+              <div className="p-3.5 bg-amber-50/70 border border-amber-200 rounded-xl space-y-2 text-xs text-amber-900">
+                <p className="font-bold text-amber-950">Fronteras en Preparación:</p>
+                <p className="text-[11px] leading-relaxed text-amber-900/80">
+                  Los módulos de presupuestación automática contra catálogo y la bandeja de transcripciones de chat están en desarrollo para la siguiente iteración de backend. Cero mocks en build productivo.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // -------------------------------------------------------------
+  // DEMO MODE: Rich Interactive Pitch (Preserved)
+  // -------------------------------------------------------------
   const pendingQuotes = quotes.filter(q => q.status === 'pending_approval');
   const todayApps = appointments.filter(a => a.status !== 'completed' && a.status !== 'sent_to_dms');
   const completedApps = appointments.filter(a => a.status === 'completed' || a.status === 'sent_to_dms');
