@@ -15,7 +15,7 @@ export const GuidedDemoPlayer: React.FC = () => {
     nextDemoStep, 
     prevDemoStep, 
     setActiveSection,
-    confirmMartaAppointment,
+    confirmAppointmentSlot,
     completeAppointmentWork,
     sendAppointmentToDMS,
     appointments,
@@ -59,7 +59,7 @@ export const GuidedDemoPlayer: React.FC = () => {
       desc: 'BibendIA consulta disponibilidad real y ofrece dos huecos: Jueves 17 de Septiembre a las 10:30 h o Viernes 18 a las 08:30 h.',
       actionLabel: 'Agendar para Jueves 17 (10:30 h)',
       execute: () => {
-        confirmMartaAppointment('2026-09-17', '10:30');
+        confirmAppointmentSlot('2026-09-17', '10:30');
         setActiveSection('agenda');
       }
     },

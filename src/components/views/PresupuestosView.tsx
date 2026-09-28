@@ -12,19 +12,22 @@ import {
   HelpCircle,
   Edit2,
   AlertTriangle,
-  Sparkles
+  Sparkles,
+  ChevronLeft
 } from 'lucide-react';
 
 export const PresupuestosView: React.FC = () => {
   const { quotes, customers, vehicles, approveQuote, generateQuoteFromPrompt } = useDemo();
   const [promptInput, setPromptInput] = useState('');
   const [selectedQuoteId, setSelectedQuoteId] = useState<string>(quotes[0]?.id || '');
+  const [mobileView, setMobileView] = useState<'list' | 'detail'>('list');
 
   const handleGenerateSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (promptInput.trim()) {
       generateQuoteFromPrompt(promptInput);
       setPromptInput('');
+      setMobileView('detail');
     }
   };
 
@@ -51,7 +54,7 @@ export const PresupuestosView: React.FC = () => {
             type="text"
             value={promptInput}
             onChange={e => setPromptInput(e.target.value)}
-            placeholder="Ej. Prepárame presupuesto para discos y pastillas del BMW de Ander..."
+            placeholder="Ej. Prepárame presupuesto para sustitución de pastillas de freno..."
             className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:bg-white transition-all font-sans"
           />
           <button
@@ -64,16 +67,20 @@ export const PresupuestosView: React.FC = () => {
       </div>
 
       {/* Main Quote Layout: List | Detailed Breakdown */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 sm:gap-6">
         
-        {/* Left Column (4 cols): Quote List */}
-        <div className="lg:col-span-4 bg-white border border-slate-200 rounded-2xl p-5 flex flex-col gap-3 shadow-xs">
+        {/* Left Column (4 cols on lg): Quote List */}
+        <div className={`bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 flex-col gap-3 shadow-xs lg:col-span-4 ${
+          mobileView === 'list' ? 'flex' : 'hidden lg:flex'
+        }`}>
           <h3 className="text-xs font-extrabold text-slate-700 uppercase tracking-wider border-b border-slate-100 pb-3">
             Presupuestos Registrados ({quotes.length})
           </h3>
 
           <div className="space-y-2.5">
-            {quotes.map(q => {
+            {quotes.length === 0 ? (
+              <p className="text-center py-8 text-xs text-slate-500">No hay presupuestos registrados en el taller.</p>
+            ) : quotes.map(q => {
               const cust = customers.find(c => c.id === q.customerId);
               const veh = vehicles.find(v => v.id === q.vehicleId);
               const isSelected = q.id === activeQuote?.id;
@@ -81,7 +88,10 @@ export const PresupuestosView: React.FC = () => {
               return (
                 <button
                   key={q.id}
-                  onClick={() => setSelectedQuoteId(q.id)}
+                  onClick={() => {
+                    setSelectedQuoteId(q.id);
+                    setMobileView('detail');
+                  }}
                   className={`w-full text-left p-4 rounded-xl border transition-all flex flex-col gap-1.5 ${
                     isSelected 
                       ? 'bg-blue-50/60 border-blue-300 shadow-2xs font-semibold' 
@@ -112,14 +122,24 @@ export const PresupuestosView: React.FC = () => {
           </div>
         </div>
 
-        {/* Right Column (8 cols): Detailed Quote View (Formatted as a Clean Document) */}
-        {activeQuote && (
-          <div className="lg:col-span-8 bg-white border border-slate-200 rounded-2xl p-6 space-y-6 shadow-xs">
+        {/* Right Column (8 cols on lg): Detailed Quote View */}
+        {activeQuote ? (
+          <div className={`bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 space-y-6 shadow-xs lg:col-span-8 ${
+            mobileView === 'detail' ? 'flex flex-col' : 'hidden lg:block'
+          }`}>
             
             {/* Header / Meta */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-5">
               <div className="space-y-1.5">
                 <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setMobileView('list')}
+                    className="lg:hidden p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition-all flex items-center gap-1 font-bold text-xs shrink-0 mr-1"
+                    title="Volver a los presupuestos"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                    <span>Lista</span>
+                  </button>
                   <span className="text-xs font-bold text-slate-700 bg-slate-100 border border-slate-200 px-2.5 py-0.5 rounded-md font-mono">
                     {activeQuote.number}
                   </span>
@@ -131,7 +151,7 @@ export const PresupuestosView: React.FC = () => {
                     {activeQuote.status === 'pending_approval' ? 'Revisión pendiente' : 'Enviado por WhatsApp'}
                   </span>
                 </div>
-                <h3 className="text-xl font-extrabold text-slate-900">{activeQuote.title}</h3>
+                <h3 className="text-lg sm:text-xl font-extrabold text-slate-900">{activeQuote.title}</h3>
                 <p className="text-xs text-slate-600">
                   Cliente: <strong className="text-slate-900 font-bold">{customer?.name}</strong> ({customer?.phone}) · Vehículo: <strong className="text-slate-900 font-bold">{vehicle?.brand} {vehicle?.model}</strong>
                 </p>
@@ -206,9 +226,9 @@ export const PresupuestosView: React.FC = () => {
             </div>
 
             {/* Action Buttons (CTA "Aprobar y Enviar" MUST be Cobalt #2563EB) */}
-            <div className="flex items-center justify-end gap-3 pt-2">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-3 pt-2">
               <button 
-                className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold border border-slate-200 flex items-center gap-1.5 transition-all"
+                className="w-full sm:w-auto px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold border border-slate-200 flex items-center justify-center gap-1.5 transition-all min-h-[44px]"
               >
                 <Edit2 className="w-4 h-4" />
                 <span>Editar</span>
@@ -217,18 +237,24 @@ export const PresupuestosView: React.FC = () => {
               {activeQuote.status === 'pending_approval' ? (
                 <button
                   onClick={() => approveQuote(activeQuote.id)}
-                  className="bg-blue-600 hover:bg-blue-700 text-white font-extrabold px-6 py-3 rounded-xl text-xs flex items-center gap-2 shadow-sm transition-all"
+                  className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white font-extrabold px-6 py-3 rounded-xl text-xs flex items-center justify-center gap-2 shadow-sm transition-all min-h-[44px]"
                 >
                   <Check className="w-4 h-4 text-white" />
                   <span>Aprobar y Enviar por WhatsApp</span>
                 </button>
               ) : (
-                <span className="bg-emerald-50 border border-emerald-200 text-emerald-800 font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-1.5">
+                <span className="w-full sm:w-auto bg-emerald-50 border border-emerald-200 text-emerald-800 font-bold px-4 py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 min-h-[44px]">
                   <Check className="w-4 h-4 text-emerald-600" /> Enviado por WhatsApp
                 </span>
               )}
             </div>
 
+          </div>
+        ) : (
+          <div className="lg:col-span-8 bg-white border border-slate-200 rounded-2xl p-12 text-center text-slate-500 text-xs shadow-xs flex flex-col items-center justify-center gap-2">
+            <FileText className="w-8 h-8 text-slate-300" />
+            <p className="font-semibold text-slate-700">Sin presupuesto seleccionado</p>
+            <p>Genera un presupuesto o selecciona uno del listado.</p>
           </div>
         )}
 

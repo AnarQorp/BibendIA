@@ -142,7 +142,10 @@ jobs:
                 "${SMOKE_URL%/}/$asset")"
             fi
 
-            if [[ "$asset" == assets/* ]] && grep -q 'mailto:info@bibendia.com' <<< "$bundle"; then
+            if [[ "$asset" == assets/* ]] \
+              && grep -q '/public/leads' <<< "$bundle" \
+              && grep -q 'method:"POST"' <<< "$bundle" \
+              && ! grep -q 'mailto:info@bibendia.com' <<< "$bundle"; then
               echo "Production smoke check passed on attempt $attempt."
               exit 0
             fi
@@ -150,7 +153,7 @@ jobs:
             sleep 5
           done
 
-          echo 'Production smoke check failed: expected landing bundle was not observed.' >&2
+          echo 'Production smoke check failed: expected Public Lead POST contract was not observed.' >&2
           exit 1
 
       - name: Roll back failed activation

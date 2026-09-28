@@ -43,7 +43,11 @@ export const SeguimientosView: React.FC = () => {
 
       {/* Opportunities List */}
       <div className="space-y-4">
-        {followups.map(item => {
+        {followups.length === 0 ? (
+          <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center text-slate-500 text-xs shadow-xs">
+            No hay oportunidades de seguimiento pendientes de revisión en este momento.
+          </div>
+        ) : followups.map(item => {
           const customer = customers.find(c => c.id === item.customerId);
           const vehicle = vehicles.find(v => v.id === item.vehicleId);
           const isSent = item.status === 'sent';
@@ -96,7 +100,7 @@ export const SeguimientosView: React.FC = () => {
               </div>
 
               {/* Action Button (Electric Cobalt #2563EB) */}
-              <div className="flex items-center justify-between pt-1">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
                 <span className="text-xs text-slate-500 italic">
                   {isSent ? '✓ Seguimiento enviado' : 'Programado para envío de seguimiento'}
                 </span>
@@ -104,13 +108,13 @@ export const SeguimientosView: React.FC = () => {
                 {!isSent ? (
                   <button
                     onClick={() => sendFollowUp(item.id)}
-                    className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-5 py-2.5 rounded-xl text-xs flex items-center gap-2 shadow-xs transition-all"
+                    className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white font-bold px-5 py-2.5 rounded-xl text-xs flex items-center justify-center gap-2 shadow-xs transition-all min-h-[44px]"
                   >
                     <Send className="w-4 h-4 text-white" />
                     <span>[Enviar Recordatorio por WhatsApp]</span>
                   </button>
                 ) : (
-                  <span className="bg-emerald-50 border border-emerald-200 text-emerald-800 font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-1.5">
+                  <span className="w-full sm:w-auto bg-emerald-50 border border-emerald-200 text-emerald-800 font-bold px-4 py-2 rounded-xl text-xs flex items-center justify-center gap-1.5 min-h-[44px]">
                     <Check className="w-4 h-4 text-emerald-600" /> Seguimiento Enviado por WhatsApp
                   </span>
                 )}
