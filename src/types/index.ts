@@ -103,11 +103,15 @@ export interface QuoteItem {
   pricingStatus?: 'PENDING' | 'MANUALLY_PRICED';
   automationStatus?: EstimateAutomationStatus;
   reviewRequired?: boolean;
-  repairBomEdgeId?: string;
+  repairBomEdgeId?: string | null;
   confidenceState?: string;
   evidence?: RepairEvidence[];
   confidenceReason?: string;
   isLocallyModified?: boolean;
+  lineSource?: 'REPAIR_KNOWLEDGE' | 'MANUAL_WORKSHOP';
+  pricingProvenance?: 'MANUAL_WORKSHOP' | null;
+  mutationKey?: string;
+  selected?: boolean;
 }
 
 export interface Quote {
@@ -128,7 +132,7 @@ export interface Quote {
   customerName?: string;
   vehiclePlate?: string;
 
-  // RK03 Technical Draft Provenance
+  // RK03 / RK04 Technical Draft Provenance & Persistence
   backendDraftId?: string;
   isPersistedBackendDraft?: boolean;
   hasUnsavedLocalChanges?: boolean;
@@ -136,6 +140,8 @@ export interface Quote {
   applicabilityCode?: string;
   repairJobCode?: string;
   idempotencyKey?: string;
+  version?: number;
+  backendDraft?: EstimateDraft;
 }
 
 export interface FollowUpOpportunity {
@@ -424,11 +430,13 @@ export interface RepairKnowledgeResolution {
   consumables: RepairKnowledgeEdge[];
 }
 
+export type EstimateDraftStatus = 'technical_draft' | 'pending_approval' | 'sent' | 'approved' | 'superseded';
+
 export interface EstimateDraftLine {
   id: string;
-  repairBomEdgeId: string;
-  edgeCode: string;
-  itemType: 'PART_ROLE' | 'CONSUMABLE';
+  repairBomEdgeId?: string | null;
+  edgeCode?: string | null;
+  itemType: 'PART_ROLE' | 'CONSUMABLE' | 'LABOR';
   partRoleCode: string;
   partRoleName: string;
   quantity: number | null;
@@ -442,10 +450,23 @@ export interface EstimateDraftLine {
   confidenceReason: string;
   evidence: RepairEvidence[];
   notes: string | null;
+  description: string;
+  lineSource?: 'REPAIR_KNOWLEDGE' | 'MANUAL_WORKSHOP';
+  pricingProvenance?: 'MANUAL_WORKSHOP' | null;
   unitPrice: number | null;
   currency: string | null;
   pricingStatus: 'PENDING' | 'MANUALLY_PRICED';
   editable: true;
+}
+
+export interface EstimateDraftSummary {
+  id: string;
+  vehicleId: string;
+  repairJobCode: string;
+  status: EstimateDraftStatus;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface EstimateDraft {
@@ -454,10 +475,12 @@ export interface EstimateDraft {
   vehicleId: string;
   repairJobCode: string;
   applicabilityCode: string;
-  status: 'technical_draft';
+  status: EstimateDraftStatus;
+  version: number;
   idempotencyKey: string;
   knowledgeRevision: string;
   createdAt: string;
+  updatedAt?: string;
   operation: {
     code: string;
     name: string;
@@ -468,6 +491,25 @@ export interface EstimateDraft {
     editable: true;
   };
   lines: EstimateDraftLine[];
+}
+
+export interface EstimateLineChange {
+  id?: string;
+  mutationKey?: string;
+  description: string;
+  itemType: 'PART_ROLE' | 'CONSUMABLE' | 'LABOR';
+  quantity: number | null;
+  unitPrice: number | null;
+  currency: string | null;
+  selected: boolean;
+}
+
+export interface EditEstimateDraftCommand {
+  expectedVersion: number;
+  idempotencyKey: string;
+  status?: EstimateDraftStatus;
+  lines?: EstimateLineChange[];
+  deleteLineIds?: string[];
 }
 
 export interface ResolveRepairKnowledgeQuery {

@@ -23,8 +23,10 @@ import {
 } from 'lucide-react';
 import {
   fetchWorkshopAppointments,
+  getWorkshopTenantId,
   type WorkshopAppointmentsState
 } from '../../services/workshopAppointments';
+import { loadHumanSession } from '../../services/humanSession';
 import type { WorkshopAppointmentResponse } from '../../types';
 
 export interface AgendaViewProps {
@@ -59,9 +61,11 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
 
   const { searchParams } = useRouter();
 
-  // Tenant Resolution (URL param -> LocalStorage -> prop)
+  // Tenant Resolution (Prop -> Window/Env -> URL param -> LocalStorage)
   const [activeTenantId, setActiveTenantId] = useState<string | null>(() => {
     if (propTenantId) return propTenantId;
+    const resolved = getWorkshopTenantId();
+    if (resolved) return resolved;
     if (typeof window !== 'undefined') {
       const fromUrl = searchParams.get('tenant');
       if (fromUrl) return fromUrl;
@@ -73,6 +77,26 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
 
   const [tenantInput, setTenantInput] = useState('');
   const [showTenantModal, setShowTenantModal] = useState(false);
+
+  // Automatic Session Resolution: If authenticated, resolve tenant without manual selector
+  useEffect(() => {
+    let isMounted = true;
+    async function resolveFromSession() {
+      if (activeTenantId) return;
+      try {
+        const session = await loadHumanSession();
+        if (!isMounted) return;
+        if (session?.tenantIds && session.tenantIds.length > 0) {
+          const tId = session.tenantIds[0];
+          setActiveTenantId(tId);
+        }
+      } catch {
+        // Fall back gracefully
+      }
+    }
+    resolveFromSession();
+    return () => { isMounted = false; };
+  }, [activeTenantId]);
 
   // Calendar Navigation & Views
   const [viewMode, setViewMode] = useState<'week' | 'month' | 'day'>('week');

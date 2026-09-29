@@ -18,14 +18,10 @@ import {
   Check,
   AlertCircle,
   ChevronLeft,
-<<<<<<< HEAD
   X,
   ArrowRight,
-  ShieldCheck
-=======
-  Inbox,
-  X
->>>>>>> main
+  ShieldCheck,
+  Inbox
 } from 'lucide-react';
 
 export const BandejaView: React.FC = () => {
@@ -36,11 +32,8 @@ export const BandejaView: React.FC = () => {
     confirmAppointmentSlot,
     generateQuoteFromPrompt,
     setActiveSection,
-<<<<<<< HEAD
-    demoModeActive
-=======
+    demoModeActive,
     sendChatMessage
->>>>>>> main
   } = useDemo();
 
   const {

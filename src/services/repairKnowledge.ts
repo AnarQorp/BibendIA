@@ -4,6 +4,8 @@ import type {
   EstimateDraft,
   CreateEstimateDraftCommand,
   EstimateDraftLine,
+  EstimateDraftSummary,
+  EditEstimateDraftCommand,
   Quote,
   QuoteItem,
   EstimateAutomationStatus,
@@ -445,7 +447,7 @@ export async function createEstimateDraft(
     // Server unreachable in local preview
   }
 
-  // Synthesize realistic persistent draft matching the exact RK03 server contract
+  // Synthesize realistic persistent draft matching the exact RK04 server contract
   const edges = [...CANONICAL_CLHA_RESOLUTION.components, ...CANONICAL_CLHA_RESOLUTION.consumables];
   const draftId = `draft-rk-${Date.now().toString(36)}`;
   const syntheticDraft: EstimateDraft = {
@@ -455,6 +457,7 @@ export async function createEstimateDraft(
     repairJobCode: command.repairJobCode,
     applicabilityCode: CANONICAL_CLHA_RESOLUTION.applicability.code,
     status: 'technical_draft',
+    version: 1,
     idempotencyKey: command.idempotencyKey,
     knowledgeRevision: 'sha256:05f86b12f873149153922484263beb35838ba427',
     createdAt: new Date().toISOString(),
@@ -476,6 +479,7 @@ export async function createEstimateDraft(
         itemType: edge.itemKind,
         partRoleCode: edge.partRole.code,
         partRoleName: edge.partRole.name,
+        description: edge.partRole.name,
         quantity: edge.quantity,
         requirementType: edge.requirementType,
         replaceOnce: edge.replaceOnce,
@@ -487,6 +491,8 @@ export async function createEstimateDraft(
         confidenceReason: edge.confidenceReason,
         evidence: edge.evidence,
         notes: edge.notes,
+        lineSource: 'REPAIR_KNOWLEDGE',
+        pricingProvenance: null,
         unitPrice: null,
         currency: null,
         pricingStatus: 'PENDING',
@@ -502,6 +508,148 @@ export async function createEstimateDraft(
   };
 }
 
+export interface FetchEstimateDraftsState {
+  status: 'idle' | 'loading' | 'success' | 'empty' | 'unauthorized' | 'error';
+  data?: EstimateDraftSummary[];
+  message?: string;
+  correlationId?: string;
+}
+
+export async function fetchEstimateDrafts(
+  tenantId: string,
+  baseUrl = ''
+): Promise<FetchEstimateDraftsState> {
+  if (!tenantId) {
+    return { status: 'idle', message: 'Sin tenantId' };
+  }
+  try {
+    const res = await fetch(`${baseUrl}/v1/workshop/tenants/${encodeURIComponent(tenantId)}/estimate-drafts`, {
+      method: 'GET',
+      credentials: 'include',
+      headers: {
+        Accept: 'application/json'
+      }
+    });
+    if (res.status === 401 || res.status === 403) {
+      return { status: 'unauthorized', message: 'No autorizado para consultar borradores.' };
+    }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      return { status: 'error', message: err.error || `HTTP ${res.status}` };
+    }
+    const json = await res.json();
+    const data: EstimateDraftSummary[] = json.data || [];
+    if (data.length === 0) {
+      return { status: 'empty', data: [], correlationId: json.correlationId };
+    }
+    return { status: 'success', data, correlationId: json.correlationId };
+  } catch (e) {
+    return { status: 'error', message: e instanceof Error ? e.message : 'Error de red' };
+  }
+}
+
+export interface FetchEstimateDraftByIdState {
+  status: 'idle' | 'loading' | 'success' | 'not_found' | 'unauthorized' | 'error';
+  data?: EstimateDraft;
+  message?: string;
+  correlationId?: string;
+}
+
+export async function fetchEstimateDraftById(
+  tenantId: string,
+  draftId: string,
+  baseUrl = ''
+): Promise<FetchEstimateDraftByIdState> {
+  if (!tenantId || !draftId) {
+    return { status: 'idle', message: 'Parámetros incompletos' };
+  }
+  try {
+    const res = await fetch(`${baseUrl}/v1/workshop/tenants/${encodeURIComponent(tenantId)}/estimate-drafts/${encodeURIComponent(draftId)}`, {
+      method: 'GET',
+      credentials: 'include',
+      headers: {
+        Accept: 'application/json'
+      }
+    });
+    if (res.status === 401 || res.status === 403) {
+      return { status: 'unauthorized', message: 'No autorizado para consultar el borrador.' };
+    }
+    if (res.status === 404) {
+      return { status: 'not_found', message: 'Borrador no encontrado.' };
+    }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      return { status: 'error', message: err.error || `HTTP ${res.status}` };
+    }
+    const json = await res.json();
+    return { status: 'success', data: json.data, correlationId: json.correlationId };
+  } catch (e) {
+    return { status: 'error', message: e instanceof Error ? e.message : 'Error de red' };
+  }
+}
+
+export interface PatchEstimateDraftResult {
+  status: 'success' | 'conflict' | 'not_found' | 'not_editable' | 'unauthorized' | 'error';
+  data?: EstimateDraft;
+  errorCode?: string;
+  message?: string;
+  correlationId?: string;
+}
+
+export async function patchEstimateDraft(
+  tenantId: string,
+  draftId: string,
+  command: EditEstimateDraftCommand,
+  baseUrl = ''
+): Promise<PatchEstimateDraftResult> {
+  if (!tenantId || !draftId) {
+    return { status: 'error', message: 'Parámetros incompletos' };
+  }
+  try {
+    const res = await fetch(`${baseUrl}/v1/workshop/tenants/${encodeURIComponent(tenantId)}/estimate-drafts/${encodeURIComponent(draftId)}`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json'
+      },
+      body: JSON.stringify(command)
+    });
+
+    if (res.status === 401 || res.status === 403) {
+      return { status: 'unauthorized', message: 'No autorizado para editar borradores.' };
+    }
+
+    if (res.status === 404) {
+      return { status: 'not_found', errorCode: 'ESTIMATE_DRAFT_NOT_FOUND', message: 'Borrador no encontrado.' };
+    }
+
+    if (res.status === 409) {
+      const err = await res.json().catch(() => ({}));
+      const code = err.error || 'ESTIMATE_VERSION_CONFLICT';
+      let message = 'Conflicto detectado.';
+      if (code === 'ESTIMATE_VERSION_CONFLICT') {
+        message = 'Conflicto de concurrencia: el presupuesto ha cambiado de versión. Recarga para ver los últimos cambios.';
+      } else if (code === 'RK_LINE_DELETE_FORBIDDEN') {
+        message = 'Las líneas de Repair Knowledge no se eliminan físicamente; se desmarcan.';
+      } else if (code === 'ESTIMATE_DRAFT_NOT_EDITABLE') {
+        message = 'El borrador ya no se encuentra en estado editable.';
+      }
+      return { status: 'conflict', errorCode: code, message, correlationId: err.correlationId };
+    }
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      return { status: 'error', errorCode: err.error, message: err.error || `HTTP ${res.status}` };
+    }
+
+    const json = await res.json();
+    return { status: 'success', data: json.data, correlationId: json.correlationId };
+  } catch (e) {
+    return { status: 'error', message: e instanceof Error ? e.message : 'Error de red' };
+  }
+}
+
 export function convertEstimateDraftToQuote(
   draft: EstimateDraft,
   customerName = 'Cliente Taller',
@@ -515,34 +663,64 @@ export function convertEstimateDraftToQuote(
     category: 'labor',
     description: `${draft.operation.name} (${draft.repairJobCode})`,
     quantity: 3.5, // 3.5 standard workshop hours for timing belt + water pump
-    unitPrice: null,
-    total: null,
-    currency: null,
-    pricingStatus: 'PENDING',
+    unitPrice: draft.operation.unitPrice,
+    total: draft.operation.unitPrice !== null ? Math.round(draft.operation.unitPrice * 3.5 * 100) / 100 : null,
+    currency: draft.operation.currency,
+    pricingStatus: draft.operation.pricingStatus,
     automationStatus: 'AUTO_INCLUDED',
     reviewRequired: false,
     confidenceState: 'VERIFIED_OEM',
-    isLocallyModified: false
+    isLocallyModified: false,
+    selected: true,
+    lineSource: 'REPAIR_KNOWLEDGE'
   };
 
   // Part lines from draft lines
-  const partItems: QuoteItem[] = draft.lines.map((line) => ({
-    id: line.id,
-    category: line.itemType === 'CONSUMABLE' ? 'part' : 'part',
-    description: line.partRoleName,
-    quantity: line.quantity,
-    unitPrice: line.unitPrice, // null
-    total: null,
-    currency: line.currency,
-    pricingStatus: line.pricingStatus, // 'PENDING'
-    automationStatus: line.automationStatus,
-    reviewRequired: line.reviewRequired,
-    repairBomEdgeId: line.repairBomEdgeId,
-    confidenceState: line.confidenceState,
-    evidence: line.evidence,
-    confidenceReason: line.confidenceReason,
-    isLocallyModified: false
-  }));
+  const partItems: QuoteItem[] = draft.lines.map((line) => {
+    const isLabor = line.itemType === 'LABOR';
+    const qty = line.quantity ?? 1;
+    const total = line.unitPrice !== null ? Math.round(line.unitPrice * qty * 100) / 100 : null;
+    return {
+      id: line.id,
+      category: isLabor ? 'labor' : 'part',
+      description: line.description || line.partRoleName,
+      quantity: line.quantity,
+      unitPrice: line.unitPrice,
+      total,
+      currency: line.currency,
+      pricingStatus: line.pricingStatus,
+      automationStatus: line.automationStatus,
+      reviewRequired: line.reviewRequired,
+      repairBomEdgeId: line.repairBomEdgeId,
+      confidenceState: line.confidenceState,
+      evidence: line.evidence,
+      confidenceReason: line.confidenceReason,
+      isLocallyModified: false,
+      lineSource: line.lineSource || 'REPAIR_KNOWLEDGE',
+      pricingProvenance: line.pricingProvenance,
+      selected: line.selected !== false
+    };
+  });
+
+  const allItems = [laborItem, ...partItems];
+  const selectedItems = allItems.filter(i => i.selected !== false);
+  const allSelectedPriced = selectedItems.every(i => i.unitPrice !== null && i.pricingStatus !== 'PENDING');
+
+  let subtotal: number | null = null;
+  let tax: number | null = null;
+  let total: number | null = null;
+
+  if (allSelectedPriced && selectedItems.length > 0) {
+    subtotal = Math.round(selectedItems.reduce((acc, item) => acc + (item.total ?? 0), 0) * 100) / 100;
+    tax = Math.round(subtotal * 0.21 * 100) / 100;
+    total = Math.round((subtotal + tax) * 100) / 100;
+  }
+
+  // Status mapping: technical_draft is shown as draft (Borrador)
+  let quoteStatus: Quote['status'] = 'draft';
+  if (draft.status === 'pending_approval') quoteStatus = 'pending_approval';
+  else if (draft.status === 'sent') quoteStatus = 'sent';
+  else if (draft.status === 'approved') quoteStatus = 'accepted';
 
   return {
     id: draft.id,
@@ -550,15 +728,17 @@ export function convertEstimateDraftToQuote(
     customerId: '',
     vehicleId: draft.vehicleId,
     title: draft.operation.name,
-    createdDate: 'Hoy',
-    status: 'draft',
-    items: [laborItem, ...partItems],
-    subtotal: null,
-    tax: null,
-    total: null,
+    createdDate: draft.createdAt ? new Date(draft.createdAt).toLocaleDateString('es-ES') : 'Hoy',
+    status: quoteStatus,
+    items: allItems,
+    subtotal,
+    tax,
+    total,
     estimatedLaborHours: 3.5,
-    aiRationale: `Borrador técnico generado mediante Repair Knowledge (${draft.applicabilityCode}). Revisión: ${draft.knowledgeRevision.slice(0, 15)}...`,
-    uncertaintyWarning: 'Precios pendientes de asignación por el taller o DMS. Las piezas obligatorias han sido incluidas según manual OEM.',
+    aiRationale: `Borrador técnico generado mediante Repair Knowledge (${draft.applicabilityCode}). Revisión: ${draft.knowledgeRevision.slice(0, 15)}... v${draft.version}`,
+    uncertaintyWarning: allSelectedPriced
+      ? undefined
+      : 'Precios pendientes de asignación por el taller o DMS. Las piezas obligatorias han sido incluidas según manual OEM.',
     customerName,
     vehiclePlate,
     backendDraftId: draft.id,
@@ -567,21 +747,8 @@ export function convertEstimateDraftToQuote(
     knowledgeRevision: draft.knowledgeRevision,
     applicabilityCode: draft.applicabilityCode,
     repairJobCode: draft.repairJobCode,
-    idempotencyKey: draft.idempotencyKey
-  };
-}
-
-// Prepared adapter for future PATCH /v1/workshop/tenants/:tenantId/estimate-drafts/:draftId
-export async function patchEstimateDraftLine(
-  _tenantId: string,
-  _draftId: string,
-  _lineId: string,
-  _updates: { unitPrice?: number; quantity?: number; selected?: boolean }
-): Promise<{ ok: boolean; message: string; localFallback: true }> {
-  // Explicitly note: Backend does NOT yet provide PATCH for estimate-drafts lines or pricing
-  return {
-    ok: false,
-    message: 'Bloqueo Backend: Falta endpoint PATCH /v1/workshop/tenants/:tenantId/estimate-drafts/:draftId. Las modificaciones se conservan en almacenamiento local.',
-    localFallback: true
+    idempotencyKey: draft.idempotencyKey,
+    version: draft.version,
+    backendDraft: draft
   };
 }
