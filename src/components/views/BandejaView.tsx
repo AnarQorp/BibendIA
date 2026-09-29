@@ -18,9 +18,14 @@ import {
   Check,
   AlertCircle,
   ChevronLeft,
+<<<<<<< HEAD
   X,
   ArrowRight,
   ShieldCheck
+=======
+  Inbox,
+  X
+>>>>>>> main
 } from 'lucide-react';
 
 export const BandejaView: React.FC = () => {
@@ -31,7 +36,11 @@ export const BandejaView: React.FC = () => {
     confirmAppointmentSlot,
     generateQuoteFromPrompt,
     setActiveSection,
+<<<<<<< HEAD
     demoModeActive
+=======
+    sendChatMessage
+>>>>>>> main
   } = useDemo();
 
   const {
@@ -285,6 +294,13 @@ export const BandejaView: React.FC = () => {
     );
   }
 
+  const handleSendReply = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!replyInput.trim() || !selectedConv) return;
+    sendChatMessage(selectedConv.id, replyInput);
+    setReplyInput('');
+  };
+
   const filteredConvs = conversations.filter(c => {
     if (channelFilter === 'all') return true;
     return c.channel === channelFilter;
@@ -348,39 +364,47 @@ export const BandejaView: React.FC = () => {
           </div>
 
           <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
-            {filteredConvs.map(conv => {
-              const cust = customers.find(c => c.id === conv.customerId);
-              const veh = vehicles.find(v => v.id === conv.vehicleId);
-              const isSelected = conv.id === selectedConvId;
-              const lastMsg = conv.messages[conv.messages.length - 1];
+            {filteredConvs.length === 0 ? (
+              <div className="p-8 text-center text-xs text-slate-400 space-y-2">
+                <Inbox className="w-8 h-8 text-slate-300 mx-auto" />
+                <p className="font-semibold text-slate-600">No hay conversaciones</p>
+                <p className="text-[11px] text-slate-400">No se encontraron mensajes para el filtro seleccionado.</p>
+              </div>
+            ) : (
+              filteredConvs.map(conv => {
+                const cust = customers.find(c => c.id === conv.customerId);
+                const veh = vehicles.find(v => v.id === conv.vehicleId);
+                const isSelected = conv.id === selectedConvId;
+                const lastMsg = conv.messages[conv.messages.length - 1];
 
-              return (
-                <button
-                  key={conv.id}
-                  onClick={() => {
-                    setSelectedConvId(conv.id);
-                    setMobileActiveTab('chat');
-                  }}
-                  className={`w-full text-left p-4 transition-all flex flex-col gap-1.5 ${
-                    isSelected ? 'bg-blue-50/60 border-l-4 border-l-blue-600 font-semibold' : 'hover:bg-slate-50/60'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-sm text-slate-900 truncate">{cust?.name}</span>
-                    <span className="text-xs text-slate-400 font-mono shrink-0 ml-2">{conv.lastUpdate}</span>
-                  </div>
+                return (
+                  <button
+                    key={conv.id}
+                    onClick={() => {
+                      setSelectedConvId(conv.id);
+                      setMobileActiveTab('chat');
+                    }}
+                    className={`w-full text-left p-4 transition-all flex flex-col gap-1.5 ${
+                      isSelected ? 'bg-blue-50/60 border-l-4 border-l-blue-600 font-semibold' : 'hover:bg-slate-50/60'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-sm text-slate-900 truncate">{cust?.name}</span>
+                      <span className="text-xs text-slate-400 font-mono shrink-0 ml-2">{conv.lastUpdate}</span>
+                    </div>
 
-                  <div className="flex items-center gap-2">
-                    {getChannelBadge(conv.channel)}
-                    {veh && <span className="license-plate">{veh.plate}</span>}
-                  </div>
+                    <div className="flex items-center gap-2">
+                      {getChannelBadge(conv.channel)}
+                      {veh && <span className="license-plate">{veh.plate}</span>}
+                    </div>
 
-                  <p className="text-xs text-slate-500 truncate mt-0.5">
-                    {lastMsg ? lastMsg.content : 'Nueva consulta entrante'}
-                  </p>
-                </button>
-              );
-            })}
+                    <p className="text-xs text-slate-500 truncate mt-0.5">
+                      {lastMsg ? lastMsg.content : 'Nueva consulta entrante'}
+                    </p>
+                  </button>
+                );
+              })
+            )}
           </div>
         </div>
 
@@ -455,18 +479,23 @@ export const BandejaView: React.FC = () => {
           </div>
 
           {/* Chat Reply Bar */}
-          <div className="p-3.5 border-t border-slate-100 bg-white flex items-center gap-2">
+          <form onSubmit={handleSendReply} className="p-3.5 border-t border-slate-100 bg-white flex items-center gap-2">
             <input
               type="text"
               value={replyInput}
               onChange={e => setReplyInput(e.target.value)}
-              placeholder="Escribe un mensaje..."
+              placeholder="Escribe un mensaje de respuesta del taller..."
               className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:bg-white transition-all font-sans"
             />
-            <button className="p-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs">
+            <button
+              type="submit"
+              disabled={!replyInput.trim()}
+              className="p-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white rounded-xl text-xs font-bold transition-all shadow-xs"
+              title="Enviar respuesta"
+            >
               <Send className="w-4 h-4" />
             </button>
-          </div>
+          </form>
         </div>
 
         {/* Right Col (4 cols on lg): Human Result Panel ("BibendIA ha entendido") */}

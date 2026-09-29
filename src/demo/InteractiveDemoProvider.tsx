@@ -78,8 +78,7 @@ export default function InteractiveDemoProvider({ children }: { children: React.
   const hours = Math.floor(totalMinutesSaved / 60);
   const mins = totalMinutesSaved % 60;
   const timeSavedHoursMinutes = `${hours} h ${mins} min`;
-
-  const managedQuotesTotal = quotes.reduce((acc, q) => acc + q.total, 0);
+  const managedQuotesTotal = quotes.reduce((acc, q) => acc + (q.total ?? 0), 0);
   const recoveredRevenue = impactLogs
     .filter(log => log.isRecovery)
     .reduce((acc, log) => acc + (log.revenueImpact || 0), 0);
@@ -124,10 +123,69 @@ export default function InteractiveDemoProvider({ children }: { children: React.
 
     addImpactLog({
       title: `Presupuesto ${targetQuote.number} enviado a cliente`,
-      details: `Enviado por WhatsApp. Importe: ${targetQuote.total.toFixed(2)} €`,
+      details: `Enviado por WhatsApp. Importe: ${targetQuote.total !== null ? `${targetQuote.total.toFixed(2)} €` : 'Precio pendiente'}`,
       category: 'quote',
       timeSavedMinutes: 15
     });
+  };
+
+  const computeQuoteTotals = (quote: Quote): Quote => {
+    const hasPending = quote.items.some(
+      (item) => item.unitPrice === null || item.pricingStatus === 'PENDING'
+    );
+    const pricedItems = quote.items.filter(
+      (item) => item.unitPrice !== null && item.quantity !== null && item.pricingStatus !== 'PENDING'
+    );
+
+    if (pricedItems.length === 0 && hasPending) {
+      return { ...quote, subtotal: null, tax: null, total: null };
+    }
+
+    const subtotal = pricedItems.reduce((acc, item) => {
+      const q = item.quantity ?? 0;
+      const u = item.unitPrice ?? 0;
+      return acc + q * u;
+    }, 0);
+    const roundedSubtotal = Math.round(subtotal * 100) / 100;
+    const tax = Math.round(roundedSubtotal * 0.21 * 100) / 100;
+    const total = Math.round((roundedSubtotal + tax) * 100) / 100;
+    return { ...quote, subtotal: roundedSubtotal, tax, total };
+  };
+
+  const updateQuote = (quote: Quote) => {
+    const computedQuote = computeQuoteTotals(quote);
+    setQuotes(prev => prev.map(q => q.id === quote.id ? computedQuote : q));
+  };
+
+  const addQuote = (quote: Quote) => {
+    const computedQuote = computeQuoteTotals(quote);
+    setQuotes(prev => [computedQuote, ...prev]);
+  };
+
+  const deleteQuote = (quoteId: string) => {
+    setQuotes(prev => prev.filter(q => q.id !== quoteId));
+  };
+
+  const sendChatMessage = (conversationId: string, content: string) => {
+    if (!content.trim()) return;
+    const newMsg = {
+      id: `msg-${Date.now()}`,
+      channel: 'whatsapp' as const,
+      sender: 'workshop' as const,
+      senderName: 'Taller (Tú)',
+      content: content.trim(),
+      timestamp: new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }),
+    };
+    setConversations(prev => prev.map(c => {
+      if (c.id === conversationId) {
+        return {
+          ...c,
+          lastUpdate: 'Ahora',
+          messages: [...c.messages, newMsg]
+        };
+      }
+      return c;
+    }));
   };
 
   // 2. Confirm Marta Appointment
@@ -556,6 +614,10 @@ export default function InteractiveDemoProvider({ children }: { children: React.
         prevDemoStep,
         resetDemoStep,
         approveQuote,
+        updateQuote,
+        addQuote,
+        deleteQuote,
+        sendChatMessage,
         confirmAppointmentSlot,
         completeAppointmentWork,
         notifyClientVehicleReady,

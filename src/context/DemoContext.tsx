@@ -74,6 +74,10 @@ export interface DemoContextType {
 
   // State Mutators
   approveQuote: (quoteId: string) => void;
+  updateQuote: (quote: Quote) => void;
+  addQuote: (quote: Quote) => void;
+  deleteQuote: (quoteId: string) => void;
+  sendChatMessage: (conversationId: string, content: string) => void;
   confirmAppointmentSlot: (slotDate: string, slotTime: string) => void;
   completeAppointmentWork: (appointmentId: string, notes: string, futureRecommendation?: string) => void;
   notifyClientVehicleReady: (customerId: string, vehicleId: string) => void;
@@ -103,9 +107,56 @@ export const ProductWorkshopProvider: React.FC<{ children: React.ReactNode }> = 
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [quotes, setQuotes] = useState<Quote[]>([]);
+  // Quotes state initialized from localStorage with realistic starter draft if empty
+  const [quotes, setQuotes] = useState<Quote[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('bibendia_workshop_quotes');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      } catch (e) {
+        console.warn('Error reading saved quotes:', e);
+      }
+    }
+    return [
+      {
+        id: 'q-sample-1',
+        number: 'PRE-2026-001',
+        customerId: '',
+        vehicleId: '',
+        title: 'Mantenimiento Periódico y Revisión de Frenos',
+        createdDate: 'Hoy',
+        status: 'draft',
+        customerName: 'Ander García',
+        vehiclePlate: '4821-KMP',
+        items: [
+          { id: 'item-1', category: 'part', description: 'Pastillas de freno delanteras (Juego)', quantity: 1, unitPrice: 65.0, total: 65.0 },
+          { id: 'item-2', category: 'part', description: 'Líquido de frenos DOT 4 (1L)', quantity: 1, unitPrice: 14.5, total: 14.5 },
+          { id: 'item-3', category: 'labor', description: 'Mano de obra: sustitución y purgado', quantity: 1.5, unitPrice: 50.0, total: 75.0 },
+        ],
+        subtotal: 154.5,
+        tax: 32.45,
+        total: 186.95,
+        estimatedLaborHours: 1.5,
+        aiRationale: 'Componentes identificados para revisión preventiva de frenado.'
+      }
+    ];
+  });
   const [followups, setFollowups] = useState<FollowUpOpportunity[]>([]);
   const [impactLogs, setImpactLogs] = useState<AiImpactLog[]>([]);
+
+  const persistQuotes = (updatedQuotes: Quote[]) => {
+    setQuotes(updatedQuotes);
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('bibendia_workshop_quotes', JSON.stringify(updatedQuotes));
+      } catch (e) {
+        console.warn('Error persisting quotes:', e);
+      }
+    }
+  };
 
   // Voice & Assistant modal state
   const [isListening, setIsListening] = useState<boolean>(false);
@@ -115,7 +166,7 @@ export const ProductWorkshopProvider: React.FC<{ children: React.ReactNode }> = 
 
   const stats = {
     timeSavedHoursMinutes: '0 h 0 min',
-    managedQuotesTotal: 0,
+    managedQuotesTotal: quotes.length,
     recoveredRevenue: 0,
     inquiriesHandled: 0,
     appointmentsBooked: appointments.length,
@@ -125,7 +176,70 @@ export const ProductWorkshopProvider: React.FC<{ children: React.ReactNode }> = 
   };
 
   const approveQuote = (quoteId: string) => {
-    setQuotes(prev => prev.map(q => q.id === quoteId ? { ...q, status: 'sent' } : q));
+    const updated = quotes.map(q => q.id === quoteId ? { ...q, status: 'sent' as const } : q);
+    persistQuotes(updated);
+  };
+
+  const computeQuoteTotals = (quote: Quote): Quote => {
+    const hasPending = quote.items.some(
+      (item) => item.unitPrice === null || item.pricingStatus === 'PENDING'
+    );
+    const pricedItems = quote.items.filter(
+      (item) => item.unitPrice !== null && item.quantity !== null && item.pricingStatus !== 'PENDING'
+    );
+
+    if (pricedItems.length === 0 && hasPending) {
+      return { ...quote, subtotal: null, tax: null, total: null };
+    }
+
+    const subtotal = pricedItems.reduce((acc, item) => {
+      const q = item.quantity ?? 0;
+      const u = item.unitPrice ?? 0;
+      return acc + q * u;
+    }, 0);
+    const roundedSubtotal = Math.round(subtotal * 100) / 100;
+    const tax = Math.round(roundedSubtotal * 0.21 * 100) / 100;
+    const total = Math.round((roundedSubtotal + tax) * 100) / 100;
+    return { ...quote, subtotal: roundedSubtotal, tax, total };
+  };
+
+  const updateQuote = (quote: Quote) => {
+    const computedQuote = computeQuoteTotals(quote);
+    const updated = quotes.map(q => q.id === quote.id ? computedQuote : q);
+    persistQuotes(updated);
+  };
+
+  const addQuote = (quote: Quote) => {
+    const computedQuote = computeQuoteTotals(quote);
+    const updated = [computedQuote, ...quotes];
+    persistQuotes(updated);
+  };
+
+  const deleteQuote = (quoteId: string) => {
+    const updated = quotes.filter(q => q.id !== quoteId);
+    persistQuotes(updated);
+  };
+
+  const sendChatMessage = (conversationId: string, content: string) => {
+    if (!content.trim()) return;
+    const newMsg = {
+      id: `msg-${Date.now()}`,
+      channel: 'whatsapp' as const,
+      sender: 'workshop' as const,
+      senderName: 'Taller (Tú)',
+      content: content.trim(),
+      timestamp: new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }),
+    };
+    setConversations(prev => prev.map(c => {
+      if (c.id === conversationId) {
+        return {
+          ...c,
+          lastUpdate: 'Ahora',
+          messages: [...c.messages, newMsg]
+        };
+      }
+      return c;
+    }));
   };
 
   const confirmAppointmentSlot = () => {
@@ -237,6 +351,10 @@ export const ProductWorkshopProvider: React.FC<{ children: React.ReactNode }> = 
         prevDemoStep: () => {},
         resetDemoStep: () => {},
         approveQuote,
+        updateQuote,
+        addQuote,
+        deleteQuote,
+        sendChatMessage,
         confirmAppointmentSlot,
         completeAppointmentWork,
         notifyClientVehicleReady,

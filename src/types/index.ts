@@ -79,13 +79,35 @@ export interface Appointment {
   futureRecommendation?: string;
 }
 
+export type EstimateAutomationStatus = 'AUTO_INCLUDED' | 'REVIEW_REQUIRED' | 'OPTIONAL' | 'BLOCKED';
+
+export interface RepairEvidence {
+  source: string;
+  reference: string;
+  sourceType: string;
+  checkedAt: string;
+  confidenceState: string;
+  reuseStatus: string;
+  notes: string | null;
+  sourceVersion: string | null;
+}
+
 export interface QuoteItem {
   id: string;
   category: 'part' | 'labor';
   description: string;
-  quantity: number;
-  unitPrice: number;
-  total: number;
+  quantity: number | null;
+  unitPrice: number | null;
+  total: number | null;
+  currency?: string | null;
+  pricingStatus?: 'PENDING' | 'MANUALLY_PRICED';
+  automationStatus?: EstimateAutomationStatus;
+  reviewRequired?: boolean;
+  repairBomEdgeId?: string;
+  confidenceState?: string;
+  evidence?: RepairEvidence[];
+  confidenceReason?: string;
+  isLocallyModified?: boolean;
 }
 
 export interface Quote {
@@ -95,14 +117,25 @@ export interface Quote {
   vehicleId: string;
   title: string;
   createdDate: string;
-  status: 'pending_approval' | 'sent' | 'accepted' | 'rejected';
+  status: 'draft' | 'pending_approval' | 'sent' | 'accepted' | 'rejected';
   items: QuoteItem[];
-  subtotal: number;
-  tax: number; // 21% IVA
-  total: number;
+  subtotal: number | null;
+  tax: number | null; // 21% IVA
+  total: number | null;
   estimatedLaborHours: number;
   aiRationale: string;
   uncertaintyWarning?: string;
+  customerName?: string;
+  vehiclePlate?: string;
+
+  // RK03 Technical Draft Provenance
+  backendDraftId?: string;
+  isPersistedBackendDraft?: boolean;
+  hasUnsavedLocalChanges?: boolean;
+  knowledgeRevision?: string;
+  applicabilityCode?: string;
+  repairJobCode?: string;
+  idempotencyKey?: string;
 }
 
 export interface FollowUpOpportunity {
@@ -235,3 +268,227 @@ export interface PlatformSupplierSummary {
   linkedWorkshopsCount: number;
   commissionRatePct?: number;
 }
+
+// ==========================================
+// PLATFORM ADMIN DOMAIN INTERFACES (P0.9)
+// ==========================================
+
+export interface PlatformTenantSummary {
+  id: string;
+  name: string;
+  locale: string;
+  timezone: string;
+  operating_mode: 'standard' | 'pilot_supervised';
+  lifecycle_status: 'provisioning' | 'pilot' | 'active' | 'suspended' | 'deactivated';
+  kill_switch_enabled: boolean;
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PlatformWorkshopRow {
+  id: string;
+  tenant_id: string;
+  name: string;
+  timezone: string;
+  opening_hours: Record<string, unknown>;
+  status: 'active' | 'suspended' | 'closed';
+  version: number;
+  updated_at: string;
+}
+
+export interface PlatformMembershipRow {
+  user_id: string;
+  tenant_id: string;
+  role: 'OWNER' | 'MANAGER' | 'RECEPTION' | 'VIEWER';
+  status: 'active' | 'suspended' | 'revoked';
+  valid_from: string;
+  valid_until: string | null;
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PlatformGrantRow {
+  id: string;
+  user_id: string;
+  role: 'PLATFORM_ADMIN' | 'PLATFORM_OPERATOR' | 'SUPPORT_READONLY' | 'SECURITY_AUDITOR';
+  scope_type: string;
+  tenant_id: string;
+  status: 'active' | 'suspended' | 'revoked';
+  valid_from: string;
+  valid_until: string | null;
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PlatformChannelEndpointRow {
+  id: string;
+  tenant_id: string;
+  workshop_id: string;
+  provider: 'twilio' | 'vapi' | 'elevenlabs';
+  external_account_id: string;
+  called_endpoint: string;
+  status: 'active' | 'suspended' | 'revoked';
+  version: number;
+  updated_at: string;
+}
+
+export interface PlatformIntegrationRow {
+  id: string;
+  tenant_id: string;
+  workshop_id: string;
+  channel_endpoint_id: string;
+  status: 'active' | 'suspended' | 'revoked';
+  version: number;
+  updated_at: string;
+  provider: 'twilio' | 'elevenlabs';
+  service_type: 'telephony_provider' | 'voice_provider';
+  external_account_id: string;
+  principal_status: string;
+}
+
+export interface PlatformAuditEventRow {
+  id: number;
+  event_type: string;
+  entity_type: string;
+  entity_id: string;
+  actor_type?: string;
+  actor_id?: string;
+  correlation_id: string;
+  evidence_ref?: string;
+  occurred_at: string;
+}
+
+// ==========================================
+// REPAIR KNOWLEDGE & ESTIMATE DRAFTS (RK03)
+// ==========================================
+
+export type ConfidenceState = 
+  | 'VERIFIED_OEM'
+  | 'VERIFIED_MANUFACTURER'
+  | 'MULTI_SOURCE_VERIFIED'
+  | 'DERIVED_FROM_KIT'
+  | 'COMMUNITY_SUPPORTED'
+  | 'INFERRED'
+  | 'UNKNOWN';
+
+export type BomClassification = 'EXPLICIT_BOM' | 'DERIVED_FROM_KIT' | 'MULTI_SOURCE_BOM' | 'TECHNICAL_RULE';
+export type RequirementType = 'REQUIRED' | 'RECOMMENDED' | 'CONDITIONAL' | 'OPTIONAL';
+
+export interface RepairKnowledgeEdge {
+  code: string;
+  itemKind: 'PART_ROLE' | 'CONSUMABLE';
+  partRole: {
+    code: string;
+    name: string;
+    category: string;
+  };
+  quantity: number | null;
+  requirementType: RequirementType;
+  bomClassification: BomClassification;
+  confidenceState: ConfidenceState;
+  condition: string | null;
+  replaceOnce: boolean;
+  side: string | null;
+  axle: string | null;
+  position: string | null;
+  notes: string | null;
+  automationEligible: boolean;
+  manualReviewRequired: boolean;
+  confidenceReason: string;
+  evidence: RepairEvidence[];
+}
+
+export interface RepairKnowledgeResolution {
+  applicability: {
+    code: string;
+    make: string;
+    model: string;
+    generation: string | null;
+    variant: string | null;
+    engineCode: string;
+    productionFrom: string | null;
+    productionTo: string | null;
+    restrictions: string | null;
+  };
+  repairJob: {
+    code: string;
+    system: string;
+    subsystem: string;
+    name: string;
+    description: string | null;
+  };
+  components: RepairKnowledgeEdge[];
+  consumables: RepairKnowledgeEdge[];
+}
+
+export interface EstimateDraftLine {
+  id: string;
+  repairBomEdgeId: string;
+  edgeCode: string;
+  itemType: 'PART_ROLE' | 'CONSUMABLE';
+  partRoleCode: string;
+  partRoleName: string;
+  quantity: number | null;
+  requirementType: string;
+  replaceOnce: boolean;
+  condition: string | null;
+  confidenceState: string;
+  automationStatus: EstimateAutomationStatus;
+  reviewRequired: boolean;
+  selected: boolean;
+  confidenceReason: string;
+  evidence: RepairEvidence[];
+  notes: string | null;
+  unitPrice: number | null;
+  currency: string | null;
+  pricingStatus: 'PENDING' | 'MANUALLY_PRICED';
+  editable: true;
+}
+
+export interface EstimateDraft {
+  id: string;
+  tenantId: string;
+  vehicleId: string;
+  repairJobCode: string;
+  applicabilityCode: string;
+  status: 'technical_draft';
+  idempotencyKey: string;
+  knowledgeRevision: string;
+  createdAt: string;
+  operation: {
+    code: string;
+    name: string;
+    description: string | null;
+    unitPrice: number | null;
+    currency: string | null;
+    pricingStatus: 'PENDING' | 'MANUALLY_PRICED';
+    editable: true;
+  };
+  lines: EstimateDraftLine[];
+}
+
+export interface ResolveRepairKnowledgeQuery {
+  make: string;
+  model: string;
+  engineCode: string;
+  repairJobCode: string;
+  productionDate?: string;
+  variant?: string;
+}
+
+export interface CreateEstimateDraftCommand {
+  vehicleId: string;
+  idempotencyKey: string;
+  vehicle: {
+    make: string;
+    model: string;
+    engineCode: string;
+    productionDate?: string;
+    variant?: string;
+  };
+  repairJobCode: string;
+}
+

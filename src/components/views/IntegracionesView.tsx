@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useDemo } from '../../context/DemoContext';
 import { 
   Settings, 
@@ -7,12 +7,28 @@ import {
   RefreshCw, 
   ArrowUpRight, 
   ShieldCheck, 
-  Layers,
-  FileCheck,
-  Check
+  Layers, 
+  FileCheck, 
+  Check 
 } from 'lucide-react';
 
 export const IntegracionesView: React.FC = () => {
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [lastSyncText, setLastSyncText] = useState('Hace 3 min');
+  const [feedback, setFeedback] = useState<string | null>(null);
+
+  const handleSync = () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    setFeedback('Sincronizando con ERP / DMS del taller...');
+    setTimeout(() => {
+      setIsSyncing(false);
+      setLastSyncText('Hace un momento');
+      setFeedback('Sincronización completada correctamente con DMS local.');
+      setTimeout(() => setFeedback(null), 4000);
+    }, 1200);
+  };
+
   return (
     <div className="p-3 sm:p-6 max-w-7xl mx-auto space-y-4 sm:space-y-6 animate-fadeIn">
       {/* Header Banner */}
@@ -28,6 +44,13 @@ export const IntegracionesView: React.FC = () => {
           BibendIA convive con tu programa de gestión habitual. Asume la recepción, citas y comunicación con clientes, y envía los datos preparados a tu software contable o de facturación mediante la acción <strong className="text-slate-900 font-bold">[Enviar a gestión]</strong>.
         </p>
       </div>
+
+      {feedback && (
+        <div className="p-3.5 bg-blue-50 border border-blue-200 text-blue-800 text-xs rounded-xl font-medium flex items-center gap-2 animate-fadeIn">
+          <RefreshCw className={`w-4 h-4 text-blue-600 ${isSyncing ? 'animate-spin' : ''}`} />
+          <span>{feedback}</span>
+        </div>
+      )}
 
       {/* Primary DMS Status Card */}
       <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-4">
@@ -48,9 +71,14 @@ export const IntegracionesView: React.FC = () => {
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-            <span className="text-xs text-slate-500 font-mono">Última sincronización: <strong className="text-slate-900 font-bold">Hace 3 min</strong></span>
-            <button className="p-2.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-xl transition-all shadow-2xs">
-              <RefreshCw className="w-4 h-4" />
+            <span className="text-xs text-slate-500 font-mono">Última sincronización: <strong className="text-slate-900 font-bold">{lastSyncText}</strong></span>
+            <button
+              onClick={handleSync}
+              disabled={isSyncing}
+              title="Forzar comprobación de sincronización"
+              className="p-2.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-xl transition-all shadow-2xs disabled:opacity-50"
+            >
+              <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin text-blue-600' : ''}`} />
             </button>
           </div>
         </div>
@@ -127,4 +155,3 @@ export const IntegracionesView: React.FC = () => {
     </div>
   );
 };
-

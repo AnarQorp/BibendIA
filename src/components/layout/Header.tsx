@@ -14,7 +14,7 @@ export const Header: React.FC = () => {
 
   const getSectionTitle = () => {
     switch (activeSection) {
-      case 'midia': return 'Inicio — Taller';
+      case 'midia': return 'Mi Día — Taller';
       case 'bandeja': return 'Bandeja Multicanal';
       case 'agenda': return 'Agenda del Taller';
       case 'presupuestos': return 'Presupuestos';
