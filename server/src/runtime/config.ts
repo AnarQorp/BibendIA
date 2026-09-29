@@ -132,18 +132,26 @@ function providerIngressFromEnvironment(env: NodeJS.ProcessEnv): ProviderIngress
     elevenLabsWebhook: [env.ELEVENLABS_WEBHOOK_SERVICE_PRINCIPAL_ID, env.ELEVENLABS_AGENT_ID, env.ELEVENLABS_WEBHOOK_SECRET],
     elevenLabsTool: [env.ELEVENLABS_TOOL_SERVICE_PRINCIPAL_ID, env.ELEVENLABS_AGENT_ID, env.ELEVENLABS_TOOL_SECRET],
   } as const;
-  const configured = Object.values(groups).some((values) => values.some(Boolean));
-  if (!configured) return undefined;
-  for (const [name, values] of Object.entries(groups)) {
-    if (values.some(Boolean) && !values.every(Boolean)) throw new RuntimeConfigError(`${name.toUpperCase()}_CONFIG_INCOMPLETE`);
+  const activation = {
+    twilio: groups.twilio,
+    // ELEVENLABS_AGENT_ID is shared context, not an activation signal for either capability.
+    elevenLabsWebhook: [env.ELEVENLABS_WEBHOOK_SERVICE_PRINCIPAL_ID, env.ELEVENLABS_WEBHOOK_SECRET],
+    elevenLabsTool: [env.ELEVENLABS_TOOL_SERVICE_PRINCIPAL_ID, env.ELEVENLABS_TOOL_SECRET],
+  } as const;
+  const activeGroups = Object.fromEntries(
+    Object.entries(activation).map(([name, values]) => [name, values.some(Boolean)]),
+  ) as Record<keyof typeof groups, boolean>;
+  if (!Object.values(activeGroups).some(Boolean)) return undefined;
+  for (const [name, values] of Object.entries(groups) as [keyof typeof groups, readonly (string | undefined)[]][]) {
+    if (activeGroups[name] && !values.every(Boolean)) throw new RuntimeConfigError(`${name.toUpperCase()}_CONFIG_INCOMPLETE`);
   }
   if (!env.PUBLIC_API_BASE_URL) throw new RuntimeConfigError('PUBLIC_API_BASE_URL_REQUIRED');
   const publicApiBaseUrl = requiredOrigin(env.PUBLIC_API_BASE_URL, 'PUBLIC_API_BASE_URL_INVALID');
   return {
     publicApiBaseUrl,
-    twilio: groups.twilio.every(Boolean) ? { servicePrincipalId: groups.twilio[0]!, externalAccountId: groups.twilio[1]!, secret: groups.twilio[2]! } : undefined,
-    elevenLabsWebhook: groups.elevenLabsWebhook.every(Boolean) ? { servicePrincipalId: groups.elevenLabsWebhook[0]!, externalAccountId: groups.elevenLabsWebhook[1]!, secret: groups.elevenLabsWebhook[2]! } : undefined,
-    elevenLabsTool: groups.elevenLabsTool.every(Boolean) ? { servicePrincipalId: groups.elevenLabsTool[0]!, externalAccountId: groups.elevenLabsTool[1]!, secret: groups.elevenLabsTool[2]! } : undefined,
+    twilio: activeGroups.twilio ? { servicePrincipalId: groups.twilio[0]!, externalAccountId: groups.twilio[1]!, secret: groups.twilio[2]! } : undefined,
+    elevenLabsWebhook: activeGroups.elevenLabsWebhook ? { servicePrincipalId: groups.elevenLabsWebhook[0]!, externalAccountId: groups.elevenLabsWebhook[1]!, secret: groups.elevenLabsWebhook[2]! } : undefined,
+    elevenLabsTool: activeGroups.elevenLabsTool ? { servicePrincipalId: groups.elevenLabsTool[0]!, externalAccountId: groups.elevenLabsTool[1]!, secret: groups.elevenLabsTool[2]! } : undefined,
   };
 }
 

@@ -21,6 +21,51 @@ describe('production runtime configuration', () => {
     expect(() => loadApiRuntimeConfig({ ...base, TWILIO_ACCOUNT_SID: 'AC123' })).toThrow(/INCOMPLETE/);
   });
 
+  it('supports independent ElevenLabs tool-only and webhook-only runtime groups', () => {
+    const shared = { ...base, PUBLIC_API_BASE_URL: 'https://api.bibendia.com', ELEVENLABS_AGENT_ID: 'agent-jarrisons' };
+    expect(loadApiRuntimeConfig({ ...base, ELEVENLABS_AGENT_ID: 'agent-jarrisons' }).providerIngress).toBeUndefined();
+
+    const toolOnly = loadApiRuntimeConfig({
+      ...shared, ELEVENLABS_TOOL_SERVICE_PRINCIPAL_ID: 'tool-principal', ELEVENLABS_TOOL_SECRET: 'tool-secret',
+    }).providerIngress!;
+    expect(toolOnly.elevenLabsTool).toEqual({
+      servicePrincipalId: 'tool-principal', externalAccountId: 'agent-jarrisons', secret: 'tool-secret',
+    });
+    expect(toolOnly.elevenLabsWebhook).toBeUndefined();
+
+    const webhookOnly = loadApiRuntimeConfig({
+      ...shared, ELEVENLABS_WEBHOOK_SERVICE_PRINCIPAL_ID: 'webhook-principal', ELEVENLABS_WEBHOOK_SECRET: 'webhook-secret',
+    }).providerIngress!;
+    expect(webhookOnly.elevenLabsWebhook).toEqual({
+      servicePrincipalId: 'webhook-principal', externalAccountId: 'agent-jarrisons', secret: 'webhook-secret',
+    });
+    expect(webhookOnly.elevenLabsTool).toBeUndefined();
+
+    const both = loadApiRuntimeConfig({
+      ...shared,
+      ELEVENLABS_TOOL_SERVICE_PRINCIPAL_ID: 'tool-principal', ELEVENLABS_TOOL_SECRET: 'tool-secret',
+      ELEVENLABS_WEBHOOK_SERVICE_PRINCIPAL_ID: 'webhook-principal', ELEVENLABS_WEBHOOK_SECRET: 'webhook-secret',
+    }).providerIngress!;
+    expect(both.elevenLabsTool).toBeDefined();
+    expect(both.elevenLabsWebhook).toBeDefined();
+  });
+
+  it('fails closed for partially activated ElevenLabs capability groups', () => {
+    const runtime = { ...base, PUBLIC_API_BASE_URL: 'https://api.bibendia.com', ELEVENLABS_AGENT_ID: 'agent-jarrisons' };
+    expect(() => loadApiRuntimeConfig({
+      ...runtime, ELEVENLABS_TOOL_SERVICE_PRINCIPAL_ID: 'tool-principal',
+    })).toThrow(/ELEVENLABSTOOL_CONFIG_INCOMPLETE/);
+    expect(() => loadApiRuntimeConfig({
+      ...runtime, ELEVENLABS_TOOL_SECRET: 'tool-secret',
+    })).toThrow(/ELEVENLABSTOOL_CONFIG_INCOMPLETE/);
+    expect(() => loadApiRuntimeConfig({
+      ...runtime, ELEVENLABS_WEBHOOK_SERVICE_PRINCIPAL_ID: 'webhook-principal',
+    })).toThrow(/ELEVENLABSWEBHOOK_CONFIG_INCOMPLETE/);
+    expect(() => loadApiRuntimeConfig({
+      ...runtime, ELEVENLABS_WEBHOOK_SECRET: 'webhook-secret',
+    })).toThrow(/ELEVENLABSWEBHOOK_CONFIG_INCOMPLETE/);
+  });
+
   it('keeps Worker disabled by default and refuses enablement without an approved adapter', () => {
     expect(loadWorkerRuntimeConfig(base).mode).toBe('disabled');
     expect(() => loadWorkerRuntimeConfig({ ...base, WORKER_MODE: 'enabled' })).toThrow(/WORKER_ADAPTER_NOT_CONFIGURED/);
