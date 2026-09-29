@@ -135,7 +135,9 @@ export const MiDiaView: React.FC = () => {
                     <div className="flex items-center gap-4 shrink-0">
                       <div className="text-right">
                         <span className="text-xs text-slate-500 font-medium block">Total presupuesto</span>
-                        <span className="text-lg font-extrabold text-slate-900 font-mono">{quote.total.toFixed(2)} €</span>
+                        <span className="text-lg font-extrabold text-slate-900 font-mono">
+                          {quote.total !== null ? `${quote.total.toFixed(2)} €` : 'Precio pendiente'}
+                        </span>
                       </div>
                       <div className="flex items-center gap-2">
                         <button

@@ -78,8 +78,7 @@ export default function InteractiveDemoProvider({ children }: { children: React.
   const hours = Math.floor(totalMinutesSaved / 60);
   const mins = totalMinutesSaved % 60;
   const timeSavedHoursMinutes = `${hours} h ${mins} min`;
-
-  const managedQuotesTotal = quotes.reduce((acc, q) => acc + q.total, 0);
+  const managedQuotesTotal = quotes.reduce((acc, q) => acc + (q.total ?? 0), 0);
   const recoveredRevenue = impactLogs
     .filter(log => log.isRecovery)
     .reduce((acc, log) => acc + (log.revenueImpact || 0), 0);
@@ -124,25 +123,42 @@ export default function InteractiveDemoProvider({ children }: { children: React.
 
     addImpactLog({
       title: `Presupuesto ${targetQuote.number} enviado a cliente`,
-      details: `Enviado por WhatsApp. Importe: ${targetQuote.total.toFixed(2)} €`,
+      details: `Enviado por WhatsApp. Importe: ${targetQuote.total !== null ? `${targetQuote.total.toFixed(2)} €` : 'Precio pendiente'}`,
       category: 'quote',
       timeSavedMinutes: 15
     });
   };
 
+  const computeQuoteTotals = (quote: Quote): Quote => {
+    const hasPending = quote.items.some(
+      (item) => item.unitPrice === null || item.pricingStatus === 'PENDING'
+    );
+    const pricedItems = quote.items.filter(
+      (item) => item.unitPrice !== null && item.quantity !== null && item.pricingStatus !== 'PENDING'
+    );
+
+    if (pricedItems.length === 0 && hasPending) {
+      return { ...quote, subtotal: null, tax: null, total: null };
+    }
+
+    const subtotal = pricedItems.reduce((acc, item) => {
+      const q = item.quantity ?? 0;
+      const u = item.unitPrice ?? 0;
+      return acc + q * u;
+    }, 0);
+    const roundedSubtotal = Math.round(subtotal * 100) / 100;
+    const tax = Math.round(roundedSubtotal * 0.21 * 100) / 100;
+    const total = Math.round((roundedSubtotal + tax) * 100) / 100;
+    return { ...quote, subtotal: roundedSubtotal, tax, total };
+  };
+
   const updateQuote = (quote: Quote) => {
-    const subtotal = quote.items.reduce((acc, item) => acc + (item.quantity * item.unitPrice), 0);
-    const tax = Math.round(subtotal * 0.21 * 100) / 100;
-    const total = Math.round((subtotal + tax) * 100) / 100;
-    const computedQuote: Quote = { ...quote, subtotal, tax, total };
+    const computedQuote = computeQuoteTotals(quote);
     setQuotes(prev => prev.map(q => q.id === quote.id ? computedQuote : q));
   };
 
   const addQuote = (quote: Quote) => {
-    const subtotal = quote.items.reduce((acc, item) => acc + (item.quantity * item.unitPrice), 0);
-    const tax = Math.round(subtotal * 0.21 * 100) / 100;
-    const total = Math.round((subtotal + tax) * 100) / 100;
-    const computedQuote: Quote = { ...quote, subtotal, tax, total };
+    const computedQuote = computeQuoteTotals(quote);
     setQuotes(prev => [computedQuote, ...prev]);
   };
 

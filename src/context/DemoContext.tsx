@@ -180,20 +180,37 @@ export const ProductWorkshopProvider: React.FC<{ children: React.ReactNode }> = 
     persistQuotes(updated);
   };
 
+  const computeQuoteTotals = (quote: Quote): Quote => {
+    const hasPending = quote.items.some(
+      (item) => item.unitPrice === null || item.pricingStatus === 'PENDING'
+    );
+    const pricedItems = quote.items.filter(
+      (item) => item.unitPrice !== null && item.quantity !== null && item.pricingStatus !== 'PENDING'
+    );
+
+    if (pricedItems.length === 0 && hasPending) {
+      return { ...quote, subtotal: null, tax: null, total: null };
+    }
+
+    const subtotal = pricedItems.reduce((acc, item) => {
+      const q = item.quantity ?? 0;
+      const u = item.unitPrice ?? 0;
+      return acc + q * u;
+    }, 0);
+    const roundedSubtotal = Math.round(subtotal * 100) / 100;
+    const tax = Math.round(roundedSubtotal * 0.21 * 100) / 100;
+    const total = Math.round((roundedSubtotal + tax) * 100) / 100;
+    return { ...quote, subtotal: roundedSubtotal, tax, total };
+  };
+
   const updateQuote = (quote: Quote) => {
-    const subtotal = quote.items.reduce((acc, item) => acc + (item.quantity * item.unitPrice), 0);
-    const tax = Math.round(subtotal * 0.21 * 100) / 100;
-    const total = Math.round((subtotal + tax) * 100) / 100;
-    const computedQuote: Quote = { ...quote, subtotal, tax, total };
+    const computedQuote = computeQuoteTotals(quote);
     const updated = quotes.map(q => q.id === quote.id ? computedQuote : q);
     persistQuotes(updated);
   };
 
   const addQuote = (quote: Quote) => {
-    const subtotal = quote.items.reduce((acc, item) => acc + (item.quantity * item.unitPrice), 0);
-    const tax = Math.round(subtotal * 0.21 * 100) / 100;
-    const total = Math.round((subtotal + tax) * 100) / 100;
-    const computedQuote: Quote = { ...quote, subtotal, tax, total };
+    const computedQuote = computeQuoteTotals(quote);
     const updated = [computedQuote, ...quotes];
     persistQuotes(updated);
   };
