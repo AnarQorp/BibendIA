@@ -130,6 +130,48 @@ export default function InteractiveDemoProvider({ children }: { children: React.
     });
   };
 
+  const updateQuote = (quote: Quote) => {
+    const subtotal = quote.items.reduce((acc, item) => acc + (item.quantity * item.unitPrice), 0);
+    const tax = Math.round(subtotal * 0.21 * 100) / 100;
+    const total = Math.round((subtotal + tax) * 100) / 100;
+    const computedQuote: Quote = { ...quote, subtotal, tax, total };
+    setQuotes(prev => prev.map(q => q.id === quote.id ? computedQuote : q));
+  };
+
+  const addQuote = (quote: Quote) => {
+    const subtotal = quote.items.reduce((acc, item) => acc + (item.quantity * item.unitPrice), 0);
+    const tax = Math.round(subtotal * 0.21 * 100) / 100;
+    const total = Math.round((subtotal + tax) * 100) / 100;
+    const computedQuote: Quote = { ...quote, subtotal, tax, total };
+    setQuotes(prev => [computedQuote, ...prev]);
+  };
+
+  const deleteQuote = (quoteId: string) => {
+    setQuotes(prev => prev.filter(q => q.id !== quoteId));
+  };
+
+  const sendChatMessage = (conversationId: string, content: string) => {
+    if (!content.trim()) return;
+    const newMsg = {
+      id: `msg-${Date.now()}`,
+      channel: 'whatsapp' as const,
+      sender: 'workshop' as const,
+      senderName: 'Taller (Tú)',
+      content: content.trim(),
+      timestamp: new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }),
+    };
+    setConversations(prev => prev.map(c => {
+      if (c.id === conversationId) {
+        return {
+          ...c,
+          lastUpdate: 'Ahora',
+          messages: [...c.messages, newMsg]
+        };
+      }
+      return c;
+    }));
+  };
+
   // 2. Confirm Marta Appointment
   const confirmAppointmentSlot = (slotDate: string, slotTime: string) => {
     const existing = appointments.find(a => a.customerId === 'c1' && a.date === slotDate && a.time === slotTime);
@@ -556,6 +598,10 @@ export default function InteractiveDemoProvider({ children }: { children: React.
         prevDemoStep,
         resetDemoStep,
         approveQuote,
+        updateQuote,
+        addQuote,
+        deleteQuote,
+        sendChatMessage,
         confirmAppointmentSlot,
         completeAppointmentWork,
         notifyClientVehicleReady,

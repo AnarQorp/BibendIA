@@ -95,7 +95,7 @@ export interface Quote {
   vehicleId: string;
   title: string;
   createdDate: string;
-  status: 'pending_approval' | 'sent' | 'accepted' | 'rejected';
+  status: 'draft' | 'pending_approval' | 'sent' | 'accepted' | 'rejected';
   items: QuoteItem[];
   subtotal: number;
   tax: number; // 21% IVA
@@ -103,6 +103,8 @@ export interface Quote {
   estimatedLaborHours: number;
   aiRationale: string;
   uncertaintyWarning?: string;
+  customerName?: string;
+  vehiclePlate?: string;
 }
 
 export interface FollowUpOpportunity {
@@ -232,3 +234,96 @@ export interface PlatformSupplierSummary {
   linkedWorkshopsCount: number;
   commissionRatePct?: number;
 }
+
+// ==========================================
+// PLATFORM ADMIN DOMAIN INTERFACES (P0.9)
+// ==========================================
+
+export interface PlatformTenantSummary {
+  id: string;
+  name: string;
+  locale: string;
+  timezone: string;
+  operating_mode: 'standard' | 'pilot_supervised';
+  lifecycle_status: 'provisioning' | 'pilot' | 'active' | 'suspended' | 'deactivated';
+  kill_switch_enabled: boolean;
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PlatformWorkshopRow {
+  id: string;
+  tenant_id: string;
+  name: string;
+  timezone: string;
+  opening_hours: Record<string, unknown>;
+  status: 'active' | 'suspended' | 'closed';
+  version: number;
+  updated_at: string;
+}
+
+export interface PlatformMembershipRow {
+  user_id: string;
+  tenant_id: string;
+  role: 'OWNER' | 'MANAGER' | 'RECEPTION' | 'VIEWER';
+  status: 'active' | 'suspended' | 'revoked';
+  valid_from: string;
+  valid_until: string | null;
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PlatformGrantRow {
+  id: string;
+  user_id: string;
+  role: 'PLATFORM_ADMIN' | 'PLATFORM_OPERATOR' | 'SUPPORT_READONLY' | 'SECURITY_AUDITOR';
+  scope_type: string;
+  tenant_id: string;
+  status: 'active' | 'suspended' | 'revoked';
+  valid_from: string;
+  valid_until: string | null;
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PlatformChannelEndpointRow {
+  id: string;
+  tenant_id: string;
+  workshop_id: string;
+  provider: 'twilio' | 'vapi' | 'elevenlabs';
+  external_account_id: string;
+  called_endpoint: string;
+  status: 'active' | 'suspended' | 'revoked';
+  version: number;
+  updated_at: string;
+}
+
+export interface PlatformIntegrationRow {
+  id: string;
+  tenant_id: string;
+  workshop_id: string;
+  channel_endpoint_id: string;
+  status: 'active' | 'suspended' | 'revoked';
+  version: number;
+  updated_at: string;
+  provider: 'twilio' | 'elevenlabs';
+  service_type: 'telephony_provider' | 'voice_provider';
+  external_account_id: string;
+  principal_status: string;
+}
+
+export interface PlatformAuditEventRow {
+  id: number;
+  event_type: string;
+  entity_type: string;
+  entity_id: string;
+  actor_type?: string;
+  actor_id?: string;
+  correlation_id: string;
+  evidence_ref?: string;
+  occurred_at: string;
+}
+

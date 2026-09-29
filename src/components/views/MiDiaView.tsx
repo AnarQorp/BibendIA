@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useDemo } from '../../context/DemoContext';
+import { useRouter } from '../../router/RouterContext';
 import { 
   AlertCircle, 
   ArrowRight, 
@@ -28,6 +29,12 @@ export const MiDiaView: React.FC = () => {
     notifyClientVehicleReady,
     conversations
   } = useDemo();
+
+  const { navigate } = useRouter();
+  const goTo = (section: any, path: string) => {
+    setActiveSection(section);
+    navigate(path);
+  };
 
   const [selectedAppId, setSelectedAppId] = useState<string | null>(null);
   const [dictationText, setDictationText] = useState('Aceite 5W30 C3 y filtro de aceite sustituidos. Pastillas con buen grosor, discos delanteros presentan desgaste leve.');
@@ -70,7 +77,7 @@ export const MiDiaView: React.FC = () => {
 
           <div className="flex items-center gap-3 shrink-0">
             <button
-              onClick={() => setActiveSection('bandeja')}
+              onClick={() => goTo('bandeja', '/bandeja')}
               className="bg-slate-900 hover:bg-slate-800 text-white font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-2 transition-all shadow-xs"
             >
               <span>Ver Bandeja (1)</span>
@@ -132,7 +139,7 @@ export const MiDiaView: React.FC = () => {
                       </div>
                       <div className="flex items-center gap-2">
                         <button
-                          onClick={() => setActiveSection('presupuestos')}
+                          onClick={() => goTo('presupuestos', '/presupuestos')}
                           className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold px-3 py-2 rounded-xl text-xs transition-all"
                         >
                           Revisar
@@ -167,7 +174,7 @@ export const MiDiaView: React.FC = () => {
 
                   <div className="shrink-0">
                     <button
-                      onClick={() => setActiveSection('bandeja')}
+                      onClick={() => goTo('bandeja', '/bandeja')}
                       className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow-sm transition-all"
                     >
                       <MessageSquare className="w-4 h-4 text-blue-200" />
@@ -233,7 +240,7 @@ export const MiDiaView: React.FC = () => {
                 <p className="text-xs text-slate-500">Trabajos programados para la jornada actual.</p>
               </div>
               <button 
-                onClick={() => setActiveSection('agenda')}
+                onClick={() => goTo('agenda', '/agenda')}
                 className="text-xs font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1"
               >
                 Ver agenda completa <ChevronRight className="w-3.5 h-3.5" />
@@ -341,7 +348,7 @@ export const MiDiaView: React.FC = () => {
             </div>
 
             <button
-              onClick={() => setActiveSection('impacto')}
+              onClick={() => goTo('impacto', '/impacto')}
               className="w-full py-2.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-xs text-slate-700 font-bold rounded-xl flex items-center justify-center gap-1.5 transition-all"
             >
               <span>Ver detalle completo de impacto</span>

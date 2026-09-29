@@ -1,23 +1,67 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ShieldAlert,
   Inbox,
   Calendar,
   Truck,
-  AlertTriangle
+  AlertTriangle,
+  Building2,
+  Users,
+  History,
+  ChevronDown
 } from 'lucide-react';
 import { TenantControlView } from './views/TenantControlView';
 import { OutboxMonitorView } from './views/OutboxMonitorView';
 import { RedactedAppointmentsView } from './views/RedactedAppointmentsView';
 import { ProveedoresAdminView } from './views/ProveedoresAdminView';
+import { WorkshopsAndChannelsView } from './views/WorkshopsAndChannelsView';
+import { UsersAndAccessView } from './views/UsersAndAccessView';
+import { AuditActivityView } from './views/AuditActivityView';
+import { fetchPlatformTenants } from '../../services/platformAdmin';
+import type { PlatformTenantSummary } from '../../types';
 
 export interface AdminLayoutProps {
-  // Tenant selection will be provided by P0.9 tenant catalog; null until then
   selectedTenantId?: string | null;
 }
 
-export const AdminLayout: React.FC<AdminLayoutProps> = ({ selectedTenantId = null }) => {
-  const [activeTab, setActiveTab] = useState<'control' | 'outbox' | 'appointments' | 'proveedores'>('control');
+export const AdminLayout: React.FC<AdminLayoutProps> = ({ selectedTenantId: initialTenantId = null }) => {
+  const [activeTab, setActiveTab] = useState<'control' | 'workshops' | 'memberships' | 'appointments' | 'outbox' | 'audit' | 'proveedores'>('control');
+  
+  const [tenants, setTenants] = useState<PlatformTenantSummary[]>([]);
+  const [selectedTenantId, setSelectedTenantId] = useState<string | null>(() => {
+    if (initialTenantId) return initialTenantId;
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('bibendia_admin_tenant_id') || null;
+    }
+    return null;
+  });
+
+  useEffect(() => {
+    let isMounted = true;
+    async function loadTenants() {
+      const res = await fetchPlatformTenants();
+      if (!isMounted) return;
+      if (res.status === 'success' && res.data && res.data.length > 0) {
+        setTenants(res.data);
+        if (!selectedTenantId) {
+          const first = res.data[0].id;
+          setSelectedTenantId(first);
+          localStorage.setItem('bibendia_admin_tenant_id', first);
+        }
+      }
+    }
+    loadTenants();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const handleSelectTenant = (tenantId: string) => {
+    setSelectedTenantId(tenantId);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('bibendia_admin_tenant_id', tenantId);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-[#0b0f19] text-slate-100 flex flex-col font-sans">
@@ -48,16 +92,31 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ selectedTenantId = nul
           </div>
         </div>
 
-        {/* Tenant Authority Display (No arbitrary manual text input) */}
+        {/* Tenant Authority Display / Selector */}
         <div className="flex w-full min-w-0 flex-col items-start gap-2 text-xs self-start sm:w-auto sm:flex-row sm:items-center sm:self-auto">
           <span className="text-slate-400 font-mono">Tenant objetivo:</span>
-          {selectedTenantId ? (
+          {tenants.length > 0 ? (
+            <div className="relative">
+              <select
+                value={selectedTenantId || ''}
+                onChange={(e) => handleSelectTenant(e.target.value)}
+                className="bg-slate-800 border border-slate-700 text-blue-400 font-mono text-xs px-3 py-1.5 rounded-lg pr-8 appearance-none focus:outline-none focus:border-blue-500 cursor-pointer"
+              >
+                {tenants.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name ? `${t.name} (${t.id.slice(0, 8)}...)` : t.id} [{t.lifecycle_status || 'active'}]
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-2.5 pointer-events-none" />
+            </div>
+          ) : selectedTenantId ? (
             <span className="bg-slate-800 border border-slate-700 text-blue-400 font-mono px-3 py-1.5 rounded-lg">
               {selectedTenantId}
             </span>
           ) : (
             <span className="max-w-full min-w-0 bg-slate-800/60 border border-slate-700/60 text-slate-500 font-mono px-3 py-1.5 rounded-lg truncate">
-              Pendiente de selección autorizada (P0.9)
+              Pendiente de selección autorizada (GET /v1/platform/tenants)
             </span>
           )}
         </div>
@@ -70,7 +129,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ selectedTenantId = nul
         <div className="flex items-center gap-2 border-b border-slate-800 pb-3 overflow-x-auto no-scrollbar py-0.5">
           <button
             onClick={() => setActiveTab('control')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition shrink-0 ${
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition shrink-0 ${
               activeTab === 'control'
                 ? 'bg-blue-600 text-white shadow-sm'
                 : 'bg-slate-900/80 text-slate-400 hover:text-white border border-slate-800'
@@ -81,20 +140,32 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ selectedTenantId = nul
           </button>
 
           <button
-            onClick={() => setActiveTab('outbox')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition shrink-0 ${
-              activeTab === 'outbox'
+            onClick={() => setActiveTab('workshops')}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition shrink-0 ${
+              activeTab === 'workshops'
                 ? 'bg-blue-600 text-white shadow-sm'
                 : 'bg-slate-900/80 text-slate-400 hover:text-white border border-slate-800'
             }`}
           >
-            <Inbox className="w-3.5 h-3.5" />
-            <span>Monitor Outbox</span>
+            <Building2 className="w-3.5 h-3.5" />
+            <span>Talleres & Canales</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('memberships')}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition shrink-0 ${
+              activeTab === 'memberships'
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'bg-slate-900/80 text-slate-400 hover:text-white border border-slate-800'
+            }`}
+          >
+            <Users className="w-3.5 h-3.5" />
+            <span>Usuarios & Accesos</span>
           </button>
 
           <button
             onClick={() => setActiveTab('appointments')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition shrink-0 ${
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition shrink-0 ${
               activeTab === 'appointments'
                 ? 'bg-blue-600 text-white shadow-sm'
                 : 'bg-slate-900/80 text-slate-400 hover:text-white border border-slate-800'
@@ -105,8 +176,32 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ selectedTenantId = nul
           </button>
 
           <button
+            onClick={() => setActiveTab('outbox')}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition shrink-0 ${
+              activeTab === 'outbox'
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'bg-slate-900/80 text-slate-400 hover:text-white border border-slate-800'
+            }`}
+          >
+            <Inbox className="w-3.5 h-3.5" />
+            <span>Monitor Outbox</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('audit')}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition shrink-0 ${
+              activeTab === 'audit'
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'bg-slate-900/80 text-slate-400 hover:text-white border border-slate-800'
+            }`}
+          >
+            <History className="w-3.5 h-3.5" />
+            <span>Auditoría & Traza</span>
+          </button>
+
+          <button
             onClick={() => setActiveTab('proveedores')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition shrink-0 ${
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition shrink-0 ${
               activeTab === 'proveedores'
                 ? 'bg-blue-600 text-white shadow-sm'
                 : 'bg-slate-900/80 text-slate-400 hover:text-white border border-slate-800'
@@ -120,8 +215,11 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ selectedTenantId = nul
         {/* Tab Content Area */}
         <div className="text-slate-900">
           {activeTab === 'control' && <TenantControlView tenantId={selectedTenantId} />}
-          {activeTab === 'outbox' && <OutboxMonitorView tenantId={selectedTenantId} />}
+          {activeTab === 'workshops' && <WorkshopsAndChannelsView tenantId={selectedTenantId} />}
+          {activeTab === 'memberships' && <UsersAndAccessView tenantId={selectedTenantId} />}
           {activeTab === 'appointments' && <RedactedAppointmentsView tenantId={selectedTenantId} />}
+          {activeTab === 'outbox' && <OutboxMonitorView tenantId={selectedTenantId} />}
+          {activeTab === 'audit' && <AuditActivityView tenantId={selectedTenantId} />}
           {activeTab === 'proveedores' && <ProveedoresAdminView />}
         </div>
 

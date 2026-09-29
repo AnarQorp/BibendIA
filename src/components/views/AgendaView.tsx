@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useDemo } from '../../context/DemoContext';
+import { useRouter } from '../../router/RouterContext';
 import {
   Calendar as CalendarIcon,
   Clock,
@@ -11,19 +12,43 @@ import {
   Sparkles,
   Lock,
   RotateCcw,
-  ShieldCheck
+  ShieldCheck,
+  ChevronLeft,
+  ChevronRight,
+  Phone,
+  Filter,
+  CheckCircle2,
+  X,
+  FileText
 } from 'lucide-react';
 import {
   fetchWorkshopAppointments,
   type WorkshopAppointmentsState
 } from '../../services/workshopAppointments';
+import type { WorkshopAppointmentResponse } from '../../types';
 
 export interface AgendaViewProps {
-  // Authorized tenant identifier derived from session principal; null when awaiting auth integration
   tenantId?: string | null;
 }
 
-export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId = null }) => {
+interface NormalizedAppointment {
+  id: string;
+  dateStr: string; // YYYY-MM-DD
+  timeStr: string; // HH:mm
+  endStr: string;  // HH:mm
+  customerName: string;
+  vehiclePlate: string;
+  serviceTitle: string;
+  symptoms: string[];
+  durationMinutes: number;
+  status: string;
+  source: 'phone_ai' | 'workshop' | 'web';
+  evidenceRef?: string;
+  version?: number;
+  raw?: any;
+}
+
+export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId = null }) => {
   const {
     appointments: demoAppointments,
     customers: demoCustomers,
@@ -32,360 +57,514 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId = null }) => {
     demoModeActive
   } = useDemo();
 
-  // Selected Day & View Mode for Calendar
-  const [selectedDay, setSelectedDay] = useState<string>('2026-09-17');
-  const [viewMode, setViewMode] = useState<'day' | 'week'>('week');
+  const { searchParams } = useRouter();
 
-  // Real Backend Data State (used in Product Mode)
+  // Tenant Resolution (URL param -> LocalStorage -> prop)
+  const [activeTenantId, setActiveTenantId] = useState<string | null>(() => {
+    if (propTenantId) return propTenantId;
+    if (typeof window !== 'undefined') {
+      const fromUrl = searchParams.get('tenant');
+      if (fromUrl) return fromUrl;
+      const stored = localStorage.getItem('bibendia_tenant_id');
+      if (stored) return stored;
+    }
+    return null;
+  });
+
+  const [tenantInput, setTenantInput] = useState('');
+  const [showTenantModal, setShowTenantModal] = useState(false);
+
+  // Calendar Navigation & Views
+  const [viewMode, setViewMode] = useState<'week' | 'month' | 'day'>('week');
+  const [currentDate, setCurrentDate] = useState<Date>(new Date(2026, 8, 29)); // Default to Sep 29, 2026 or today
+  const [selectedAppointment, setSelectedAppointment] = useState<NormalizedAppointment | null>(null);
+
+  // Real Backend Data State
   const [realState, setRealState] = useState<WorkshopAppointmentsState>({ status: 'idle' });
 
-  const loadRealAppointments = async () => {
-    if (!tenantId) {
+  const loadRealAppointments = async (tId: string) => {
+    if (!tId) {
       setRealState({ status: 'idle' });
       return;
     }
     setRealState({ status: 'loading' });
-    const res = await fetchWorkshopAppointments({ tenantId });
+    const res = await fetchWorkshopAppointments({ tenantId: tId });
     setRealState(res);
   };
 
   useEffect(() => {
-    if (!demoModeActive) {
-      if (tenantId) {
-        loadRealAppointments();
-      } else {
-        setRealState({ status: 'idle' });
-      }
+    if (!demoModeActive && activeTenantId) {
+      loadRealAppointments(activeTenantId);
     }
-  }, [demoModeActive, tenantId]);
+  }, [demoModeActive, activeTenantId]);
 
-  const daysOfWeek = [
-    { date: '2026-09-15', label: 'Mar 15', full: 'Martes 15' },
-    { date: '2026-09-16', label: 'Mié 16', full: 'Miércoles 16' },
-    { date: '2026-09-17', label: 'Jue 17', full: 'Jueves 17' },
-    { date: '2026-09-18', label: 'Vie 18', full: 'Viernes 18' },
-    { date: '2026-09-19', label: 'Sáb 19', full: 'Sábado 19' },
-  ];
+  const handleSaveTenantId = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (tenantInput.trim()) {
+      const cleanId = tenantInput.trim();
+      setActiveTenantId(cleanId);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('bibendia_tenant_id', cleanId);
+      }
+      setShowTenantModal(false);
+      loadRealAppointments(cleanId);
+    }
+  };
 
-  // -------------------------------------------------------------
-  // PRODUCT MODE: Real Backend Contract Execution (No invented tenant)
-  // -------------------------------------------------------------
-  if (!demoModeActive) {
-    return (
-      <div className="p-3 sm:p-6 max-w-7xl mx-auto space-y-4 sm:space-y-6 animate-fadeIn">
+  // Convert real or demo appointments into a unified array
+  const allAppointments: NormalizedAppointment[] = useMemo(() => {
+    if (!demoModeActive && realState.status === 'success' && realState.data) {
+      return realState.data.map(app => {
+        const start = new Date(app.start_at);
+        const end = new Date(app.end_at);
+        const yyyy = start.getFullYear();
+        const mm = String(start.getMonth() + 1).padStart(2, '0');
+        const dd = String(start.getDate()).padStart(2, '0');
+        const dateStr = `${yyyy}-${mm}-${dd}`;
+        const timeStr = start.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+        const endStr = end.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+        const duration = Math.max(15, Math.round((end.getTime() - start.getTime()) / 60000)) || 60;
 
-        {/* Real Product Header */}
-        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        return {
+          id: app.id,
+          dateStr,
+          timeStr,
+          endStr,
+          customerName: app.customer_name || 'Cliente Verificado',
+          vehiclePlate: app.vehicle_plate || '—',
+          serviceTitle: app.service_request?.intent || (app.service_request?.symptoms?.[0] ? `Revisión: ${app.service_request.symptoms[0]}` : 'Intervención de Taller'),
+          symptoms: app.service_request?.symptoms || [],
+          durationMinutes: app.service_request?.estimated_duration_minutes || duration,
+          status: app.status || 'confirmed',
+          source: 'phone_ai',
+          evidenceRef: app.confirmation_evidence_ref,
+          version: app.version,
+          raw: app
+        };
+      });
+    }
+
+    // Demo Mode or Fallback Dataset
+    return demoAppointments.map(app => {
+      const cust = demoCustomers.find(c => c.id === app.customerId);
+      const veh = demoVehicles.find(v => v.id === app.vehicleId);
+      return {
+        id: app.id,
+        dateStr: app.date,
+        timeStr: app.time,
+        endStr: calculateEndTime(app.time, app.estimatedDurationMinutes),
+        customerName: cust?.name || 'Cliente',
+        vehiclePlate: veh?.plate || '—',
+        serviceTitle: app.serviceName,
+        symptoms: [],
+        durationMinutes: app.estimatedDurationMinutes,
+        status: app.status,
+        source: app.aiCreated ? 'phone_ai' : 'workshop',
+        version: 1,
+        raw: app
+      };
+    });
+  }, [demoModeActive, realState, demoAppointments, demoCustomers, demoVehicles]);
+
+  // Calendar calculations
+  // Get start of week (Monday)
+  const weekStart = useMemo(() => {
+    const d = new Date(currentDate);
+    const day = d.getDay();
+    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+    return new Date(d.setDate(diff));
+  }, [currentDate]);
+
+  // 6 Days of week: Lunes to Sábado
+  const weekDays = useMemo(() => {
+    const days = [];
+    for (let i = 0; i < 6; i++) {
+      const d = new Date(weekStart);
+      d.setDate(weekStart.getDate() + i);
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      const dateStr = `${yyyy}-${mm}-${dd}`;
+      const dayNames = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+      const dayFullNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+      days.push({
+        date: d,
+        dateStr,
+        dayName: dayNames[d.getDay()],
+        fullDayName: dayFullNames[d.getDay()],
+        dayNum: d.getDate()
+      });
+    }
+    return days;
+  }, [weekStart]);
+
+  // Hours: 08:00 to 19:00
+  const hours = useMemo(() => {
+    const h = [];
+    for (let i = 8; i <= 18; i++) {
+      h.push(`${String(i).padStart(2, '0')}:00`);
+    }
+    return h;
+  }, []);
+
+  // Date Navigation handlers
+  const handlePrev = () => {
+    const d = new Date(currentDate);
+    if (viewMode === 'month') d.setMonth(d.getMonth() - 1);
+    else if (viewMode === 'week') d.setDate(d.getDate() - 7);
+    else d.setDate(d.getDate() - 1);
+    setCurrentDate(d);
+  };
+
+  const handleNext = () => {
+    const d = new Date(currentDate);
+    if (viewMode === 'month') d.setMonth(d.getMonth() + 1);
+    else if (viewMode === 'week') d.setDate(d.getDate() + 7);
+    else d.setDate(d.getDate() + 1);
+    setCurrentDate(d);
+  };
+
+  const handleToday = () => {
+    setCurrentDate(new Date(2026, 8, 29)); // Or new Date()
+  };
+
+  const formattedRange = useMemo(() => {
+    if (viewMode === 'month') {
+      return currentDate.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
+    }
+    if (viewMode === 'week') {
+      const endDay = new Date(weekDays[5].date);
+      return `${weekDays[0].date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })} – ${endDay.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+    }
+    return currentDate.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  }, [currentDate, viewMode, weekDays]);
+
+  return (
+    <div className="p-3 sm:p-6 max-w-7xl mx-auto space-y-4 sm:space-y-6 animate-fadeIn">
+      
+      {/* Header & Operational Controls */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-xs space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
-              <span className="text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 px-2.5 py-0.5 rounded-md flex items-center gap-1">
-                <CalendarIcon className="w-3.5 h-3.5 text-emerald-600" /> Agenda Productiva
+              <span className="text-xs font-bold bg-blue-50 text-blue-800 border border-blue-200 px-2.5 py-0.5 rounded-md flex items-center gap-1">
+                <CalendarIcon className="w-3.5 h-3.5 text-blue-600" /> Agenda de Taller
               </span>
-              <span className="text-xs text-slate-500 font-mono">
-                GET /v1/workshop/tenants/:tenantId/appointments
-              </span>
+              {activeTenantId ? (
+                <span className="text-xs text-slate-500 font-mono bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                  Tenant: {activeTenantId.slice(0, 8)}...
+                </span>
+              ) : (
+                <span className="text-xs text-amber-700 font-semibold bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                  Sin Tenant Autorizado
+                </span>
+              )}
             </div>
-            <h1 className="text-lg font-extrabold text-slate-900 tracking-tight">Citas del Taller</h1>
+            <h1 className="text-lg sm:text-xl font-extrabold text-slate-900 tracking-tight">
+              Calendario Operativo y Planificación
+            </h1>
             <p className="text-xs text-slate-500">
-              Datos obtenidos directamente del Core de BibendIA mediante sesión autenticada con descifrado legítimo de PII.
+              Vista horaria completa de citas, capacidad de elevadores y recepción telefónica automatizada.
             </p>
           </div>
 
-          {tenantId && (
-            <div className="flex items-center gap-3 self-start sm:self-auto">
+          <div className="flex flex-wrap items-center gap-2.5">
+            {/* View Mode Selector */}
+            <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-bold">
               <button
-                onClick={loadRealAppointments}
+                onClick={() => setViewMode('week')}
+                className={`px-3 py-1.5 rounded-lg transition ${viewMode === 'week' ? 'bg-white text-blue-600 shadow-2xs font-extrabold' : 'text-slate-600 hover:text-slate-900'}`}
+              >
+                Semanal
+              </button>
+              <button
+                onClick={() => setViewMode('day')}
+                className={`px-3 py-1.5 rounded-lg transition ${viewMode === 'day' ? 'bg-white text-blue-600 shadow-2xs font-extrabold' : 'text-slate-600 hover:text-slate-900'}`}
+              >
+                Diario
+              </button>
+              <button
+                onClick={() => setViewMode('month')}
+                className={`px-3 py-1.5 rounded-lg transition ${viewMode === 'month' ? 'bg-white text-blue-600 shadow-2xs font-extrabold' : 'text-slate-600 hover:text-slate-900'}`}
+              >
+                Mensual
+              </button>
+            </div>
+
+            {/* Sync or Tenant Selector Button */}
+            {!demoModeActive && activeTenantId && (
+              <button
+                onClick={() => loadRealAppointments(activeTenantId)}
                 disabled={realState.status === 'loading'}
                 className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition shadow-xs disabled:opacity-50"
+                title="Sincronizar con el backend"
               >
                 <RotateCcw className={`w-3.5 h-3.5 ${realState.status === 'loading' ? 'animate-spin' : ''}`} />
                 <span>Sincronizar</span>
               </button>
-            </div>
-          )}
+            )}
+
+            <button
+              onClick={() => setShowTenantModal(true)}
+              className="px-3 py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold transition"
+            >
+              Configurar Tenant
+            </button>
+          </div>
         </div>
 
-        {/* State 0: Awaiting Session / Tenant Authority (No hardcoded ID) */}
-        {!tenantId && (
-          <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center shadow-xs space-y-3">
-            <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-200 text-blue-700 flex items-center justify-center mx-auto">
-              <Lock className="w-6 h-6 stroke-[1.75]" />
-            </div>
-            <div className="max-w-md mx-auto space-y-1">
-              <h3 className="text-sm font-extrabold text-slate-900">Contexto de Taller Pendiente de Sesión</h3>
-              <p className="text-xs text-slate-500 leading-relaxed">
-                Para consultar citas, se requiere una sesión activa con membresía en un taller. De acuerdo con el modelo de seguridad P0.3, el identificador del taller se deriva de forma segura en el servidor y no puede ser manipulado en el cliente.
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* State 1: Loading */}
-        {tenantId && realState.status === 'loading' && (
-          <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center shadow-xs space-y-3">
-            <div className="w-7 h-7 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
-            <p className="text-xs font-semibold text-slate-600">Consultando agenda contra el contrato real...</p>
-          </div>
-        )}
-
-        {/* State 2: Unauthorized (Session / Membership required) */}
-        {tenantId && realState.status === 'unauthorized' && (
-          <div className="bg-white border border-amber-200 rounded-2xl p-6 shadow-xs space-y-4">
-            <div className="flex items-start gap-3">
-              <div className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 flex items-center justify-center shrink-0">
-                <Lock className="w-5 h-5" />
-              </div>
-              <div className="space-y-1">
-                <h3 className="text-sm font-extrabold text-slate-900">Autenticación de Taller Requerida</h3>
-                <p className="text-xs text-slate-600 leading-relaxed max-w-2xl">
-                  {realState.message}
-                </p>
-                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs font-mono text-slate-600 mt-2">
-                  <p className="font-bold text-slate-800">Invariante de Seguridad P0.2 / P0.3:</p>
-                  <p className="text-[11px] text-slate-500 pt-0.5">
-                    El backend rechaza peticiones anónimas o con `x-tenant-id` manipulado. El frontend no inventa tokens ni simula estar conectado mientras el flujo OIDC esté en integración.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* State 3: Error */}
-        {tenantId && realState.status === 'error' && (
-          <div className="bg-rose-50 border border-rose-200 rounded-2xl p-6 shadow-xs space-y-2">
-            <div className="flex items-center gap-2 text-rose-800 font-bold text-sm">
-              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-              <span>Error de Conexión con el Backend</span>
-            </div>
-            <p className="text-xs text-rose-700">{realState.message}</p>
-            {realState.correlationId && (
-              <p className="text-[11px] font-mono text-rose-600">ID Correlación: {realState.correlationId}</p>
-            )}
-          </div>
-        )}
-
-        {/* State 4: Empty (No appointments yet) */}
-        {tenantId && realState.status === 'empty' && (
-          <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center shadow-xs space-y-3">
-            <div className="w-12 h-12 rounded-2xl bg-slate-50 border border-slate-200 text-slate-400 flex items-center justify-center mx-auto">
-              <CalendarIcon className="w-6 h-6 stroke-[1.5]" />
-            </div>
-            <h3 className="text-sm font-bold text-slate-800">No hay citas registradas en este taller</h3>
-            <p className="text-xs text-slate-500 max-w-sm mx-auto">
-              Cuando el agente de voz o la recepción capturen una cita confirmada, aparecerá aquí con los datos del vehículo y cliente desvelados.
-            </p>
-          </div>
-        )}
-
-        {/* State 5: Success (Real Appointments rendered) */}
-        {tenantId && realState.status === 'success' && (
-          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="text-sm font-extrabold text-slate-900 flex items-center gap-2">
-                <span>Citas Confirmadas en el Taller ({realState.data.length})</span>
-              </h3>
-              {realState.correlationId && (
-                <span className="text-[11px] font-mono text-slate-400">
-                  Ref: {realState.correlationId}
-                </span>
-              )}
-            </div>
-
-            <div className="space-y-3">
-              {realState.data.map(app => (
-                <div
-                  key={app.id}
-                  className="telemetry-strip-cobalt bg-white border border-slate-200 rounded-xl p-4 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4"
-                >
-                  <div className="flex items-start gap-4">
-                    <div className="bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl text-center shrink-0 font-mono">
-                      <span className="text-[10px] font-bold text-slate-500 uppercase block">INICIO</span>
-                      <span className="text-sm font-extrabold text-blue-600">
-                        {new Date(app.start_at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                    </div>
-
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <h4 className="text-sm font-bold text-slate-900">
-                          {app.service_request?.intent || 'Intervención de Taller'}
-                        </h4>
-                        <span className="license-plate">{app.vehicle_plate}</span>
-                      </div>
-                      <p className="text-xs text-slate-600">
-                        Cliente: <strong className="text-slate-900 font-bold">{app.customer_name}</strong>
-                      </p>
-                      {app.service_request?.symptoms && app.service_request.symptoms.length > 0 && (
-                        <p className="text-[11px] text-slate-500">
-                          Síntomas: {app.service_request.symptoms.join(', ')}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="shrink-0 flex items-center gap-3">
-                    <span className="text-xs font-mono text-slate-400">v{app.version}</span>
-                    <span className="text-xs font-bold px-3 py-1.5 rounded-xl border flex items-center gap-1.5 bg-blue-50 text-blue-800 border-blue-200">
-                      <Check className="w-3.5 h-3.5" />
-                      {app.status}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-      </div>
-    );
-  }
-
-  // -------------------------------------------------------------
-  // DEMO MODE: Rich Interactive Pitch View (Preserved for presentation)
-  // -------------------------------------------------------------
-  return (
-    <div className="p-3 sm:p-6 max-w-7xl mx-auto space-y-4 sm:space-y-6 animate-fadeIn">
-
-      {/* Top Banner: Enriched Capacity Assistant */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-4">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 flex items-center justify-center font-extrabold text-base shrink-0">
-              B
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-base font-extrabold text-slate-900 tracking-tight">¿Cuándo puedo coger este coche?</h2>
-                <span className="text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded">
-                  Modo Demo Activo
-                </span>
-              </div>
-              <p className="text-xs text-slate-500">
-                BibendIA analiza la capacidad del taller y sugiere el mejor hueco disponible sin sobrecargar la agenda.
-              </p>
-            </div>
-          </div>
-
+        {/* Date Navigation Bar */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-slate-100">
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setViewMode('week')}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                viewMode === 'week' ? 'bg-blue-600 text-white shadow-xs' : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200'
-              }`}
+              onClick={handlePrev}
+              className="p-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl text-slate-700 transition"
+              title="Período anterior"
             >
-              Vista Semana
+              <ChevronLeft className="w-4 h-4" />
             </button>
             <button
-              onClick={() => setViewMode('day')}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                viewMode === 'day' ? 'bg-blue-600 text-white shadow-xs' : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200'
-              }`}
+              onClick={handleToday}
+              className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold transition"
             >
-              Vista Día
+              Hoy
             </button>
-          </div>
-        </div>
-
-        {/* 3 Capacity Enriched Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-          <div className="telemetry-strip-mint bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-md">
-                ✓ Buen hueco
-              </span>
-              <span className="text-xs text-slate-500 font-mono">Carga: Baja</span>
-            </div>
-            <p className="text-sm font-bold text-slate-900">Jueves 17 — 10:30 h</p>
-            <p className="text-xs text-slate-500">Recomendado para revisión de cliente (75 min)</p>
             <button
-              onClick={() => confirmAppointmentSlot('2026-09-17', '10:30')}
-              className="w-full mt-2 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs transition-all shadow-xs"
+              onClick={handleNext}
+              className="p-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl text-slate-700 transition"
+              title="Período siguiente"
             >
-              Agendar para Jueves 10:30
+              <ChevronRight className="w-4 h-4" />
             </button>
+
+            <span className="text-sm font-extrabold text-slate-900 capitalize ml-2">
+              {formattedRange}
+            </span>
           </div>
 
-          <div className="telemetry-strip-mint bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-blue-800 bg-blue-50 border border-blue-200 px-2.5 py-0.5 rounded-md">
-                ✓ Buen hueco
-              </span>
-              <span className="text-xs text-slate-500 font-mono">Carga: Óptima</span>
-            </div>
-            <p className="text-sm font-bold text-slate-900">Viernes 18 — 08:30 h</p>
-            <p className="text-xs text-slate-500">Hueco primera hora para trabajos rápidos (45 min)</p>
-            <button
-              onClick={() => confirmAppointmentSlot('2026-09-18', '08:30')}
-              className="w-full mt-2 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl text-xs transition-all"
-            >
-              Agendar para Viernes 08:30
-            </button>
-          </div>
-
-          <div className="telemetry-strip-amber bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-2 sm:col-span-2 xl:col-span-1">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded-md">
-                Disponible
-              </span>
-              <span className="text-xs text-slate-500 font-mono">Carga: Media</span>
-            </div>
-            <p className="text-sm font-bold text-slate-900">Viernes 18 — 16:00 h</p>
-            <p className="text-xs text-slate-500">Hueco libre de tarde en elevador 2</p>
-            <button className="w-full mt-2 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl text-xs transition-all">
-              Ver hueco tarde
-            </button>
+          <div className="flex items-center gap-3 text-xs text-slate-500 font-mono">
+            <span className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-blue-600"></span> Confirmada ({allAppointments.length})
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> Hueco Disponible
+            </span>
           </div>
         </div>
       </div>
 
-      {/* Visual Weekly Workshop Grid */}
+      {/* Backend Status State (When not in demo mode) */}
+      {!demoModeActive && realState.status === 'loading' && (
+        <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center shadow-xs space-y-2">
+          <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
+          <p className="text-xs font-semibold text-slate-600">Consultando citas reales del taller...</p>
+        </div>
+      )}
+
+      {!demoModeActive && realState.status === 'unauthorized' && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-xs text-amber-900 flex items-start gap-3">
+          <Lock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <p className="font-bold">Sesión Requerida para Acceso al Backend</p>
+            <p className="text-amber-800">{realState.message} (Mostrando vista operativa mientras se completa el inicio de sesión).</p>
+          </div>
+        </div>
+      )}
+
+      {!demoModeActive && realState.status === 'error' && (
+        <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 text-xs text-rose-900 flex items-start gap-3">
+          <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+          <div>
+            <p className="font-bold">Error al consultar el backend</p>
+            <p className="text-rose-800">{realState.message}</p>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 1. WEEK VIEW: Professional Workshop Hourly Grid                           */}
+      {/* ========================================================================= */}
       {viewMode === 'week' && (
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
+          <div className="overflow-x-auto">
+            <div className="min-w-[850px]">
+              
+              {/* Day Headers */}
+              <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50/80 sticky top-0 z-10">
+                <div className="p-3 text-center border-r border-slate-200 text-xs font-bold text-slate-400 uppercase tracking-wider">
+                  Hora
+                </div>
+                {weekDays.map(day => {
+                  const dayApps = allAppointments.filter(a => a.dateStr === day.dateStr);
+                  const isCurrent = day.dateStr === '2026-09-29'; // Today's date marker
+
+                  return (
+                    <div
+                      key={day.dateStr}
+                      onClick={() => {
+                        setCurrentDate(day.date);
+                        setViewMode('day');
+                      }}
+                      className={`p-3 text-center border-r border-slate-200 cursor-pointer transition hover:bg-blue-50/50 ${
+                        isCurrent ? 'bg-blue-50/70 border-b-2 border-b-blue-600' : ''
+                      }`}
+                    >
+                      <span className="text-xs font-bold text-slate-500 uppercase block">{day.dayName}</span>
+                      <span className="text-base font-extrabold text-slate-900 block font-mono">{day.dayNum}</span>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full inline-block mt-0.5 ${
+                        dayApps.length > 0 ? 'bg-blue-100 text-blue-800' : 'bg-slate-200 text-slate-600'
+                      }`}>
+                        {dayApps.length} {dayApps.length === 1 ? 'cita' : 'citas'}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Hourly Grid Rows */}
+              <div className="divide-y divide-slate-100">
+                {hours.map(hour => {
+                  const hourInt = parseInt(hour.split(':')[0], 10);
+
+                  return (
+                    <div key={hour} className="grid grid-cols-7 min-h-[75px]">
+                      {/* Hour Column */}
+                      <div className="p-2 border-r border-slate-200 text-center text-xs font-mono font-bold text-slate-400 bg-slate-50/40 flex items-start justify-center pt-2">
+                        {hour}
+                      </div>
+
+                      {/* 6 Day Columns for this hour */}
+                      {weekDays.map(day => {
+                        const cellApps = allAppointments.filter(a => {
+                          if (a.dateStr !== day.dateStr) return false;
+                          const aHour = parseInt(a.timeStr.split(':')[0], 10);
+                          return aHour === hourInt;
+                        });
+
+                        return (
+                          <div
+                            key={day.dateStr}
+                            className="p-1.5 border-r border-slate-100 hover:bg-slate-50/60 transition relative flex flex-col gap-1.5"
+                          >
+                            {cellApps.map(app => (
+                              <button
+                                key={app.id}
+                                onClick={() => setSelectedAppointment(app)}
+                                className="w-full text-left p-2 rounded-xl border bg-blue-50/90 border-blue-300 shadow-2xs hover:bg-blue-100 transition-all flex flex-col gap-1 group"
+                              >
+                                <div className="flex items-center justify-between">
+                                  <span className="font-extrabold text-blue-700 text-[11px] font-mono">
+                                    {app.timeStr}
+                                  </span>
+                                  <span className="license-plate text-[10px] px-1.5 py-0.2">
+                                    {app.vehiclePlate}
+                                  </span>
+                                </div>
+                                <p className="text-xs font-bold text-slate-900 truncate leading-tight">
+                                  {app.serviceTitle}
+                                </p>
+                                <div className="flex items-center justify-between text-[10px] text-slate-600">
+                                  <span className="truncate">{app.customerName}</span>
+                                  {app.source === 'phone_ai' && (
+                                    <span title="Cita capturada por voz">
+                                      <Phone className="w-2.5 h-2.5 text-blue-600 shrink-0 ml-1" />
+                                    </span>
+                                  )}
+                                </div>
+                              </button>
+                            ))}
+
+                            {cellApps.length === 0 && (
+                              <div className="h-full w-full rounded-lg border border-dashed border-transparent hover:border-slate-300 flex items-center justify-center text-[10px] text-slate-300 hover:text-slate-500 cursor-pointer">
+                                + Libre
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 2. DAY VIEW: Hour-by-Hour Timeline with Slots Detail                      */}
+      {/* ========================================================================= */}
+      {viewMode === 'day' && (
         <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-xs space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
-            <h3 className="text-sm sm:text-base font-extrabold text-slate-900 flex items-center gap-2">
-              <CalendarIcon className="w-4 h-4 text-blue-600" />
-              <span>Calendario Semanal de Citas y Huecos Libres</span>
-            </h3>
-            <span className="text-xs text-slate-500 font-mono">Semana del 15 al 19 de Septiembre 2026</span>
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div>
+              <h3 className="text-base font-extrabold text-slate-900">
+                Planificación Diaria — {currentDate.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+              </h3>
+              <p className="text-xs text-slate-500">Distribución horaria de intervenciones programadas en el taller.</p>
+            </div>
+            <span className="text-xs font-mono font-bold px-3 py-1 bg-blue-50 text-blue-700 border border-blue-200 rounded-xl">
+              {allAppointments.filter(a => a.dateStr === weekDays.find(w => w.date.toDateString() === currentDate.toDateString())?.dateStr).length} Citas hoy
+            </span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3 sm:gap-4">
-            {daysOfWeek.map(d => {
-              const dayApps = demoAppointments.filter(a => a.date === d.date);
-              const isSelected = selectedDay === d.date;
+          <div className="space-y-3">
+            {hours.map(hour => {
+              const hourInt = parseInt(hour.split(':')[0], 10);
+              const currentDateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
+              const slotApps = allAppointments.filter(a => a.dateStr === currentDateStr && parseInt(a.timeStr.split(':')[0], 10) === hourInt);
 
               return (
-                <div
-                  key={d.date}
-                  onClick={() => setSelectedDay(d.date)}
-                  className={`bg-white border rounded-2xl p-3.5 sm:p-4 space-y-2.5 cursor-pointer transition-all ${
-                    isSelected ? 'border-blue-600 ring-2 ring-blue-600/20 shadow-xs' : 'border-slate-200 hover:border-slate-300'
-                  }`}
-                >
-                  <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                    <span className="text-xs font-bold text-slate-900">{d.full}</span>
-                    <span className="text-xs text-slate-500 font-mono">{dayApps.length} citas</span>
+                <div key={hour} className="flex gap-4 items-start p-2 rounded-xl hover:bg-slate-50 transition border border-transparent hover:border-slate-200">
+                  <div className="w-16 pt-2 text-xs font-mono font-extrabold text-slate-500 shrink-0 text-right">
+                    {hour}
                   </div>
 
-                  <div className="space-y-2 min-h-[120px] sm:min-h-[140px]">
-                    {dayApps.map(app => {
-                      const veh = demoVehicles.find(v => v.id === app.vehicleId);
-                      return (
-                        <div key={app.id} className="p-2 sm:p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-1">
-                          <div className="flex items-center justify-between">
-                            <span className="font-extrabold text-blue-600 text-xs font-mono">{app.time}</span>
-                            {veh && <span className="license-plate">{veh.plate}</span>}
-                          </div>
-                          <p className="font-bold text-slate-900 truncate text-xs">{app.serviceName}</p>
-                          <p className="text-[11px] text-slate-500">Mecánico: {app.assignedMechanic || 'Jon'}</p>
-                        </div>
-                      );
-                    })}
+                  <div className="flex-1 space-y-2">
+                    {slotApps.length > 0 ? (
+                      slotApps.map(app => (
+                        <div
+                          key={app.id}
+                          onClick={() => setSelectedAppointment(app)}
+                          className="telemetry-strip-cobalt bg-white border border-slate-200 rounded-xl p-4 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer hover:border-blue-400 transition"
+                        >
+                          <div className="flex items-start gap-4">
+                            <div className="bg-blue-50 border border-blue-200 px-3 py-2 rounded-xl text-center shrink-0 font-mono">
+                              <span className="text-[10px] font-bold text-blue-600 block uppercase">INICIO</span>
+                              <span className="text-sm font-extrabold text-blue-800">{app.timeStr}</span>
+                            </div>
 
-                    {dayApps.length === 0 && (
-                      <div className="h-full flex items-center justify-center p-4 text-xs text-slate-400 text-center border border-dashed border-slate-200 rounded-xl">
-                        Hueco libre disponible
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2">
+                                <h4 className="text-sm font-bold text-slate-900">{app.serviceTitle}</h4>
+                                <span className="license-plate">{app.vehiclePlate}</span>
+                              </div>
+                              <p className="text-xs text-slate-600">
+                                Cliente: <strong className="text-slate-900 font-bold">{app.customerName}</strong>
+                              </p>
+                              {app.symptoms.length > 0 && (
+                                <p className="text-[11px] text-slate-500">
+                                  Síntomas: {app.symptoms.join(', ')}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-3 shrink-0">
+                            <span className="text-xs text-slate-500 font-mono flex items-center gap-1">
+                              <Clock className="w-3.5 h-3.5" /> {app.durationMinutes} min
+                            </span>
+                            <span className="text-xs font-bold px-3 py-1.5 rounded-xl border bg-blue-50 text-blue-800 border-blue-200 flex items-center gap-1">
+                              <Check className="w-3.5 h-3.5" /> {app.status}
+                            </span>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="p-3 border border-dashed border-slate-200 rounded-xl text-xs text-slate-400 flex items-center justify-between">
+                        <span>Hueco libre en elevadores (Capacidad disponible)</span>
+                        <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded">Disponible</span>
                       </div>
                     )}
                   </div>
@@ -396,81 +575,216 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId = null }) => {
         </div>
       )}
 
-      {/* Daily List Schedule */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-xs space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
-          <h3 className="text-sm sm:text-base font-extrabold text-slate-900">
-            Detalle de Citas — {daysOfWeek.find(d => d.date === selectedDay)?.full || 'Jueves 17'}
-          </h3>
-          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5 w-full sm:w-auto">
-            {daysOfWeek.map(d => (
-              <button
-                key={d.date}
-                onClick={() => setSelectedDay(d.date)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
-                  selectedDay === d.date ? 'bg-blue-600 text-white shadow-xs' : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200'
-                }`}
-              >
-                {d.label}
-              </button>
-            ))}
+      {/* ========================================================================= */}
+      {/* 3. MONTH VIEW: Month Matrix Grid with Appointment Badges                  */}
+      {/* ========================================================================= */}
+      {viewMode === 'month' && (
+        <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-xs space-y-4">
+          <div className="grid grid-cols-7 text-center font-bold text-xs uppercase text-slate-400 border-b border-slate-100 pb-2">
+            <div>Lun</div>
+            <div>Mar</div>
+            <div>Mié</div>
+            <div>Jue</div>
+            <div>Vie</div>
+            <div>Sáb</div>
+            <div>Dom</div>
           </div>
-        </div>
 
-        <div className="space-y-3.5">
-          {demoAppointments
-            .filter(a => a.date === selectedDay)
-            .map(app => {
-              const customer = demoCustomers.find(c => c.id === app.customerId);
-              const vehicle = demoVehicles.find(v => v.id === app.vehicleId);
+          <div className="grid grid-cols-7 gap-2">
+            {Array.from({ length: 35 }).map((_, idx) => {
+              const dayNum = (idx % 30) + 1;
+              const dateStr = `2026-09-${String(dayNum).padStart(2, '0')}`;
+              const dayApps = allAppointments.filter(a => a.dateStr === dateStr);
+              const isSelected = currentDate.getDate() === dayNum;
 
               return (
                 <div
-                  key={app.id}
-                  className="telemetry-strip-cobalt bg-white border border-slate-200 rounded-xl p-4 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-4"
+                  key={idx}
+                  onClick={() => {
+                    const d = new Date(currentDate);
+                    d.setDate(dayNum);
+                    setCurrentDate(d);
+                    setViewMode('day');
+                  }}
+                  className={`min-h-[90px] p-2 border rounded-xl cursor-pointer transition flex flex-col justify-between ${
+                    isSelected ? 'border-blue-600 bg-blue-50/40 ring-2 ring-blue-600/20' : 'border-slate-200 hover:border-slate-300'
+                  }`}
                 >
-                  <div className="flex items-start gap-4">
-                    <div className="bg-slate-50 border border-slate-200 px-3.5 py-2.5 rounded-xl text-center shrink-0 font-mono">
-                      <span className="text-[10px] font-bold text-slate-500 uppercase block">HORA</span>
-                      <span className="text-base font-extrabold text-blue-600">{app.time}</span>
-                    </div>
-
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <h4 className="text-sm font-bold text-slate-900">{app.serviceName}</h4>
-                        {vehicle && <span className="license-plate">{vehicle.plate}</span>}
-                      </div>
-                      <p className="text-xs text-slate-600">
-                        Cliente: <strong className="text-slate-900 font-bold">{customer?.name}</strong> · {vehicle?.brand} {vehicle?.model}
-                      </p>
-                      <div className="flex items-center gap-4 text-xs text-slate-500 pt-0.5">
-                        <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5" /> {app.estimatedDurationMinutes} min estim.</span>
-                        <span>Asignado a: <strong className="text-slate-700 font-semibold">{app.assignedMechanic || 'Jon'}</strong></span>
-                      </div>
-                    </div>
+                  <div className="flex items-center justify-between">
+                    <span className="font-extrabold text-xs text-slate-800 font-mono">{dayNum}</span>
+                    {dayApps.length > 0 && (
+                      <span className="w-2 h-2 rounded-full bg-blue-600"></span>
+                    )}
                   </div>
 
-                  <div className="shrink-0">
-                    <span className={`text-xs font-bold px-3 py-1.5 rounded-xl border flex items-center gap-1.5 ${
-                      app.status === 'completed' || app.status === 'sent_to_dms'
-                        ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                        : 'bg-blue-50 text-blue-800 border-blue-200'
-                    }`}>
-                      <Check className="w-3.5 h-3.5" />
-                      {app.status === 'completed' ? 'Trabajo Terminado' : app.status === 'sent_to_dms' ? 'Enviado a ERP' : 'Cita Confirmada'}
-                    </span>
+                  <div className="space-y-1">
+                    {dayApps.slice(0, 2).map(app => (
+                      <div key={app.id} className="text-[10px] p-1 bg-slate-100 text-slate-800 rounded font-semibold truncate">
+                        {app.timeStr} {app.vehiclePlate}
+                      </div>
+                    ))}
+                    {dayApps.length > 2 && (
+                      <span className="text-[10px] text-blue-600 font-bold block">
+                        +{dayApps.length - 2} más
+                      </span>
+                    )}
                   </div>
                 </div>
               );
             })}
-
-          {demoAppointments.filter(a => a.date === selectedDay).length === 0 && (
-            <div className="p-8 bg-slate-50 border border-slate-200 rounded-xl text-center text-slate-500 text-xs">
-              Sin citas agendadas para esta fecha. Carga de taller 100% disponible.
-            </div>
-          )}
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 4. APPOINTMENT DETAIL MODAL (Apertura de Detalle Operativo)                */}
+      {/* ========================================================================= */}
+      {selectedAppointment && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-lg p-6 shadow-2xl space-y-5">
+            
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold bg-blue-50 text-blue-800 border border-blue-200 px-2 py-0.5 rounded font-mono">
+                    Cita ID: {selectedAppointment.id.slice(0, 8)}...
+                  </span>
+                  <span className="text-xs font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
+                    {selectedAppointment.status}
+                  </span>
+                </div>
+                <h3 className="text-base font-extrabold text-slate-900">{selectedAppointment.serviceTitle}</h3>
+              </div>
+              <button
+                onClick={() => setSelectedAppointment(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="space-y-3.5 text-xs">
+              <div className="grid grid-cols-2 gap-3 p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+                <div>
+                  <span className="text-[11px] text-slate-500 font-bold uppercase block">Fecha y Hora</span>
+                  <p className="font-extrabold text-slate-900 text-sm font-mono mt-0.5">
+                    {selectedAppointment.dateStr} · {selectedAppointment.timeStr} h
+                  </p>
+                </div>
+                <div>
+                  <span className="text-[11px] text-slate-500 font-bold uppercase block">Duración Estimada</span>
+                  <p className="font-bold text-slate-800 mt-0.5">
+                    {selectedAppointment.durationMinutes} minutos
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+                <div>
+                  <span className="text-[11px] text-slate-500 font-bold uppercase block">Cliente Autorizado</span>
+                  <p className="font-bold text-slate-900 text-sm mt-0.5">
+                    {selectedAppointment.customerName}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-[11px] text-slate-500 font-bold uppercase block">Matrícula</span>
+                  <span className="license-plate inline-block mt-1">
+                    {selectedAppointment.vehiclePlate}
+                  </span>
+                </div>
+              </div>
+
+              {selectedAppointment.symptoms.length > 0 && (
+                <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+                  <span className="text-[11px] text-slate-500 font-bold uppercase block">Síntomas Reportados</span>
+                  <p className="text-slate-800 font-semibold">{selectedAppointment.symptoms.join(', ')}</p>
+                </div>
+              )}
+
+              {selectedAppointment.evidenceRef && (
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-[11px] text-slate-500 font-mono space-y-0.5">
+                  <span className="font-bold text-slate-700 block">Evidencia de Confirmación:</span>
+                  <span className="truncate block text-slate-600">{selectedAppointment.evidenceRef}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Actions */}
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                onClick={() => setSelectedAppointment(null)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition"
+              >
+                Cerrar
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 5. TENANT CONFIGURATION MODAL                                             */}
+      {/* ========================================================================= */}
+      {showTenantModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="text-base font-extrabold text-slate-900">Configurar Tenant de Taller</h3>
+              <button onClick={() => setShowTenantModal(false)} className="text-slate-400 hover:text-slate-700">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveTenantId} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700">Identificador UUID del Taller (Tenant ID):</label>
+                <input
+                  type="text"
+                  value={tenantInput}
+                  onChange={e => setTenantInput(e.target.value)}
+                  placeholder="Ej. c306c70e-c02c-47c6-8742-536ba9c02e8e"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-mono text-slate-900 focus:outline-none focus:border-blue-500 focus:bg-white"
+                />
+                <p className="text-[11px] text-slate-500">
+                  Permite conectar la vista con tu taller real. Puedes consultar tus tenants en Platform Admin.
+                </p>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowTenantModal(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm"
+                >
+                  Guardar y Conectar
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };
+
+function calculateEndTime(timeStr: string, durationMinutes: number): string {
+  try {
+    const [h, m] = timeStr.split(':').map(Number);
+    const totalMinutes = h * 60 + m + durationMinutes;
+    const endH = Math.floor(totalMinutes / 60) % 24;
+    const endM = totalMinutes % 60;
+    return `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
+  } catch {
+    return timeStr;
+  }
+}

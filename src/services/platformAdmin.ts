@@ -3,6 +3,13 @@ import type {
   OutboxSummaryRow,
   OutboxAttentionRow,
   RedactedAppointmentRow,
+  PlatformTenantSummary,
+  PlatformWorkshopRow,
+  PlatformMembershipRow,
+  PlatformGrantRow,
+  PlatformChannelEndpointRow,
+  PlatformIntegrationRow,
+  PlatformAuditEventRow,
 } from '../types';
 
 export interface PlatformControlState {
@@ -199,3 +206,147 @@ export async function fetchPlatformAppointments(
     return { status: 'error', message: e instanceof Error ? e.message : 'Error de red' };
   }
 }
+
+export interface PlatformTenantsState {
+  status: 'idle' | 'loading' | 'unauthorized' | 'error' | 'success';
+  data?: PlatformTenantSummary[];
+  message?: string;
+  correlationId?: string;
+}
+
+export async function fetchPlatformTenants(baseUrl = ''): Promise<PlatformTenantsState> {
+  try {
+    const res = await fetch(`${baseUrl}/v1/platform/tenants`, {
+      method: 'GET',
+      credentials: 'include',
+    });
+    if (res.status === 401 || res.status === 403) {
+      return { status: 'unauthorized', message: 'Sesión de plataforma requerida (PLATFORM_USER).' };
+    }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      return { status: 'error', message: err.error || `HTTP ${res.status}` };
+    }
+    const json = await res.json();
+    return { status: 'success', data: json.data || [], correlationId: json.correlationId };
+  } catch (e) {
+    return { status: 'error', message: e instanceof Error ? e.message : 'Error de red' };
+  }
+}
+
+export interface PlatformWorkshopsState {
+  status: 'idle' | 'loading' | 'unauthorized' | 'error' | 'success';
+  data?: PlatformWorkshopRow[];
+  message?: string;
+  correlationId?: string;
+}
+
+export async function fetchPlatformWorkshops(tenantId: string, baseUrl = ''): Promise<PlatformWorkshopsState> {
+  if (!tenantId) return { status: 'idle', message: 'Sin tenant seleccionado' };
+  try {
+    const res = await fetch(`${baseUrl}/v1/platform/tenants/${encodeURIComponent(tenantId)}/workshops`, {
+      method: 'GET',
+      credentials: 'include',
+    });
+    if (res.status === 401 || res.status === 403) return { status: 'unauthorized', message: 'No autorizado' };
+    if (!res.ok) return { status: 'error', message: `HTTP ${res.status}` };
+    const json = await res.json();
+    return { status: 'success', data: json.data || [], correlationId: json.correlationId };
+  } catch (e) {
+    return { status: 'error', message: e instanceof Error ? e.message : 'Error de red' };
+  }
+}
+
+export interface PlatformMembershipsState {
+  status: 'idle' | 'loading' | 'unauthorized' | 'error' | 'success';
+  memberships?: PlatformMembershipRow[];
+  grants?: PlatformGrantRow[];
+  message?: string;
+  correlationId?: string;
+}
+
+export async function fetchPlatformMembershipsAndGrants(tenantId: string, baseUrl = ''): Promise<PlatformMembershipsState> {
+  if (!tenantId) return { status: 'idle', message: 'Sin tenant seleccionado' };
+  try {
+    const [mRes, gRes] = await Promise.all([
+      fetch(`${baseUrl}/v1/platform/tenants/${encodeURIComponent(tenantId)}/memberships`, { method: 'GET', credentials: 'include' }),
+      fetch(`${baseUrl}/v1/platform/tenants/${encodeURIComponent(tenantId)}/grants`, { method: 'GET', credentials: 'include' }),
+    ]);
+    if (mRes.status === 401 || mRes.status === 403 || gRes.status === 401 || gRes.status === 403) {
+      return { status: 'unauthorized', message: 'No autorizado para gestionar membresías' };
+    }
+    const mJson = mRes.ok ? await mRes.json() : { data: [] };
+    const gJson = gRes.ok ? await gRes.json() : { data: [] };
+    return {
+      status: 'success',
+      memberships: mJson.data || [],
+      grants: gJson.data || [],
+      correlationId: mJson.correlationId || gJson.correlationId,
+    };
+  } catch (e) {
+    return { status: 'error', message: e instanceof Error ? e.message : 'Error de red' };
+  }
+}
+
+export interface PlatformChannelsAndIntegrationsState {
+  status: 'idle' | 'loading' | 'unauthorized' | 'error' | 'success';
+  endpoints?: PlatformChannelEndpointRow[];
+  integrations?: PlatformIntegrationRow[];
+  message?: string;
+  correlationId?: string;
+}
+
+export async function fetchPlatformChannelsAndIntegrations(tenantId: string, baseUrl = ''): Promise<PlatformChannelsAndIntegrationsState> {
+  if (!tenantId) return { status: 'idle', message: 'Sin tenant seleccionado' };
+  try {
+    const [cRes, iRes] = await Promise.all([
+      fetch(`${baseUrl}/v1/platform/tenants/${encodeURIComponent(tenantId)}/channel-endpoints`, { method: 'GET', credentials: 'include' }),
+      fetch(`${baseUrl}/v1/platform/tenants/${encodeURIComponent(tenantId)}/integrations`, { method: 'GET', credentials: 'include' }),
+    ]);
+    if (cRes.status === 401 || cRes.status === 403 || iRes.status === 401 || iRes.status === 403) {
+      return { status: 'unauthorized', message: 'No autorizado para ver integraciones' };
+    }
+    const cJson = cRes.ok ? await cRes.json() : { data: [] };
+    const iJson = iRes.ok ? await iRes.json() : { data: [] };
+    return {
+      status: 'success',
+      endpoints: cJson.data || [],
+      integrations: iJson.data || [],
+      correlationId: cJson.correlationId || iJson.correlationId,
+    };
+  } catch (e) {
+    return { status: 'error', message: e instanceof Error ? e.message : 'Error de red' };
+  }
+}
+
+export interface PlatformAuditState {
+  status: 'idle' | 'loading' | 'unauthorized' | 'error' | 'success';
+  auditEvents?: PlatformAuditEventRow[];
+  activityEvents?: PlatformAuditEventRow[];
+  message?: string;
+  correlationId?: string;
+}
+
+export async function fetchPlatformAudit(tenantId: string, baseUrl = ''): Promise<PlatformAuditState> {
+  if (!tenantId) return { status: 'idle', message: 'Sin tenant seleccionado' };
+  try {
+    const [aRes, actRes] = await Promise.all([
+      fetch(`${baseUrl}/v1/platform/tenants/${encodeURIComponent(tenantId)}/audit`, { method: 'GET', credentials: 'include' }),
+      fetch(`${baseUrl}/v1/platform/tenants/${encodeURIComponent(tenantId)}/activity`, { method: 'GET', credentials: 'include' }),
+    ]);
+    if (aRes.status === 401 || aRes.status === 403 || actRes.status === 401 || actRes.status === 403) {
+      return { status: 'unauthorized', message: 'No autorizado para consultar auditoría' };
+    }
+    const aJson = aRes.ok ? await aRes.json() : { data: [] };
+    const actJson = actRes.ok ? await actRes.json() : { data: [] };
+    return {
+      status: 'success',
+      auditEvents: aJson.data || [],
+      activityEvents: actJson.data || [],
+      correlationId: aJson.correlationId || actJson.correlationId,
+    };
+  } catch (e) {
+    return { status: 'error', message: e instanceof Error ? e.message : 'Error de red' };
+  }
+}
+
