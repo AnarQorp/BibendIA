@@ -4,6 +4,8 @@ export type PlatformRole = 'PLATFORM_ADMIN' | 'PLATFORM_OPERATOR' | 'SUPPORT_REA
 export type Capability =
   | 'workshop:appointments:read'
   | 'workshop:cases:read'
+  | 'workshop:repair-knowledge:read'
+  | 'workshop:estimate-drafts:create'
   | 'workshop:configuration:read'
   | 'workshop:configuration:update'
   | 'workshop:memberships:manage'
@@ -20,10 +22,10 @@ export type Capability =
   | 'platform:kill-switch:manage';
 
 const workshopCapabilities: Record<WorkshopRole, readonly Capability[]> = {
-  OWNER: ['workshop:appointments:read', 'workshop:cases:read', 'workshop:configuration:read', 'workshop:configuration:update', 'workshop:memberships:manage'],
-  MANAGER: ['workshop:appointments:read', 'workshop:cases:read', 'workshop:configuration:read', 'workshop:configuration:update'],
-  RECEPTION: ['workshop:appointments:read', 'workshop:cases:read'],
-  VIEWER: ['workshop:appointments:read', 'workshop:cases:read'],
+  OWNER: ['workshop:appointments:read', 'workshop:cases:read', 'workshop:repair-knowledge:read', 'workshop:estimate-drafts:create', 'workshop:configuration:read', 'workshop:configuration:update', 'workshop:memberships:manage'],
+  MANAGER: ['workshop:appointments:read', 'workshop:cases:read', 'workshop:repair-knowledge:read', 'workshop:estimate-drafts:create', 'workshop:configuration:read', 'workshop:configuration:update'],
+  RECEPTION: ['workshop:appointments:read', 'workshop:cases:read', 'workshop:repair-knowledge:read', 'workshop:estimate-drafts:create'],
+  VIEWER: ['workshop:appointments:read', 'workshop:cases:read', 'workshop:repair-knowledge:read'],
 };
 
 const allPlatformCapabilities: readonly Capability[] = [

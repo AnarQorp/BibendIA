@@ -27,6 +27,7 @@ import { OidcAuthenticationAdapter } from '../auth/oidc-authentication-adapter.j
 import { registerHumanAuthRoutes } from './human-auth-routes.js';
 import { localIsoDateTime } from './provider-local-time.js';
 import { resolveServiceDuration, ServiceDurationPolicyError, serviceIntentSchema } from '../modules/scheduling/service-duration-policy.js';
+import { registerRepairKnowledgeRoutes } from './repair-knowledge-routes.js';
 
 export type ApiSecurityOptions = {
   authentication?: AuthenticationAdapter;
@@ -212,6 +213,7 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
     });
   }
   registerPlatformAdminRoutes(app,pool);
+  registerRepairKnowledgeRoutes(app,pool);
   registerPublicLeadRoute(app,pool,pii,options.publicLead);
   app.post('/v1/providers/twilio/voice/events', {
     config: { rawBody: true, auth: { mode: 'authenticated', audience: 'provider', principalKinds: ['service'] } },

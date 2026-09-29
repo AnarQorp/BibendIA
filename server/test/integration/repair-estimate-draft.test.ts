@@ -32,6 +32,8 @@ describe('RK02 PostgreSQL estimate draft', () => {
   it('persists the CLHA timing draft with correctly classified, traceable lines', async () => {
     const draft = await createEstimateDraftFromRepairKnowledge(apiPool, command('rk02-clha-timing-001'));
     expect(draft.lines).toHaveLength(6);
+    expect(draft.operation).toMatchObject({ code: 'JOB_TIMING_BELT_WATER_PUMP', unitPrice: null, currency: null, pricingStatus: 'PENDING', editable: true });
+    expect(draft.lines.every((line) => line.unitPrice === null && line.pricingStatus === 'PENDING' && line.editable)).toBe(true);
     expect(draft.knowledgeRevision).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(draft.lines.find((line) => line.edgeCode === 'EDGE_GOLF7_CLHA_TB_001')).toMatchObject({
       requirementType: 'REQUIRED', confidenceState: 'MULTI_SOURCE_VERIFIED', automationStatus: 'AUTO_INCLUDED', selected: true, reviewRequired: false,

@@ -18,10 +18,13 @@ export type EstimateDraftLine = {
   quantity: number | null; requirementType: string; replaceOnce: boolean; condition: string | null; confidenceState: string;
   automationStatus: EstimateAutomationStatus; reviewRequired: boolean; selected: boolean; confidenceReason: string;
   evidence: RepairKnowledgeEdge['evidence']; notes: string | null;
+  unitPrice: number | null; currency: string | null; pricingStatus: 'PENDING' | 'MANUALLY_PRICED'; editable: true;
 };
 export type EstimateDraft = {
   id: string; tenantId: string; vehicleId: string; repairJobCode: string; applicabilityCode: string;
-  status: 'technical_draft'; idempotencyKey: string; knowledgeRevision: string; createdAt: string; lines: EstimateDraftLine[];
+  status: 'technical_draft'; idempotencyKey: string; knowledgeRevision: string; createdAt: string;
+  operation: { code: string; name: string; description: string | null; unitPrice: null; currency: null; pricingStatus: 'PENDING'; editable: true };
+  lines: EstimateDraftLine[];
 };
 
 export class EstimateDraftError extends Error {
@@ -93,12 +96,17 @@ async function loadDraft(client: pg.PoolClient, id: string): Promise<EstimateDra
     WHERE l.draft_id=$1 ORDER BY e.code`, [id])).rows;
   return { id: header.id, tenantId: header.tenant_id, vehicleId: header.vehicle_id, repairJobCode: header.job_code,
     applicabilityCode: header.applicability_code, status: header.status, idempotencyKey: header.idempotency_key,
-    knowledgeRevision: header.knowledge_revision, createdAt: header.created_at.toISOString(), lines: rows.map((row: any) => ({
+    knowledgeRevision: header.knowledge_revision, createdAt: header.created_at.toISOString(),
+    operation: { code: header.job_code, name: header.repair_job_snapshot.name, description: header.repair_job_snapshot.description ?? null,
+      unitPrice: null, currency: null, pricingStatus: 'PENDING', editable: true },
+    lines: rows.map((row: any) => ({
       id: row.id, repairBomEdgeId: row.repair_bom_edge_id, edgeCode: row.edge_code, itemType: row.item_type,
       partRoleCode: row.part_role_code, partRoleName: row.part_role_name, quantity: row.quantity === null ? null : Number(row.quantity),
       requirementType: row.requirement_type, replaceOnce: row.replace_once, condition: row.condition, confidenceState: row.confidence_state,
       automationStatus: row.automation_status, reviewRequired: row.review_required, selected: row.selected,
       confidenceReason: row.confidence_reason, evidence: row.evidence_snapshot, notes: row.notes,
+      unitPrice: row.unit_price === null ? null : Number(row.unit_price), currency: row.currency,
+      pricingStatus: row.pricing_status, editable: true,
     })) };
 }
 
