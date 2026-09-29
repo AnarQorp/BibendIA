@@ -4,7 +4,7 @@ import cors from '@fastify/cors';
 import secureJson from 'secure-json-parse';
 import type pg from 'pg';
 import { z } from 'zod';
-import { executeAppointmentTool } from '../modules/agent-core/appointment-tool.js';
+import { appointmentToolInput, executeAppointmentTool } from '../modules/agent-core/appointment-tool.js';
 import { DenyAllAuthenticationAdapter, type AuthenticationAdapter } from '../auth/authentication-adapter.js';
 import { registerAuthenticationBoundary } from '../auth/authentication-boundary.js';
 import { inAuthorizedTenantTransaction, TenantAuthorizationError } from '../auth/tenant-authorization.js';
@@ -25,6 +25,7 @@ import { PlatformAdminError, registerPlatformAdminRoutes } from './platform-admi
 import { registerPublicLeadRoute } from './public-lead-route.js';
 import { OidcAuthenticationAdapter } from '../auth/oidc-authentication-adapter.js';
 import { registerHumanAuthRoutes } from './human-auth-routes.js';
+import { localIsoDateTime } from './provider-local-time.js';
 
 export type ApiSecurityOptions = {
   authentication?: AuthenticationAdapter;
@@ -259,17 +260,15 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
   }, async (request, reply) => {
     const principal = servicePrincipal(request.principal);
     if (principal.serviceType !== 'voice_provider') return reply.code(403).send({ error: 'PRINCIPAL_NOT_ALLOWED' });
-    const input = request.body as { providerCallId?: unknown };
-    if (typeof input?.providerCallId !== 'string') return reply.code(400).send({ error: 'INVALID_PROVIDER_CALL_ID' });
+    const unparsed = request.body as { providerCallId?: unknown };
+    if (typeof unparsed?.providerCallId !== 'string') return reply.code(400).send({ error: 'INVALID_PROVIDER_CALL_ID' });
+    const parsed = appointmentToolInput.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'INVALID_PROVIDER_PAYLOAD' });
+    const input = parsed.data;
     const correlationId = `elevenlabs:${input.providerCallId}`;
     const authorized = await inAuthorizedProviderTransaction(pool, {
       principal, provider: 'elevenlabs', correlationId,
     }, async (client, tenantContext) => {
-      await claimInboxEvent(client, {
-        context: tenantContext, principal, provider: 'elevenlabs',
-        externalEventId: `tool:create-appointment:${input.providerCallId}`,
-        rawBody: canonicalJson(request.body),
-      });
       const control = await readTenantControl(client, tenantContext.tenantId);
       return { context: tenantContext, decision: operationDecision(control, 'domain_mutation') };
     });
@@ -277,8 +276,20 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
       ok: false, code: authorized.decision.code, fallbackRequired: true,
       safeMessage: 'La automatización está pausada; dejaré el caso para atención humana.', correlationId,
     });
-    try { return await executeAppointmentTool(pool, authorized.context, request.body, pii); }
+    try {
+      const result = await executeAppointmentTool(pool, authorized.context, input, pii);
+      if (!result.ok) return result;
+      const disposition = await inAuthorizedProviderTransaction(pool, {
+        principal, provider: 'elevenlabs', correlationId,
+      }, (client, tenantContext) => claimInboxEvent(client, {
+        context: tenantContext, principal, provider: 'elevenlabs',
+        externalEventId: `tool:create-appointment:${input.providerCallId}`,
+        rawBody: canonicalJson(request.body),
+      }));
+      return { ...result, disposition };
+    }
     catch (error) {
+      if (error instanceof ProviderAuthorizationError) throw error;
       if (error instanceof TenantControlError) return reply.code(423).send({
         ok: false, code: error.code, fallbackRequired: true,
         safeMessage: 'La automatización está pausada; dejaré el caso para atención humana.', correlationId,
@@ -324,6 +335,8 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
       });
       return { ok: true, disposition: authorized.disposition, options: slots.map((slot) => ({
         candidateId: slot.token, startAt: slot.startAt, endAt: slot.endAt,
+        localStartAt: localIsoDateTime(slot.startAt, authorized.timezone),
+        localEndAt: localIsoDateTime(slot.endAt, authorized.timezone),
         timezone: authorized.timezone, expiresAt: slot.expiresAt,
       })), correlationId };
     } catch (error) {
@@ -341,18 +354,25 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
     const correlationId = `elevenlabs:${input.providerCallId}:hold-slot`;
     const authorized = await inAuthorizedProviderTransaction(pool, {
       principal, provider: 'elevenlabs', correlationId,
-    }, async (client, tenantContext) => ({
-      context: tenantContext,
-      disposition: await claimInboxEvent(client, {
+    }, async (client, tenantContext) => {
+      const workshop = await client.query<{ timezone: string }>(
+        'SELECT timezone FROM workshops WHERE tenant_id=$1 AND id=$2',
+        [tenantContext.tenantId, tenantContext.workshopId],
+      );
+      if (workshop.rowCount !== 1) throw new ProviderAuthorizationError('ENDPOINT_NOT_RESOLVED');
+      return { context: tenantContext, timezone: workshop.rows[0].timezone,
+        disposition: await claimInboxEvent(client, {
         context: tenantContext, principal, provider: 'elevenlabs',
         externalEventId: `tool:hold-slot:${input.providerCallId}:${input.requestId}`,
         rawBody: canonicalJson(request.body),
-      }),
-    }));
+      }) };
+    });
     try {
       const held = await holdSlot(pool, authorized.context, input.candidateId, 10 * 60);
       return { ok: true, disposition: authorized.disposition, slotToken: held.token, startAt: held.startAt, endAt: held.endAt,
-        expiresAt: held.expiresAt, correlationId };
+        localStartAt: localIsoDateTime(held.startAt, authorized.timezone),
+        localEndAt: localIsoDateTime(held.endAt, authorized.timezone),
+        timezone: authorized.timezone, expiresAt: held.expiresAt, correlationId };
     } catch (error) {
       if (error instanceof TenantControlError) throw error;
       request.log.warn({ correlationId, code: 'SLOT_HOLD_REJECTED' }, 'provider slot hold rejected');

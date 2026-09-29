@@ -17,7 +17,7 @@ const slotToken = `slot-${randomUUID()}`;
 const baseInput = {
   customerName: 'Aitor Echeverría', plate: '1489 KMR',
   serviceIntent: 'oil_service' as const, symptoms: ['cambio de aceite'], estimatedDurationMinutes: 60, slotToken,
-  explicitConfirmation: true as const, confirmationTranscript: 'Sí, confirmo explícitamente la cita.',
+  explicitConfirmation: true as const, confirmationTranscript: 'Sí',
 };
 const context: TenantContext = {
   tenantId: ids.tenant as TenantContext['tenantId'], workshopId: ids.workshop as TenantContext['workshopId'],

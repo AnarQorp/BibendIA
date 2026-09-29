@@ -21,7 +21,8 @@ export const appointmentToolInput = z.object({
   providerCallId: z.string().min(1),
   customerName: z.string().min(2).max(200), plate: z.string().min(4).max(20), serviceIntent: z.enum(['inspection','oil_service','brakes_or_noise','generic_fault']),
   symptoms: z.array(z.string().min(1).max(500)).min(1).max(10), notes: z.string().max(2000).optional(), estimatedDurationMinutes: z.number().int().min(15).max(480),
-  slotToken: z.string().min(1).max(200), explicitConfirmation: z.literal(true), confirmationTranscript: z.string().min(3).max(1000),
+  slotToken: z.string().min(1).max(200), explicitConfirmation: z.literal(true),
+  confirmationTranscript: z.string().max(1000).refine((value) => value.trim().length > 0),
 });
 export type AppointmentToolInput = z.infer<typeof appointmentToolInput>;
 const normalizeName = (value: string) => value.normalize('NFD').replace(/\p{Diacritic}/gu, '').toUpperCase().replace(/[^A-Z0-9]/g, '');

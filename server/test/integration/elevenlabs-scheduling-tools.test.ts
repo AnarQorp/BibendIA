@@ -49,6 +49,8 @@ describe('VS02.2 authenticated ElevenLabs scheduling tools', () => {
     const found = await app.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/find-slots', headers: auth, payload: findBody });
     expect(found.statusCode).toBe(200);
     expect(found.json().options[0]).toMatchObject({ timezone: 'Europe/Madrid' });
+    expect(found.json().options[0].localStartAt).toMatch(/[+-]\d{2}:\d{2}$/);
+    expect(found.json().options[0].localEndAt).toMatch(/[+-]\d{2}:\d{2}$/);
     const candidateId = found.json().options[0].candidateId as string;
     const findReplay = await app.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/find-slots', headers: auth, payload: findBody });
     expect(findReplay.json()).toMatchObject({ disposition: 'duplicate' });
@@ -58,6 +60,9 @@ describe('VS02.2 authenticated ElevenLabs scheduling tools', () => {
     const holdBody = { providerCallId, requestId: `hold-${randomUUID()}`, candidateId };
     const held = await app.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/hold-slot', headers: auth, payload: holdBody });
     expect(held.statusCode).toBe(200);
+    expect(held.json()).toMatchObject({ timezone: 'Europe/Madrid' });
+    expect(held.json().localStartAt).toBe(found.json().options[0].localStartAt);
+    expect(held.json().localEndAt).toBe(found.json().options[0].localEndAt);
     const slotToken = held.json().slotToken as string;
     const replay = await app.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/hold-slot', headers: auth, payload: holdBody });
     expect(replay.json().slotToken).toBe(slotToken);
@@ -65,9 +70,13 @@ describe('VS02.2 authenticated ElevenLabs scheduling tools', () => {
 
     const base = { providerCallId, customerName: 'Aitor Etxeberria', plate: '1489 KMR',
       serviceIntent: 'oil_service', symptoms: ['maintenance due'], estimatedDurationMinutes: 60, slotToken,
-      confirmationTranscript: 'Sí, confirmo explícitamente la cita.' };
+      confirmationTranscript: 'Sí' };
     expect((await app.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/create-appointment', headers: auth,
-      payload: { ...base, providerCallId: `unconfirmed-${randomUUID()}`, explicitConfirmation: false } })).statusCode).toBe(400);
+      payload: { ...base, explicitConfirmation: false } })).statusCode).toBe(400);
+    expect((await pool.query(
+      "SELECT count(*)::int count FROM inbox_events WHERE tenant_id=$1 AND external_event_id=$2",
+      [ids.tenant, `tool:create-appointment:${providerCallId}`],
+    )).rows[0].count).toBe(0);
     const created = await app.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/create-appointment', headers: auth,
       payload: { ...base, explicitConfirmation: true } });
     expect(created.statusCode).toBe(200);
@@ -76,7 +85,13 @@ describe('VS02.2 authenticated ElevenLabs scheduling tools', () => {
     const createReplay = await app.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/create-appointment', headers: auth,
       payload: { ...base, explicitConfirmation: true } });
     expect(createReplay.statusCode).toBe(200);
+    expect(createReplay.json().disposition).toBe('duplicate');
     expect(createReplay.json().receipt.value.id).toBe(created.json().receipt.value.id);
+    expect((await pool.query('SELECT count(*)::int count FROM appointments WHERE tenant_id=$1', [ids.tenant])).rows[0].count).toBe(1);
+    const conflictingReplay = await app.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/create-appointment', headers: auth,
+      payload: { ...base, explicitConfirmation: true, notes: 'payload distinto' } });
+    expect(conflictingReplay.statusCode).toBe(403);
+    expect(conflictingReplay.json()).toMatchObject({ error: 'REPLAY_CONFLICT' });
     expect((await pool.query('SELECT count(*)::int count FROM appointments WHERE tenant_id=$1', [ids.tenant])).rows[0].count).toBe(1);
     const policyAudit = await pool.query<{ evidence_ref: string }>(
       "SELECT evidence_ref FROM audit_events WHERE tenant_id=$1 AND event_type='policy_evaluated' ORDER BY id DESC LIMIT 1", [ids.tenant],
