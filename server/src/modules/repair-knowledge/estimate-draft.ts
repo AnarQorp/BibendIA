@@ -18,11 +18,13 @@ export type EstimateDraftLine = {
   quantity: number | null; requirementType: string; replaceOnce: boolean; condition: string | null; confidenceState: string;
   automationStatus: EstimateAutomationStatus; reviewRequired: boolean; selected: boolean; confidenceReason: string;
   evidence: RepairKnowledgeEdge['evidence']; notes: string | null;
+  description: string; lineSource: 'REPAIR_KNOWLEDGE' | 'MANUAL_WORKSHOP'; pricingProvenance: 'MANUAL_WORKSHOP' | null;
   unitPrice: number | null; currency: string | null; pricingStatus: 'PENDING' | 'MANUALLY_PRICED'; editable: true;
 };
 export type EstimateDraft = {
   id: string; tenantId: string; vehicleId: string; repairJobCode: string; applicabilityCode: string;
-  status: 'technical_draft'; idempotencyKey: string; knowledgeRevision: string; createdAt: string;
+  status: 'technical_draft' | 'pending_approval' | 'sent' | 'approved' | 'superseded'; version: number;
+  idempotencyKey: string; knowledgeRevision: string; createdAt: string; updatedAt: string;
   operation: { code: string; name: string; description: string | null; unitPrice: null; currency: null; pricingStatus: 'PENDING'; editable: true };
   lines: EstimateDraftLine[];
 };
@@ -83,20 +85,21 @@ export async function createEstimateDraftFromRepairKnowledge(pool: pg.Pool, raw:
 async function insertLine(client: pg.PoolClient, tenantId: string, draftId: string, edge: RepairKnowledgeEdge) {
   const decision = decideEstimateLine(edge);
   await client.query(`INSERT INTO estimate_draft_lines(tenant_id,draft_id,repair_bom_edge_id,item_type,part_role_code,part_role_name,quantity,
-    requirement_type,replace_once,condition,confidence_state,automation_status,review_required,selected,confidence_reason,evidence_snapshot,notes)
-    SELECT $1,$2,e.id,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16 FROM repair_bom_edges e WHERE e.code=$17`,
+    requirement_type,replace_once,condition,confidence_state,automation_status,review_required,selected,confidence_reason,evidence_snapshot,notes,description)
+    SELECT $1,$2,e.id,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$5 FROM repair_bom_edges e WHERE e.code=$17`,
     [tenantId,draftId,edge.itemKind,edge.partRole.code,edge.partRole.name,edge.quantity,edge.requirementType,edge.replaceOnce,edge.condition,
       edge.confidenceState,decision.automationStatus,decision.reviewRequired,decision.selected,edge.confidenceReason,JSON.stringify(edge.evidence),edge.notes,edge.code]);
 }
 
-async function loadDraft(client: pg.PoolClient, id: string): Promise<EstimateDraft> {
+export async function loadEstimateDraft(client: pg.PoolClient, id: string): Promise<EstimateDraft | null> {
   const header = (await client.query<any>(`SELECT d.*,j.code job_code,a.code applicability_code FROM estimate_drafts d
     JOIN repair_jobs j ON j.id=d.repair_job_id JOIN repair_vehicle_applicabilities a ON a.id=d.applicability_id WHERE d.id=$1`, [id])).rows[0];
-  const rows = (await client.query<any>(`SELECT l.*,e.code edge_code FROM estimate_draft_lines l JOIN repair_bom_edges e ON e.id=l.repair_bom_edge_id
+  if (!header) return null;
+  const rows = (await client.query<any>(`SELECT l.*,e.code edge_code FROM estimate_draft_lines l LEFT JOIN repair_bom_edges e ON e.id=l.repair_bom_edge_id
     WHERE l.draft_id=$1 ORDER BY e.code`, [id])).rows;
   return { id: header.id, tenantId: header.tenant_id, vehicleId: header.vehicle_id, repairJobCode: header.job_code,
     applicabilityCode: header.applicability_code, status: header.status, idempotencyKey: header.idempotency_key,
-    knowledgeRevision: header.knowledge_revision, createdAt: header.created_at.toISOString(),
+    knowledgeRevision: header.knowledge_revision, version: header.version, createdAt: header.created_at.toISOString(), updatedAt: header.updated_at.toISOString(),
     operation: { code: header.job_code, name: header.repair_job_snapshot.name, description: header.repair_job_snapshot.description ?? null,
       unitPrice: null, currency: null, pricingStatus: 'PENDING', editable: true },
     lines: rows.map((row: any) => ({
@@ -105,9 +108,16 @@ async function loadDraft(client: pg.PoolClient, id: string): Promise<EstimateDra
       requirementType: row.requirement_type, replaceOnce: row.replace_once, condition: row.condition, confidenceState: row.confidence_state,
       automationStatus: row.automation_status, reviewRequired: row.review_required, selected: row.selected,
       confidenceReason: row.confidence_reason, evidence: row.evidence_snapshot, notes: row.notes,
+      description: row.description, lineSource: row.line_source, pricingProvenance: row.pricing_provenance,
       unitPrice: row.unit_price === null ? null : Number(row.unit_price), currency: row.currency,
       pricingStatus: row.pricing_status, editable: true,
     })) };
+}
+
+async function loadDraft(client: pg.PoolClient, id: string): Promise<EstimateDraft> {
+  const draft = await loadEstimateDraft(client, id);
+  if (!draft) throw new Error('ESTIMATE_DRAFT_NOT_FOUND');
+  return draft;
 }
 
 function knowledgeRevision(knowledge: RepairKnowledgeResolution): string {

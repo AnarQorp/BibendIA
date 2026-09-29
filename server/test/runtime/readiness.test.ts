@@ -19,9 +19,9 @@ describe('runtime readiness', () => {
   it('passes only for the expected role and exact schema', async () => {
     const result = await checkDatabaseReadiness(pool([
       { rows: [{ member: true, migrator: false }] }, { rows: [] },
-      { rows: [{ schema_version: '018_repair_knowledge_api.sql', compatible: true }], rowCount: 1 },
+      { rows: [{ schema_version: '019_estimate_draft_editing.sql', compatible: true }], rowCount: 1 },
     ]), 'bibendia_api');
-    expect(result).toEqual({ ready: true, schemaVersion: '018_repair_knowledge_api.sql' });
+    expect(result).toEqual({ ready: true, schemaVersion: '019_estimate_draft_editing.sql' });
   });
 
   it('fails closed for wrong identity, old/new schema, and database outage', async () => {

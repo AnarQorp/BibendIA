@@ -5,7 +5,9 @@ export type Capability =
   | 'workshop:appointments:read'
   | 'workshop:cases:read'
   | 'workshop:repair-knowledge:read'
+  | 'workshop:estimate-drafts:read'
   | 'workshop:estimate-drafts:create'
+  | 'workshop:estimate-drafts:update'
   | 'workshop:configuration:read'
   | 'workshop:configuration:update'
   | 'workshop:memberships:manage'
@@ -22,10 +24,10 @@ export type Capability =
   | 'platform:kill-switch:manage';
 
 const workshopCapabilities: Record<WorkshopRole, readonly Capability[]> = {
-  OWNER: ['workshop:appointments:read', 'workshop:cases:read', 'workshop:repair-knowledge:read', 'workshop:estimate-drafts:create', 'workshop:configuration:read', 'workshop:configuration:update', 'workshop:memberships:manage'],
-  MANAGER: ['workshop:appointments:read', 'workshop:cases:read', 'workshop:repair-knowledge:read', 'workshop:estimate-drafts:create', 'workshop:configuration:read', 'workshop:configuration:update'],
-  RECEPTION: ['workshop:appointments:read', 'workshop:cases:read', 'workshop:repair-knowledge:read', 'workshop:estimate-drafts:create'],
-  VIEWER: ['workshop:appointments:read', 'workshop:cases:read', 'workshop:repair-knowledge:read'],
+  OWNER: ['workshop:appointments:read', 'workshop:cases:read', 'workshop:repair-knowledge:read', 'workshop:estimate-drafts:read', 'workshop:estimate-drafts:create', 'workshop:estimate-drafts:update', 'workshop:configuration:read', 'workshop:configuration:update', 'workshop:memberships:manage'],
+  MANAGER: ['workshop:appointments:read', 'workshop:cases:read', 'workshop:repair-knowledge:read', 'workshop:estimate-drafts:read', 'workshop:estimate-drafts:create', 'workshop:estimate-drafts:update', 'workshop:configuration:read', 'workshop:configuration:update'],
+  RECEPTION: ['workshop:appointments:read', 'workshop:cases:read', 'workshop:repair-knowledge:read', 'workshop:estimate-drafts:read', 'workshop:estimate-drafts:create', 'workshop:estimate-drafts:update'],
+  VIEWER: ['workshop:appointments:read', 'workshop:cases:read', 'workshop:repair-knowledge:read', 'workshop:estimate-drafts:read'],
 };
 
 const allPlatformCapabilities: readonly Capability[] = [

@@ -5,8 +5,11 @@ describe('pilot capability matrix', () => {
   it('keeps Workshop roles out of Platform capabilities', () => {
     expect(workshopRoleAllows('OWNER', 'workshop:appointments:read')).toBe(true);
     expect(workshopRoleAllows('OWNER', 'workshop:estimate-drafts:create')).toBe(true);
+    expect(workshopRoleAllows('RECEPTION', 'workshop:estimate-drafts:update')).toBe(true);
     expect(workshopRoleAllows('VIEWER', 'workshop:repair-knowledge:read')).toBe(true);
+    expect(workshopRoleAllows('VIEWER', 'workshop:estimate-drafts:read')).toBe(true);
     expect(workshopRoleAllows('VIEWER', 'workshop:estimate-drafts:create')).toBe(false);
+    expect(workshopRoleAllows('VIEWER', 'workshop:estimate-drafts:update')).toBe(false);
     expect(workshopRoleAllows('OWNER', 'platform:tenant:update')).toBe(false);
   });
 
