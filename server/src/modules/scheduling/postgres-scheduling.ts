@@ -1,7 +1,7 @@
 import type pg from 'pg';
 import type { TenantContext } from '../../domain/ids.js';
 import type { ActionReceipt } from '../../domain/receipt.js';
-import type { Appointment } from './model.js';
+import type { Appointment, ServiceRequest } from './model.js';
 import { randomUUID } from 'node:crypto';
 import type { CreateAppointmentCommand, FindSlotsQuery } from '../../ports/scheduling.js';
 import { inTenantTransaction } from '../../persistence/pool.js';
@@ -21,6 +21,9 @@ type SlotRow = {
   end_at: Date;
   capacity_requirements: unknown;
   expires_at: Date;
+  duration_minutes: number | null;
+  service_intent: import('./model.js').ServiceRequest['intent'] | null;
+  duration_policy_source: import('./service-duration-policy.js').DurationPolicySource;
 };
 
 function toSlot(row: SlotRow): import('./model.js').AppointmentSlot {
@@ -31,6 +34,9 @@ function toSlot(row: SlotRow): import('./model.js').AppointmentSlot {
     endAt: row.end_at.toISOString(),
     capacity: row.capacity_requirements as import('./model.js').CapacityRequirement[],
     expiresAt: row.expires_at.toISOString(),
+    estimatedDurationMinutes: row.duration_minutes ?? Math.round((row.end_at.getTime() - row.start_at.getTime()) / 60_000),
+    serviceIntent: row.service_intent,
+    durationPolicySource: row.duration_policy_source,
   };
 }
 
@@ -119,9 +125,10 @@ export async function findSlots(
       const token = randomUUID();
       const inserted = await client.query<SlotRow>(
         `INSERT INTO slot_candidates
-          (tenant_id,workshop_id,candidate_token,start_at,end_at,duration_minutes,capacity_requirements,expires_at)
-         VALUES($1,$2,$3,$4,$5,$6,$7,now()+($8::int * interval '1 second'))
-         ON CONFLICT (tenant_id,workshop_id,start_at,end_at,duration_minutes) DO UPDATE
+          (tenant_id,workshop_id,candidate_token,start_at,end_at,duration_minutes,capacity_requirements,expires_at,
+           service_intent,duration_policy_source)
+         VALUES($1,$2,$3,$4,$5,$6,$7,now()+($8::int * interval '1 second'),$9,$10)
+         ON CONFLICT (tenant_id,workshop_id,start_at,end_at,duration_minutes,service_intent) DO UPDATE
            SET candidate_token=CASE
                  WHEN slot_candidates.expires_at <= now() THEN EXCLUDED.candidate_token
                  ELSE slot_candidates.candidate_token END,
@@ -131,11 +138,19 @@ export async function findSlots(
                expires_at=CASE
                  WHEN slot_candidates.expires_at <= now() THEN EXCLUDED.expires_at
                  ELSE slot_candidates.expires_at END,
+               service_intent=CASE
+                 WHEN slot_candidates.expires_at <= now() THEN EXCLUDED.service_intent
+                 ELSE slot_candidates.service_intent END,
+               duration_policy_source=CASE
+                 WHEN slot_candidates.expires_at <= now() THEN EXCLUDED.duration_policy_source
+                 ELSE slot_candidates.duration_policy_source END,
                held_at=CASE WHEN slot_candidates.expires_at <= now() THEN NULL ELSE slot_candidates.held_at END,
                hold_id=CASE WHEN slot_candidates.expires_at <= now() THEN NULL ELSE slot_candidates.hold_id END
-         RETURNING candidate_token token,workshop_id,start_at,end_at,capacity_requirements,expires_at`,
+         RETURNING candidate_token token,workshop_id,start_at,end_at,capacity_requirements,expires_at,
+           duration_minutes,service_intent,duration_policy_source`,
         [context.tenantId, context.workshopId, token, candidate.start_at, candidate.end_at, duration,
-          JSON.stringify(query.serviceRequest.capacityRequirements), CANDIDATE_TTL_SECONDS],
+          JSON.stringify(query.serviceRequest.capacityRequirements), CANDIDATE_TTL_SECONDS,
+          query.serviceIntent ?? null, query.durationPolicySource ?? 'legacy_client_supplied'],
       );
       slots.push(toSlot(inserted.rows[0]));
     }
@@ -158,8 +173,11 @@ export async function holdSlot(
     const candidate = await client.query<{
       id: string; workshop_id: string; start_at: Date; end_at: Date; capacity_requirements: unknown;
       expires_at: Date; held_at: Date | null; hold_id: string | null;
+      duration_minutes: number; service_intent: import('./model.js').ServiceRequest['intent'] | null;
+      duration_policy_source: import('./service-duration-policy.js').DurationPolicySource;
     }>(
-      `SELECT id,workshop_id,start_at,end_at,capacity_requirements,expires_at,held_at,hold_id
+      `SELECT id,workshop_id,start_at,end_at,capacity_requirements,expires_at,held_at,hold_id,
+         duration_minutes,service_intent,duration_policy_source
        FROM slot_candidates
        WHERE tenant_id=$1 AND workshop_id=$2 AND candidate_token=$3 AND expires_at > now()
        FOR UPDATE`,
@@ -169,7 +187,8 @@ export async function holdSlot(
     const selected = candidate.rows[0];
     if (selected.held_at && selected.hold_id) {
       const replay = await client.query<SlotRow>(
-        `SELECT slot_token token,workshop_id,start_at,end_at,capacity_requirements,expires_at
+        `SELECT slot_token token,workshop_id,start_at,end_at,capacity_requirements,expires_at,
+           duration_minutes,service_intent,duration_policy_source
          FROM slot_holds WHERE tenant_id=$1 AND id=$2 AND expires_at > now() AND consumed_at IS NULL`,
         [context.tenantId, selected.hold_id],
       );
@@ -192,11 +211,14 @@ export async function holdSlot(
     const holdToken = randomUUID();
     const hold = await client.query<SlotRow & { id: string }>(
       `INSERT INTO slot_holds
-        (tenant_id,workshop_id,slot_token,start_at,end_at,capacity_requirements,expires_at)
-       VALUES($1,$2,$3,$4,$5,$6,now()+($7::int * interval '1 second'))
-       RETURNING id,slot_token token,workshop_id,start_at,end_at,capacity_requirements,expires_at`,
+        (tenant_id,workshop_id,slot_token,start_at,end_at,capacity_requirements,expires_at,
+         duration_minutes,service_intent,duration_policy_source)
+       VALUES($1,$2,$3,$4,$5,$6,now()+($7::int * interval '1 second'),$8,$9,$10)
+       RETURNING id,slot_token token,workshop_id,start_at,end_at,capacity_requirements,expires_at,
+         duration_minutes,service_intent,duration_policy_source`,
       [context.tenantId, context.workshopId, holdToken, selected.start_at, selected.end_at,
-        JSON.stringify(selected.capacity_requirements), ttlSeconds],
+        JSON.stringify(selected.capacity_requirements), ttlSeconds, selected.duration_minutes,
+        selected.service_intent, selected.duration_policy_source],
     );
     await client.query('UPDATE slot_candidates SET held_at=now(),hold_id=$2 WHERE id=$1', [selected.id, hold.rows[0].id]);
     return toSlot(hold.rows[0]);
@@ -252,16 +274,21 @@ export async function createAppointmentTransactional(
       };
     }
 
-    const hold = await client.query<{ id: string; start_at: Date; end_at: Date; capacity_requirements: unknown }>(
-      `SELECT id,start_at,end_at,capacity_requirements FROM slot_holds
+    const hold = await client.query<{ id: string; start_at: Date; end_at: Date; capacity_requirements: unknown;
+      duration_minutes: number | null; service_intent: Appointment['serviceRequest']['intent'] | null }>(
+      `SELECT id,start_at,end_at,capacity_requirements,duration_minutes,service_intent FROM slot_holds
        WHERE tenant_id=$1 AND workshop_id=$2 AND slot_token=$3 AND expires_at > now() AND consumed_at IS NULL
-         AND end_at-start_at = ($4::int * interval '1 minute')
-         AND capacity_requirements = $5::jsonb
+         AND capacity_requirements = $4::jsonb
        FOR UPDATE`,
       [context.tenantId, context.workshopId, command.slotToken,
-        command.serviceRequest.estimatedDurationMinutes, JSON.stringify(command.serviceRequest.capacityRequirements)],
+        JSON.stringify(command.serviceRequest.capacityRequirements)],
     );
     if (hold.rowCount !== 1) throw new Error('SLOT_NOT_AVAILABLE');
+    const holdDuration = hold.rows[0].duration_minutes
+      ?? Math.round((hold.rows[0].end_at.getTime() - hold.rows[0].start_at.getTime()) / 60_000);
+    if (hold.rows[0].service_intent && hold.rows[0].service_intent !== command.serviceRequest.intent) {
+      throw new Error('SLOT_SERVICE_INTENT_MISMATCH');
+    }
     const overlap = await client.query(
       `SELECT 1 FROM appointments WHERE tenant_id=$1 AND workshop_id=$2 AND status <> 'cancelled'
        AND start_at < $4 AND end_at > $3 LIMIT 1`,
@@ -320,7 +347,7 @@ export async function createAppointmentTransactional(
 
     if (intent.rowCount === 0) throw new Error('IDEMPOTENCY_IN_PROGRESS');
 
-    const request = command.serviceRequest;
+    const request: ServiceRequest = { ...command.serviceRequest, estimatedDurationMinutes: holdDuration };
     const protectedDetails = pii.protect(context.tenantId, 'appointment.sensitive_details', JSON.stringify({
       symptoms: request.symptoms, ...(request.notes ? { notes: request.notes } : {}),
     }));

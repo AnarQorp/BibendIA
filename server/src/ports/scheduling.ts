@@ -4,6 +4,8 @@ import type { TenantContext } from '../domain/ids.js';
 
 export interface FindSlotsQuery {
   serviceRequest: Pick<ServiceRequest, 'estimatedDurationMinutes' | 'capacityRequirements'>;
+  serviceIntent?: ServiceRequest['intent'];
+  durationPolicySource?: 'service_intent' | 'workshop_fallback' | 'legacy_client_supplied';
   window: { from: string; to: string };
   /** Pilot-safe result cap. The PostgreSQL adapter rejects values outside 1..20. */
   limit?: number;
@@ -15,7 +17,7 @@ export interface CreateAppointmentCommand {
   identity:
     | { resolution: 'verified'; customerId: string; vehicleId: string }
     | { resolution: 'provisional_new' | 'provisional_ambiguous'; customerName: string; plate: string };
-  serviceRequest: ServiceRequest;
+  serviceRequest: Omit<ServiceRequest, 'estimatedDurationMinutes'> & { estimatedDurationMinutes?: number };
   confirmationEvidenceRef: string;
   idempotencyKey: string;
 }

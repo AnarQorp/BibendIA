@@ -37,4 +37,7 @@ export interface AppointmentSlot {
   endAt: string;
   capacity: CapacityRequirement[];
   expiresAt: string;
+  estimatedDurationMinutes: number;
+  serviceIntent: ServiceRequest['intent'] | null;
+  durationPolicySource: 'service_intent' | 'workshop_fallback' | 'legacy_client_supplied';
 }

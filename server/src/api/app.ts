@@ -26,6 +26,7 @@ import { registerPublicLeadRoute } from './public-lead-route.js';
 import { OidcAuthenticationAdapter } from '../auth/oidc-authentication-adapter.js';
 import { registerHumanAuthRoutes } from './human-auth-routes.js';
 import { localIsoDateTime } from './provider-local-time.js';
+import { resolveServiceDuration, ServiceDurationPolicyError, serviceIntentSchema } from '../modules/scheduling/service-duration-policy.js';
 
 export type ApiSecurityOptions = {
   authentication?: AuthenticationAdapter;
@@ -318,18 +319,26 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
         externalEventId: `tool:find-slots:${input.providerCallId}:${input.requestId}`,
         rawBody: canonicalJson(request.body),
       });
-      const workshop = await client.query<{ timezone: string }>(
-        'SELECT timezone FROM workshops WHERE tenant_id=$1 AND id=$2',
+      const workshop = await client.query<{ timezone: string; service_duration_policy: unknown }>(
+        'SELECT timezone,service_duration_policy FROM workshops WHERE tenant_id=$1 AND id=$2',
         [tenantContext.tenantId, tenantContext.workshopId],
       );
       if (workshop.rowCount !== 1) throw new ProviderAuthorizationError('ENDPOINT_NOT_RESOLVED');
-      return { context: tenantContext, timezone: workshop.rows[0].timezone, disposition };
+      return { context: tenantContext, timezone: workshop.rows[0].timezone,
+        durationPolicy: workshop.rows[0].service_duration_policy, disposition };
     });
     try {
+      const duration = resolveServiceDuration({
+        policy: authorized.durationPolicy,
+        serviceIntent: input.serviceIntent,
+        legacyDurationMinutes: input.durationMinutes,
+      });
       const slots = await findSlots(pool, authorized.context, {
         window: { from: input.windowFrom, to: input.windowTo }, limit: input.limit,
+        serviceIntent: input.serviceIntent,
+        durationPolicySource: duration.source,
         serviceRequest: {
-          estimatedDurationMinutes: input.durationMinutes,
+          estimatedDurationMinutes: duration.estimatedDurationMinutes,
           capacityRequirements: [{ resourceType: 'mechanic', quantity: 1 }],
         },
       });
@@ -338,8 +347,13 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
         localStartAt: localIsoDateTime(slot.startAt, authorized.timezone),
         localEndAt: localIsoDateTime(slot.endAt, authorized.timezone),
         timezone: authorized.timezone, expiresAt: slot.expiresAt,
+        estimatedDurationMinutes: slot.estimatedDurationMinutes,
+        durationPolicySource: slot.durationPolicySource,
       })), correlationId };
     } catch (error) {
+      if (error instanceof ServiceDurationPolicyError) {
+        return reply.code(422).send({ ok: false, code: error.code, correlationId });
+      }
       if (error instanceof TenantControlError) throw error;
       request.log.warn({ correlationId, code: 'SLOT_QUERY_REJECTED' }, 'provider slot query rejected');
       return reply.code(400).send({ ok: false, code: 'SLOT_QUERY_REJECTED', correlationId });
@@ -372,7 +386,9 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
       return { ok: true, disposition: authorized.disposition, slotToken: held.token, startAt: held.startAt, endAt: held.endAt,
         localStartAt: localIsoDateTime(held.startAt, authorized.timezone),
         localEndAt: localIsoDateTime(held.endAt, authorized.timezone),
-        timezone: authorized.timezone, expiresAt: held.expiresAt, correlationId };
+        timezone: authorized.timezone, expiresAt: held.expiresAt,
+        estimatedDurationMinutes: held.estimatedDurationMinutes,
+        durationPolicySource: held.durationPolicySource, correlationId };
     } catch (error) {
       if (error instanceof TenantControlError) throw error;
       request.log.warn({ correlationId, code: 'SLOT_HOLD_REJECTED' }, 'provider slot hold rejected');
@@ -430,11 +446,20 @@ const elevenLabsEventSchema = z.object({
 const providerFindSlotsSchema = z.object({
   providerCallId: z.string().min(1).max(200),
   requestId: z.string().min(8).max(200),
-  durationMinutes: z.number().int().min(15).max(480),
+  serviceIntent: serviceIntentSchema.optional(),
+  symptoms: z.array(z.string().trim().min(1).max(500)).min(1).max(10).optional(),
+  durationMinutes: z.number().int().min(15).max(480).optional(),
   windowFrom: z.string().datetime({ offset: true }),
   windowTo: z.string().datetime({ offset: true }),
   limit: z.number().int().min(1).max(5).default(3),
-}).strict();
+}).strict().superRefine((value, context) => {
+  if (!value.serviceIntent && value.durationMinutes === undefined) {
+    context.addIssue({ code: 'custom', message: 'serviceIntent or legacy durationMinutes is required' });
+  }
+  if (value.serviceIntent && !value.symptoms) {
+    context.addIssue({ code: 'custom', message: 'symptoms are required with serviceIntent' });
+  }
+});
 
 const providerHoldSlotSchema = z.object({
   providerCallId: z.string().min(1).max(200),

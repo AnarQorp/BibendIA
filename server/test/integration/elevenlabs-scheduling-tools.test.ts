@@ -16,6 +16,7 @@ const app = buildApi(pool, { piiProtection: pii, providerIngress: {
   elevenLabsTool: { servicePrincipalId: ids.principal, externalAccountId: agent, secret },
 } });
 const openingHours = Object.fromEntries(Array.from({ length: 7 }, (_, index) => [String(index + 1), [{ start: '00:00', end: '23:59' }]]));
+const durationPolicy = { version: 'jarrisons-v1', rules: { oil_service: 45, inspection: 60 }, fallbackMinutes: 75 };
 
 function window() {
   const from = new Date(Date.now() + 7 * 86_400_000);
@@ -26,7 +27,7 @@ function window() {
 beforeAll(async () => {
   await pool.query("INSERT INTO tenants(id,name,lifecycle_status,operating_mode,policy_version) VALUES($1,'VS02.2','pilot','pilot_supervised','tenant-policy-v2')", [ids.tenant]);
   await inTenantTransaction(pool, ids.tenant, async (client) => {
-    await client.query("INSERT INTO workshops(id,tenant_id,name,timezone,opening_hours) VALUES($1,$2,'VS02.2 workshop','Europe/Madrid',$3)", [ids.workshop, ids.tenant, JSON.stringify(openingHours)]);
+    await client.query("INSERT INTO workshops(id,tenant_id,name,timezone,opening_hours,service_duration_policy) VALUES($1,$2,'VS02.2 workshop','Europe/Madrid',$3,$4)", [ids.workshop, ids.tenant, JSON.stringify(openingHours), JSON.stringify(durationPolicy)]);
     await client.query("INSERT INTO channel_endpoints(id,tenant_id,workshop_id,provider,external_account_id,called_endpoint) VALUES($1,$2,$3,'elevenlabs',$4,'agent-binding')", [ids.endpoint, ids.tenant, ids.workshop, agent]);
     await insertProtectedCustomer(client, pii, { id: ids.customer, tenantId: ids.tenant, displayName: 'Aitor Etxeberria' });
     await insertProtectedVehicle(client, pii, { id: ids.vehicle, tenantId: ids.tenant, plate: '1489 KMR' });
@@ -42,7 +43,8 @@ afterAll(async () => { await app.close(); await pool.end(); });
 describe('VS02.2 authenticated ElevenLabs scheduling tools', () => {
   it('runs find -> hold -> explicit-confirmed create and never accepts body authority', async () => {
     const providerCallId = `call-${randomUUID()}`;
-    const findBody = { providerCallId, requestId: `find-${randomUUID()}`, ...window(), durationMinutes: 60, limit: 1 };
+    const findBody = { providerCallId, requestId: `find-${randomUUID()}`, ...window(),
+      serviceIntent: 'oil_service', symptoms: ['maintenance due'], limit: 1 };
     expect((await app.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/find-slots', payload: findBody })).statusCode).toBe(401);
     expect((await app.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/find-slots', headers: auth,
       payload: { ...findBody, tenantId: randomUUID(), workshopId: randomUUID() } })).statusCode).toBe(400);
@@ -51,18 +53,20 @@ describe('VS02.2 authenticated ElevenLabs scheduling tools', () => {
     expect(found.json().options[0]).toMatchObject({ timezone: 'Europe/Madrid' });
     expect(found.json().options[0].localStartAt).toMatch(/[+-]\d{2}:\d{2}$/);
     expect(found.json().options[0].localEndAt).toMatch(/[+-]\d{2}:\d{2}$/);
+    expect(found.json().options[0]).toMatchObject({ estimatedDurationMinutes: 45, durationPolicySource: 'service_intent' });
     const candidateId = found.json().options[0].candidateId as string;
     const findReplay = await app.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/find-slots', headers: auth, payload: findBody });
     expect(findReplay.json()).toMatchObject({ disposition: 'duplicate' });
     expect(findReplay.json().options[0].candidateId).toBe(candidateId);
     expect((await app.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/find-slots', headers: auth,
-      payload: { ...findBody, durationMinutes: 75 } })).statusCode).toBe(403);
+      payload: { ...findBody, symptoms: ['different request'] } })).statusCode).toBe(403);
     const holdBody = { providerCallId, requestId: `hold-${randomUUID()}`, candidateId };
     const held = await app.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/hold-slot', headers: auth, payload: holdBody });
     expect(held.statusCode).toBe(200);
     expect(held.json()).toMatchObject({ timezone: 'Europe/Madrid' });
     expect(held.json().localStartAt).toBe(found.json().options[0].localStartAt);
     expect(held.json().localEndAt).toBe(found.json().options[0].localEndAt);
+    expect(held.json()).toMatchObject({ estimatedDurationMinutes: 45, durationPolicySource: 'service_intent' });
     const slotToken = held.json().slotToken as string;
     const replay = await app.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/hold-slot', headers: auth, payload: holdBody });
     expect(replay.json().slotToken).toBe(slotToken);
@@ -81,6 +85,7 @@ describe('VS02.2 authenticated ElevenLabs scheduling tools', () => {
       payload: { ...base, explicitConfirmation: true } });
     expect(created.statusCode).toBe(200);
     expect(created.json()).toMatchObject({ ok: true, code: 'APPOINTMENT_CREATED' });
+    expect(created.json().receipt.value.serviceRequest.estimatedDurationMinutes).toBe(45);
     expect((await pool.query('SELECT count(*)::int count FROM appointments WHERE tenant_id=$1', [ids.tenant])).rows[0].count).toBe(1);
     const createReplay = await app.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/create-appointment', headers: auth,
       payload: { ...base, explicitConfirmation: true } });
@@ -97,6 +102,26 @@ describe('VS02.2 authenticated ElevenLabs scheduling tools', () => {
       "SELECT evidence_ref FROM audit_events WHERE tenant_id=$1 AND event_type='policy_evaluated' ORDER BY id DESC LIMIT 1", [ids.tenant],
     );
     expect(policyAudit.rows[0].evidence_ref).toBe('policy:tenant-policy-v2:allow');
+  });
+
+  it('uses explicit fallback and rejects a missing rule without fallback', async () => {
+    const fallback = await app.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/find-slots', headers: auth,
+      payload: { providerCallId: `fallback-${randomUUID()}`, requestId: `find-${randomUUID()}`, ...window(),
+        serviceIntent: 'generic_fault', symptoms: ['unknown noise'], limit: 1 } });
+    expect(fallback.statusCode).toBe(200);
+    expect(fallback.json().options[0]).toMatchObject({ estimatedDurationMinutes: 75, durationPolicySource: 'workshop_fallback' });
+    await inTenantTransaction(pool, ids.tenant, (client) => client.query(
+      'UPDATE workshops SET service_duration_policy=$1 WHERE id=$2',
+      [JSON.stringify({ ...durationPolicy, fallbackMinutes: null }), ids.workshop],
+    ));
+    const unresolved = await app.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/find-slots', headers: auth,
+      payload: { providerCallId: `unresolved-${randomUUID()}`, requestId: `find-${randomUUID()}`, ...window(),
+        serviceIntent: 'generic_fault', symptoms: ['unknown noise'], limit: 1 } });
+    expect(unresolved.statusCode).toBe(422);
+    expect(unresolved.json()).toMatchObject({ ok: false, code: 'SERVICE_DURATION_UNRESOLVED' });
+    await inTenantTransaction(pool, ids.tenant, (client) => client.query(
+      'UPDATE workshops SET service_duration_policy=$1 WHERE id=$2', [JSON.stringify(durationPolicy), ids.workshop],
+    ));
   });
 
   it('completes find -> hold -> create for a new provisional identity without a preseeded customer', async () => {
@@ -193,7 +218,7 @@ describe('VS02.2 authenticated ElevenLabs scheduling tools', () => {
     const secretB = `secret-${randomUUID()}`;
     await pool.query("INSERT INTO tenants(id,name,lifecycle_status,operating_mode,policy_version) VALUES($1,'Tenant B','pilot','standard','tenant-policy-B')", [b.tenant]);
     await inTenantTransaction(pool, b.tenant, async (client) => {
-      await client.query("INSERT INTO workshops(id,tenant_id,name,timezone,opening_hours) VALUES($1,$2,'B','UTC',$3)", [b.workshop, b.tenant, JSON.stringify(openingHours)]);
+      await client.query("INSERT INTO workshops(id,tenant_id,name,timezone,opening_hours,service_duration_policy) VALUES($1,$2,'B','UTC',$3,$4)", [b.workshop, b.tenant, JSON.stringify(openingHours), JSON.stringify({ version: 'tenant-b-v1', rules: { inspection: 90 }, fallbackMinutes: null })]);
       await client.query("INSERT INTO channel_endpoints(id,tenant_id,workshop_id,provider,external_account_id,called_endpoint) VALUES($1,$2,$3,'elevenlabs',$4,'b-binding')", [b.endpoint, b.tenant, b.workshop, agentB]);
       await insertProtectedCustomer(client, pii, { id: b.customer, tenantId: b.tenant, displayName: 'Bea Bilbao' });
       await insertProtectedVehicle(client, pii, { id: b.vehicle, tenantId: b.tenant, plate: '1234 BBB' });
@@ -208,8 +233,9 @@ describe('VS02.2 authenticated ElevenLabs scheduling tools', () => {
       const providerCallId = `call-${randomUUID()}`;
       const foundB = await appB.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/find-slots',
         headers: { authorization: `Bearer ${secretB}` }, payload: { providerCallId, requestId: `find-${randomUUID()}`,
-          ...window(), durationMinutes: 60, limit: 1 } });
+          ...window(), serviceIntent: 'inspection', symptoms: ['revision'], limit: 1 } });
       expect(foundB.statusCode).toBe(200);
+      expect(foundB.json().options[0]).toMatchObject({ estimatedDurationMinutes: 90, durationPolicySource: 'service_intent' });
       const candidateId = foundB.json().options[0].candidateId as string;
       expect((await app.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/hold-slot', headers: auth,
         payload: { providerCallId, requestId: `hold-${randomUUID()}`, candidateId } })).statusCode).toBe(409);
@@ -221,6 +247,7 @@ describe('VS02.2 authenticated ElevenLabs scheduling tools', () => {
           serviceIntent: 'inspection', symptoms: ['revision'], estimatedDurationMinutes: 60, slotToken: heldB.json().slotToken,
           explicitConfirmation: true, confirmationTranscript: 'Confirmo la cita.' } });
       expect(createdB.statusCode).toBe(200);
+      expect(createdB.json().receipt.value.serviceRequest.estimatedDurationMinutes).toBe(90);
       const auditB = await pool.query<{ evidence_ref: string }>(
         "SELECT evidence_ref FROM audit_events WHERE tenant_id=$1 AND event_type='policy_evaluated' ORDER BY id DESC LIMIT 1", [b.tenant],
       );
