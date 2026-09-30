@@ -28,6 +28,7 @@ import { registerHumanAuthRoutes } from './human-auth-routes.js';
 import { localIsoDateTime } from './provider-local-time.js';
 import { resolveServiceDuration, ServiceDurationPolicyError, serviceIntentSchema } from '../modules/scheduling/service-duration-policy.js';
 import { registerRepairKnowledgeRoutes } from './repair-knowledge-routes.js';
+import { registerVehicleCatalogRoutes } from './vehicle-catalog-routes.js';
 
 export type ApiSecurityOptions = {
   authentication?: AuthenticationAdapter;
@@ -61,6 +62,7 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
     ? new ProviderAuthenticationAdapter(baseAuthentication, options.providerIngress)
     : baseAuthentication;
   registerAuthenticationBoundary(app, authentication);
+  registerVehicleCatalogRoutes(app, pool);
   if (options.humanAuthentication) registerHumanAuthRoutes(app, pool, options.humanAuthentication);
   app.setErrorHandler((error, request, reply) => {
     if ((error as { statusCode?: number }).statusCode === 413) {
