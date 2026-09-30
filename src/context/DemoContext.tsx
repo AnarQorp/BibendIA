@@ -95,12 +95,12 @@ export const ProductWorkshopProvider: React.FC<{ children: React.ReactNode }> = 
   const [activeSection, setActiveSection] = useState<NavSection>('midia');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState<boolean>(false);
 
-  const toggleMobileSidebar = () => setMobileSidebarOpen(prev => !prev);
+  const toggleMobileSidebar = React.useCallback(() => setMobileSidebarOpen(prev => !prev), []);
 
-  const handleSetActiveSection = (section: NavSection) => {
+  const handleSetActiveSection = React.useCallback((section: NavSection) => {
     setActiveSection(section);
     setMobileSidebarOpen(false);
-  };
+  }, []);
 
   // Product mode: 100% clean of synthetic mock datasets
   const [customers, setCustomers] = useState<Customer[]>([]);

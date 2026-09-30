@@ -25,12 +25,12 @@ export default function InteractiveDemoProvider({ children }: { children: React.
   const [activeSection, setActiveSection] = useState<NavSection>('midia');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState<boolean>(false);
 
-  const toggleMobileSidebar = () => setMobileSidebarOpen(prev => !prev);
+  const toggleMobileSidebar = React.useCallback(() => setMobileSidebarOpen(prev => !prev), []);
 
-  const handleSetActiveSection = (section: NavSection) => {
+  const handleSetActiveSection = React.useCallback((section: NavSection) => {
     setActiveSection(section);
     setMobileSidebarOpen(false);
-  };
+  }, []);
 
   const [customers, setCustomers] = useState<Customer[]>(INITIAL_CUSTOMERS);
   const [vehicles, setVehicles] = useState<Vehicle[]>(INITIAL_VEHICLES);

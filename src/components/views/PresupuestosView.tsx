@@ -498,9 +498,8 @@ export const PresupuestosView: React.FC = () => {
       const idempotencyKey = `save-${editForm.backendDraftId}-v${expectedVersion}-${Date.now()}`;
 
       // Format lines for PATCH:
-      // Exclude synthesized header labor item (starts with 'labor-') since header operation is not in estimate_draft_lines
       const patchLines: EstimateLineChange[] = editForm.items
-        .filter(item => !item.id.startsWith('labor-'))
+        .filter(item => !item.id?.startsWith('labor-'))
         .map(item => {
           const isLabor = item.category === 'labor';
           const itemType: 'PART_ROLE' | 'CONSUMABLE' | 'LABOR' = isLabor
@@ -1210,10 +1209,10 @@ export const PresupuestosView: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-slate-700">
-                    {activeQuote.items.map(item => {
+                    {activeQuote.items.map((item, idx) => {
                       const isDeselected = item.selected === false;
                       return (
-                        <tr key={item.id} className={isDeselected ? "opacity-60 bg-slate-50/50" : "hover:bg-slate-50/60"}>
+                        <tr key={item.id || item.mutationKey || idx} className={isDeselected ? "opacity-60 bg-slate-50/50" : "hover:bg-slate-50/60"}>
                           <td className="py-3 px-3">
                             <div className="space-y-1">
                               <span className={`text-[11px] font-bold px-2 py-0.5 rounded-md inline-block ${

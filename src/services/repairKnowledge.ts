@@ -658,15 +658,16 @@ export function convertEstimateDraftToQuote(
   const quoteNumber = `PRE-RK-${draft.id.slice(-6).toUpperCase()}`;
 
   // Labor line from operation
+  const operationName = draft.operation?.name || 'Mano de obra de taller';
   const laborItem: QuoteItem = {
     id: `labor-${draft.id}`,
     category: 'labor',
-    description: `${draft.operation.name} (${draft.repairJobCode})`,
+    description: `${operationName}${draft.repairJobCode ? ` (${draft.repairJobCode})` : ''}`,
     quantity: 3.5, // 3.5 standard workshop hours for timing belt + water pump
-    unitPrice: draft.operation.unitPrice,
-    total: draft.operation.unitPrice !== null ? Math.round(draft.operation.unitPrice * 3.5 * 100) / 100 : null,
-    currency: draft.operation.currency,
-    pricingStatus: draft.operation.pricingStatus,
+    unitPrice: draft.operation?.unitPrice ?? null,
+    total: (draft.operation?.unitPrice !== null && draft.operation?.unitPrice !== undefined) ? Math.round(draft.operation.unitPrice * 3.5 * 100) / 100 : null,
+    currency: draft.operation?.currency ?? null,
+    pricingStatus: draft.operation?.pricingStatus ?? 'PENDING',
     automationStatus: 'AUTO_INCLUDED',
     reviewRequired: false,
     confidenceState: 'VERIFIED_OEM',
@@ -676,7 +677,7 @@ export function convertEstimateDraftToQuote(
   };
 
   // Part lines from draft lines
-  const partItems: QuoteItem[] = draft.lines.map((line) => {
+  const partItems: QuoteItem[] = (draft.lines || []).map((line) => {
     const isLabor = line.itemType === 'LABOR';
     const qty = line.quantity ?? 1;
     const total = line.unitPrice !== null ? Math.round(line.unitPrice * qty * 100) / 100 : null;
@@ -722,12 +723,14 @@ export function convertEstimateDraftToQuote(
   else if (draft.status === 'sent') quoteStatus = 'sent';
   else if (draft.status === 'approved') quoteStatus = 'accepted';
 
+  const revisionStr = draft.knowledgeRevision ? `${draft.knowledgeRevision.slice(0, 15)}... ` : '';
+
   return {
     id: draft.id,
     number: quoteNumber,
     customerId: '',
     vehicleId: draft.vehicleId,
-    title: draft.operation.name,
+    title: operationName,
     createdDate: draft.createdAt ? new Date(draft.createdAt).toLocaleDateString('es-ES') : 'Hoy',
     status: quoteStatus,
     items: allItems,
@@ -735,7 +738,7 @@ export function convertEstimateDraftToQuote(
     tax,
     total,
     estimatedLaborHours: 3.5,
-    aiRationale: `Borrador técnico generado mediante Repair Knowledge (${draft.applicabilityCode}). Revisión: ${draft.knowledgeRevision.slice(0, 15)}... v${draft.version}`,
+    aiRationale: `Borrador técnico generado mediante Repair Knowledge (${draft.applicabilityCode || 'General'}). ${revisionStr}v${draft.version || 1}`,
     uncertaintyWarning: allSelectedPriced
       ? undefined
       : 'Precios pendientes de asignación por el taller o DMS. Las piezas obligatorias han sido incluidas según manual OEM.',

@@ -35,15 +35,20 @@ const MainContent: React.FC<{ tenantId: string }> = ({ tenantId }) => {
 
   // Synchronize currentPath with activeSection
   useEffect(() => {
-    if (currentPath === '/midia' || currentPath === '/') setActiveSection('midia');
-    else if (currentPath === '/bandeja') setActiveSection('bandeja');
-    else if (currentPath === '/agenda') setActiveSection('agenda');
-    else if (currentPath === '/presupuestos') setActiveSection('presupuestos');
-    else if (currentPath === '/seguimientos') setActiveSection('seguimientos');
-    else if (currentPath === '/proveedores') setActiveSection('proveedores');
-    else if (currentPath === '/impacto') setActiveSection('impacto');
-    else if (currentPath === '/configuracion' || currentPath === '/integraciones') setActiveSection('configuracion');
-  }, [currentPath, setActiveSection]);
+    let target: 'midia' | 'bandeja' | 'agenda' | 'presupuestos' | 'seguimientos' | 'proveedores' | 'impacto' | 'configuracion' = 'midia';
+    if (currentPath === '/midia' || currentPath === '/') target = 'midia';
+    else if (currentPath === '/bandeja') target = 'bandeja';
+    else if (currentPath === '/agenda') target = 'agenda';
+    else if (currentPath === '/presupuestos') target = 'presupuestos';
+    else if (currentPath === '/seguimientos') target = 'seguimientos';
+    else if (currentPath === '/proveedores') target = 'proveedores';
+    else if (currentPath === '/impacto') target = 'impacto';
+    else if (currentPath === '/configuracion' || currentPath === '/integraciones') target = 'configuracion';
+
+    if (activeSection !== target) {
+      setActiveSection(target);
+    }
+  }, [currentPath, activeSection, setActiveSection]);
 
   // Keyboard shortcut handlers: Cmd+K for assistant, Ctrl+Shift+D for demo mode ONLY IF feature enabled
   useEffect(() => {
