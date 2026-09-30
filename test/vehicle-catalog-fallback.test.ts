@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canUseVehicleCatalogFallback } from '../../../src/services/vehicleCatalog.js';
+import { canUseVehicleCatalogFallback } from '../src/services/vehicleCatalog';
 
 describe('vehicle catalog fallback guard', () => {
   it('allows fallback only for a local development runtime', () => {
