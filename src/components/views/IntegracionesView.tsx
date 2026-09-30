@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useDemo } from '../../context/DemoContext';
+import { loadHumanSession } from '../../services/humanSession';
 import { 
   Settings, 
   CheckCircle2, 
@@ -13,20 +14,32 @@ import {
 } from 'lucide-react';
 
 export const IntegracionesView: React.FC = () => {
+  const { demoModeActive } = useDemo();
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncText, setLastSyncText] = useState('Hace 3 min');
   const [feedback, setFeedback] = useState<string | null>(null);
 
-  const handleSync = () => {
+  const handleSync = async () => {
     if (isSyncing) return;
     setIsSyncing(true);
-    setFeedback('Sincronizando con ERP / DMS del taller...');
-    setTimeout(() => {
+    setFeedback('Comprobando enlace de integración...');
+    try {
+      const session = await loadHumanSession();
+      if (session) {
+        setLastSyncText('Hace un momento');
+        setFeedback(`Sesión verificada (${session.principal.userId}). Enlace activo; exportación directa a ERP local en preparación.`);
+      } else if (demoModeActive) {
+        setLastSyncText('Hace un momento');
+        setFeedback('Sincronización simulada completada en entorno de demostración.');
+      } else {
+        setFeedback('No se detectó sesión activa de taller para verificar la sincronización.');
+      }
+    } catch {
+      setFeedback('Error al verificar el estado de integración.');
+    } finally {
       setIsSyncing(false);
-      setLastSyncText('Hace un momento');
-      setFeedback('Sincronización completada correctamente con DMS local.');
-      setTimeout(() => setFeedback(null), 4000);
-    }, 1200);
+      setTimeout(() => setFeedback(null), 5000);
+    }
   };
 
   return (
@@ -41,7 +54,7 @@ export const IntegracionesView: React.FC = () => {
         </div>
         <h2 className="text-xl font-extrabold text-slate-900 tracking-tight">Configuración & Integración ERP / DMS</h2>
         <p className="text-xs text-slate-600 max-w-3xl leading-relaxed">
-          BibendIA convive con tu programa de gestión habitual. Asume la recepción, citas y comunicación con clientes, y envía los datos preparados a tu software contable o de facturación mediante la acción <strong className="text-slate-900 font-bold">[Enviar a gestión]</strong>.
+          BibendIA convive con tu programa de gestión habitual. Asume la recepción, citas y comunicación con clientes, y envía los datos preparados a tu software contable o de facturación mediante la acción <strong className="text-slate-900 font-bold">Enviar a ERP</strong>.
         </p>
       </div>
 

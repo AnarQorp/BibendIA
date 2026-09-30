@@ -490,9 +490,17 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
                             ))}
 
                             {cellApps.length === 0 && (
-                              <div className="h-full w-full rounded-lg border border-dashed border-transparent hover:border-slate-300 flex items-center justify-center text-[10px] text-slate-300 hover:text-slate-500 cursor-pointer">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setCurrentDate(new Date(day.date));
+                                  setViewMode('day');
+                                }}
+                                title={`Ver planificación del ${day.fullDayName} ${day.dayNum} a las ${hour}`}
+                                className="h-full w-full rounded-lg border border-dashed border-transparent hover:border-slate-300 flex items-center justify-center text-[10px] text-slate-300 hover:text-slate-600 hover:bg-slate-50 cursor-pointer transition-colors"
+                              >
                                 + Libre
-                              </div>
+                              </button>
                             )}
                           </div>
                         );

@@ -63,7 +63,8 @@ export const PresupuestosView: React.FC = () => {
     updateQuote,
     addQuote,
     deleteQuote,
-    generateQuoteFromPrompt
+    generateQuoteFromPrompt,
+    demoModeActive
   } = useDemo();
 
   // Tenant ID resolution for workshop operations:
@@ -1372,19 +1373,31 @@ export const PresupuestosView: React.FC = () => {
                   </button>
 
                   {activeQuote.status === 'pending_approval' || activeQuote.status === 'draft' ? (
-                    <button
-                      onClick={() => {
-                        approveQuote(activeQuote.id);
-                        setFeedbackNotice({
-                          type: 'success',
-                          text: `Presupuesto ${activeQuote.number} aprobado y enviado por WhatsApp.`
-                        });
-                      }}
-                      className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white font-extrabold px-6 py-3 rounded-xl text-xs flex items-center justify-center gap-2 shadow-sm transition-all min-h-[44px]"
-                    >
-                      <Check className="w-4 h-4 text-white" />
-                      <span>Aprobar y Enviar por WhatsApp</span>
-                    </button>
+                    demoModeActive ? (
+                      <button
+                        onClick={() => {
+                          approveQuote(activeQuote.id);
+                          setFeedbackNotice({
+                            type: 'success',
+                            text: `Presupuesto ${activeQuote.number} aprobado y enviado por WhatsApp (simulación demo).`
+                          });
+                        }}
+                        className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white font-extrabold px-6 py-3 rounded-xl text-xs flex items-center justify-center gap-2 shadow-sm transition-all min-h-[44px]"
+                      >
+                        <Check className="w-4 h-4 text-white" />
+                        <span>Aprobar y Enviar por WhatsApp</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled
+                        title="El canal de envío directo por WhatsApp para presupuestos se encuentra en preparación técnica (bloqueo de backend: no existe endpoint de despacho de mensajes salientes)."
+                        className="w-full sm:w-auto bg-slate-100 border border-slate-300 text-slate-400 font-bold px-5 py-3 rounded-xl text-xs flex items-center justify-center gap-2 cursor-not-allowed opacity-80 min-h-[44px]"
+                      >
+                        <Check className="w-4 h-4 text-slate-400" />
+                        <span>Aprobar y Enviar por WhatsApp (Canal en preparación)</span>
+                      </button>
+                    )
                   ) : (
                     <span className="w-full sm:w-auto bg-emerald-50 border border-emerald-200 text-emerald-800 font-bold px-4 py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 min-h-[44px]">
                       <Check className="w-4 h-4 text-emerald-600" /> Enviado por WhatsApp

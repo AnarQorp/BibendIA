@@ -157,7 +157,7 @@ export const MiDiaView: React.FC = () => {
 
             <div className="flex items-center gap-3 shrink-0">
               <button
-                onClick={() => setActiveSection('agenda')}
+                onClick={() => goTo('agenda', '/agenda')}
                 className="bg-slate-900 hover:bg-slate-800 text-white font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-2 transition-all shadow-xs"
               >
                 <span>Ver Agenda ({realAppointments.length})</span>
@@ -213,7 +213,7 @@ export const MiDiaView: React.FC = () => {
 
                       <div className="flex items-center gap-2 shrink-0">
                         <button
-                          onClick={() => setActiveSection('agenda')}
+                          onClick={() => goTo('agenda', '/agenda')}
                           className="bg-slate-900 hover:bg-slate-800 text-white font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow-sm transition-all"
                         >
                           <span>Revisar en Agenda</span>
@@ -239,7 +239,7 @@ export const MiDiaView: React.FC = () => {
                   <p className="text-xs text-slate-500">Citas programadas para la jornada actual.</p>
                 </div>
                 <button
-                  onClick={() => setActiveSection('agenda')}
+                  onClick={() => goTo('agenda', '/agenda')}
                   className="text-xs font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1"
                 >
                   Ver agenda completa <ChevronRight className="w-3.5 h-3.5" />
@@ -282,7 +282,7 @@ export const MiDiaView: React.FC = () => {
                     <p>No hay citas programadas para el día de hoy.</p>
                     <p className="text-[11px] text-slate-400">Hay {realAppointments.length} {realAppointments.length === 1 ? 'cita programada' : 'citas programadas'} en la agenda para próximas fechas.</p>
                     <button
-                      onClick={() => setActiveSection('agenda')}
+                      onClick={() => goTo('agenda', '/agenda')}
                       className="px-3.5 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold rounded-lg text-xs"
                     >
                       Consultar Agenda
@@ -647,7 +647,7 @@ export const MiDiaView: React.FC = () => {
                           className="flex-1 sm:flex-none bg-blue-600 hover:bg-blue-700 text-white font-bold px-3.5 py-1.5 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-sm"
                         >
                           <Database className="w-3.5 h-3.5" />
-                          <span>[Enviar a gestión]</span>
+                          <span>Enviar a ERP</span>
                         </button>
                       ) : (
                         <span className="text-xs font-bold text-emerald-700 bg-emerald-100 border border-emerald-300 px-3 py-1.5 rounded-xl flex items-center gap-1">
