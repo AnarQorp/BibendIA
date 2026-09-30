@@ -223,6 +223,7 @@ export const ManualEstimateModal: React.FC<ManualEstimateModalProps> = ({
             {customerMode === 'existing' ? (
               <div>
                 <select
+                  data-testid="customer-select"
                   value={selectedCustomerId}
                   onChange={e => setSelectedCustomerId(e.target.value)}
                   className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-800 text-xs"
@@ -287,6 +288,7 @@ export const ManualEstimateModal: React.FC<ManualEstimateModalProps> = ({
             {vehicleMode === 'existing' ? (
               <div>
                 <select
+                  data-testid="vehicle-select"
                   value={selectedVehicleId}
                   onChange={e => setSelectedVehicleId(e.target.value)}
                   className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-800 text-xs"

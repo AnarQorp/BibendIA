@@ -323,66 +323,130 @@ async function run() {
     }
 
     // =========================================================================
-    // CASE 5: Cliente manual (crear, reload, volver a seleccionarlo)
+    // CASE 5: Cliente manual desde UI (+ Nuevo cliente, guardar, seleccionar, reload y persistencia)
     // =========================================================================
     try {
-      // Create new customer via API to simulate background or previous registration
-      const custRes = await app.inject({
-        method: 'POST',
-        url: `/v1/workshop/tenants/${ids.tenant}/customers`,
-        headers: { authorization: 'Bearer test' },
-        payload: {
-          name: 'Alfonso Gómez Herrero',
-          phone: '644112233',
-          email: 'alfonso@taller.es',
-        },
-      });
-      const createdCust = custRes.json().data;
-
       await page.goto('/presupuestos');
-      await page.waitForSelector('button:has-text("Borrador Manual")', { timeout: 10000 });
+      await page.waitForSelector('text=Presupuestos de Taller', { timeout: 10000 });
+
+      // 1. Abrir la acción visible + Nuevo cliente
+      const newCustomerBtn = page.locator('button:has-text("+ Nuevo cliente")').first();
+      await newCustomerBtn.waitFor({ timeout: 5000 });
+      await newCustomerBtn.click();
+      await page.waitForSelector('text=Nuevo Cliente en Taller', { timeout: 5000 });
+
+      // 2. Rellenar nombre/teléfono
+      const customerName = 'Laura Sánchez Martín';
+      const customerPhone = '600123456';
+      await page.locator('input[placeholder*="Laura Sánchez"]').fill(customerName);
+      await page.locator('input[placeholder*="600123456"]').fill(customerPhone);
+
+      // 3. Guardar
+      await page.locator('button[type="submit"]:has-text("Guardar Cliente")').click();
+      await page.waitForSelector('text=Nuevo Cliente en Taller', { state: 'detached', timeout: 5000 });
+
+      // 4. Comprobar que aparece y puede seleccionarse en Borrador Manual
       await page.click('button:has-text("Borrador Manual")');
       await page.waitForSelector('text=Nuevo Presupuesto Manual', { timeout: 5000 });
-
-      // Customer section: choose "Ficha Taller" (first Ficha Taller toggle in the modal)
       await page.locator('button:has-text("Ficha Taller")').first().click();
 
-      // Wait for customer option to be loaded and rendered into select
-      await page.waitForSelector('option:has-text("Alfonso Gómez Herrero")', { state: 'attached', timeout: 5000 });
-      const optionExists = (await page.locator('option:has-text("Alfonso Gómez Herrero")').count()) > 0;
+      await page.waitForSelector(`option:has-text("${customerName}")`, { state: 'attached', timeout: 5000 });
+      const custOption = page.locator(`option:has-text("${customerName}")`).first();
+      const custId = await custOption.getAttribute('value');
+      if (!custId) throw new Error('Customer ID attribute missing on option');
 
-      record('Case 5: Cliente manual persistido y seleccionable', optionExists, `Cliente ${createdCust.name} cargado en listado de selección`);
+      const customerSelect = page.locator('select[data-testid="customer-select"]');
+      await customerSelect.selectOption(custId);
+      const selectedVal = await customerSelect.inputValue();
+      const isSelected = selectedVal === custId;
+
       await page.click('button:has-text("Cancelar")');
+      await page.waitForSelector('text=Nuevo Presupuesto Manual', { state: 'detached', timeout: 5000 });
+
+      // 5. Reload y comprobar persistencia
+      await page.reload();
+      await page.waitForSelector('text=Presupuestos de Taller', { timeout: 10000 });
+      await page.click('button:has-text("Borrador Manual")');
+      await page.waitForSelector('text=Nuevo Presupuesto Manual', { timeout: 5000 });
+      await page.locator('button:has-text("Ficha Taller")').first().click();
+
+      await page.waitForSelector(`option:has-text("${customerName}")`, { state: 'attached', timeout: 5000 });
+      const persistedOptionExists = (await page.locator(`option:has-text("${customerName}")`).count()) > 0;
+
+      await page.click('button:has-text("Cancelar")');
+      await page.waitForSelector('text=Nuevo Presupuesto Manual', { state: 'detached', timeout: 5000 });
+
+      record(
+        'Case 5: Cliente manual persistido y seleccionable',
+        isSelected && persistedOptionExists,
+        `Cliente ${customerName} creado desde UI con ManualCustomerModal, seleccionado en borrador y verificado tras reload`
+      );
     } catch (err: any) {
       record('Case 5: Cliente manual persistido y seleccionable', false, undefined, err.message);
     }
 
     // =========================================================================
-    // CASE 6: Vehículo manual (crear solo matrícula, comprobar duplicado 409, seleccionar existente)
+    // CASE 6: Vehículo manual desde UI (crear solo matrícula, seleccionable, colisión 409 y Usar existente)
     // =========================================================================
     try {
-      const plate = '7788 DUP';
-      // First registration via API
-      const veh1 = await app.inject({
-        method: 'POST',
-        url: `/v1/workshop/tenants/${ids.tenant}/vehicles`,
-        headers: { authorization: 'Bearer test' },
-        payload: { plate },
-      });
-      if (veh1.statusCode !== 201) throw new Error(`Failed to create vehicle: ${veh1.body}`);
+      await page.goto('/presupuestos');
+      await page.waitForSelector('text=Presupuestos de Taller', { timeout: 10000 });
 
-      // Attempt duplicate registration
-      const veh2 = await app.inject({
-        method: 'POST',
-        url: `/v1/workshop/tenants/${ids.tenant}/vehicles`,
-        headers: { authorization: 'Bearer test' },
-        payload: { plate },
-      });
-      const is409 = veh2.statusCode === 409;
-      const dupData = veh2.json();
-      const hasExistingVehicle = dupData.existingVehicle && dupData.existingVehicle.plate === '7788DUP';
+      const testPlate = '7788 DUP';
+      const normalizedPlateExpected = '7788DUP';
 
-      record('Case 6: Vehículo matrícula duplicada (409 Conflict)', is409 && hasExistingVehicle, '409 Conflict devuelto con existingVehicle estructurado');
+      // 1. Abrir + Añadir vehículo
+      const addVehicleBtn = page.locator('button:has-text("+ Añadir vehículo")').first();
+      await addVehicleBtn.waitFor({ timeout: 5000 });
+      await addVehicleBtn.click();
+      await page.waitForSelector('text=Nuevo Vehículo en Taller', { timeout: 5000 });
+
+      // 2. Crear un vehículo solo con matrícula
+      await page.locator('input[placeholder*="1234BBB"]').fill(testPlate);
+      await page.locator('button[type="submit"]:has-text("Guardar Vehículo")').click();
+      await page.waitForSelector('text=Nuevo Vehículo en Taller', { state: 'detached', timeout: 5000 });
+
+      // 3. Comprobar que queda seleccionable en Borrador Manual
+      await page.click('button:has-text("Borrador Manual")');
+      await page.waitForSelector('text=Nuevo Presupuesto Manual', { timeout: 5000 });
+      // Vehicle toggle is the second "Ficha Taller" button in the modal
+      await page.locator('button:has-text("Ficha Taller")').nth(1).click();
+
+      await page.waitForSelector(`option:has-text("${normalizedPlateExpected}")`, { state: 'attached', timeout: 5000 });
+      const vehOption = page.locator(`option:has-text("${normalizedPlateExpected}")`).first();
+      const vehId = await vehOption.getAttribute('value');
+      if (!vehId) throw new Error('Vehicle ID attribute missing on option');
+
+      const vehicleSelect = page.locator('select[data-testid="vehicle-select"]');
+      await vehicleSelect.selectOption(vehId);
+      const selectedVehVal = await vehicleSelect.inputValue();
+      const isVehSelected = selectedVehVal === vehId;
+
+      await page.click('button:has-text("Cancelar")');
+      await page.waitForSelector('text=Nuevo Presupuesto Manual', { state: 'detached', timeout: 5000 });
+
+      // 4. Intentar crear la misma matrícula desde UI
+      await addVehicleBtn.click();
+      await page.waitForSelector('text=Nuevo Vehículo en Taller', { timeout: 5000 });
+      await page.locator('input[placeholder*="1234BBB"]').fill(testPlate);
+      await page.locator('button[type="submit"]:has-text("Guardar Vehículo")').click();
+
+      // 5. Comprobar visualmente el 409 y la acción Usar vehículo existente
+      await page.waitForSelector('text=Ya existe un vehículo registrado con esta matrícula', { timeout: 5000 });
+      const useExistingBtn = page.locator('button:has-text("Usar vehículo existente")');
+      await useExistingBtn.waitFor({ timeout: 5000 });
+      const isConflictNoticeVisible = await page.locator('text=Ya existe un vehículo registrado con esta matrícula').isVisible();
+      const isUseExistingBtnVisible = await useExistingBtn.isVisible();
+
+      // 6. Seleccionar el existente y continuar
+      await useExistingBtn.click();
+      await page.waitForSelector('text=Nuevo Vehículo en Taller', { state: 'detached', timeout: 5000 });
+
+      record(
+        'Case 6: Vehículo matrícula duplicada (409 Conflict)',
+        isVehSelected && isConflictNoticeVisible && isUseExistingBtnVisible,
+        `Vehículo ${normalizedPlateExpected} creado solo con matrícula desde UI, 409 verificado en modal y acción 'Usar vehículo existente' seleccionada`
+      );
     } catch (err: any) {
       record('Case 6: Vehículo matrícula duplicada (409 Conflict)', false, undefined, err.message);
     }

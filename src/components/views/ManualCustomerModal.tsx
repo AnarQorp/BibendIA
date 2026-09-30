@@ -29,6 +29,17 @@ export const ManualCustomerModal: React.FC<ManualCustomerModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  React.useEffect(() => {
+    if (isOpen) {
+      setName(initialName);
+      setPhone(initialPhone);
+      setEmail(initialEmail);
+      setNotes('');
+      setErrorMessage(null);
+      setIsSubmitting(false);
+    }
+  }, [isOpen, initialName, initialPhone, initialEmail]);
+
   if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {

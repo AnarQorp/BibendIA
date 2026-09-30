@@ -31,6 +31,8 @@ import { loadHumanSession } from '../../services/humanSession';
 import type { WorkshopAppointmentResponse } from '../../types';
 import { formatAppointmentSource } from '../../utils/workshopFormatters';
 import { ManualAppointmentModal } from './ManualAppointmentModal';
+import { ManualCustomerModal } from './ManualCustomerModal';
+import { ManualVehicleModal } from './ManualVehicleModal';
 
 export interface AgendaViewProps {
   tenantId?: string | null;
@@ -106,6 +108,8 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
   const [currentDate, setCurrentDate] = useState<Date>(new Date(2026, 8, 29)); // Default to Sep 29, 2026 or today
   const [selectedAppointment, setSelectedAppointment] = useState<NormalizedAppointment | null>(null);
   const [isManualAppointmentModalOpen, setIsManualAppointmentModalOpen] = useState(false);
+  const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
+  const [isVehicleModalOpen, setIsVehicleModalOpen] = useState(false);
 
   // Real Backend Data State
   const [realState, setRealState] = useState<WorkshopAppointmentsState>({ status: 'idle' });
@@ -322,6 +326,30 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>+ Nueva Cita</span>
+              </button>
+            )}
+
+            {/* New Customer Button */}
+            {activeTenantId && (
+              <button
+                onClick={() => setIsCustomerModalOpen(true)}
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition border border-slate-300 shadow-2xs"
+                title="Registrar nuevo cliente en taller"
+              >
+                <User className="w-3.5 h-3.5 text-blue-600" />
+                <span>+ Nuevo cliente</span>
+              </button>
+            )}
+
+            {/* New Vehicle Button */}
+            {activeTenantId && (
+              <button
+                onClick={() => setIsVehicleModalOpen(true)}
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition border border-slate-300 shadow-2xs"
+                title="Añadir nuevo vehículo en taller"
+              >
+                <Car className="w-3.5 h-3.5 text-emerald-600" />
+                <span>+ Añadir vehículo</span>
               </button>
             )}
 
@@ -883,6 +911,30 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
           onClose={() => setIsManualAppointmentModalOpen(false)}
           tenantId={activeTenantId}
           onAppointmentCreated={() => {
+            loadRealAppointments(activeTenantId);
+          }}
+        />
+      )}
+
+      {/* Manual Customer Modal */}
+      {activeTenantId && (
+        <ManualCustomerModal
+          isOpen={isCustomerModalOpen}
+          onClose={() => setIsCustomerModalOpen(false)}
+          tenantId={activeTenantId}
+          onCustomerCreated={() => {
+            loadRealAppointments(activeTenantId);
+          }}
+        />
+      )}
+
+      {/* Manual Vehicle Modal */}
+      {activeTenantId && (
+        <ManualVehicleModal
+          isOpen={isVehicleModalOpen}
+          onClose={() => setIsVehicleModalOpen(false)}
+          tenantId={activeTenantId}
+          onVehicleCreated={() => {
             loadRealAppointments(activeTenantId);
           }}
         />

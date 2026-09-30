@@ -304,6 +304,7 @@ export function registerWorkshopOperationsRoutes(app: FastifyInstance, pool: pg.
       if (err.message === 'VEHICLE_PLATE_EXISTS') {
         return reply.code(409).send({
           error: 'VEHICLE_PLATE_EXISTS',
+          code: 'VEHICLE_PLATE_EXISTS',
           message: 'Ya existe un vehículo registrado con esta matrícula en el taller.',
           existingVehicle: err.existingVehicle,
           correlationId: request.id,
@@ -312,6 +313,7 @@ export function registerWorkshopOperationsRoutes(app: FastifyInstance, pool: pg.
       if (err.message === 'VEHICLE_VIN_EXISTS') {
         return reply.code(409).send({
           error: 'VEHICLE_VIN_EXISTS',
+          code: 'VEHICLE_VIN_EXISTS',
           message: 'Ya existe un vehículo registrado con este VIN en el taller.',
           existingVehicle: err.existingVehicle,
           correlationId: request.id,

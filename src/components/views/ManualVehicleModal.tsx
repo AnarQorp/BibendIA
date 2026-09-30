@@ -42,6 +42,15 @@ export const ManualVehicleModal: React.FC<ManualVehicleModalProps> = ({
 
   React.useEffect(() => {
     if (isOpen) {
+      setPlate(initialPlate);
+      setMake(initialMake);
+      setModel(initialModel);
+      setYear(initialYear ? String(initialYear) : '');
+      setVin(initialVin);
+      setCustomerId(initialCustomerId || '');
+      setErrorMessage(null);
+      setExistingVehicle(null);
+      setIsSubmitting(false);
       listWorkshopCustomers(tenantId).then(res => {
         if (res.status === 'success' && res.data) {
           setCustomers(Array.isArray(res.data) ? res.data : []);
@@ -50,7 +59,7 @@ export const ManualVehicleModal: React.FC<ManualVehicleModalProps> = ({
         // non-blocking
       });
     }
-  }, [isOpen, tenantId]);
+  }, [isOpen, tenantId, initialPlate, initialMake, initialModel, initialYear, initialVin, initialCustomerId]);
 
   if (!isOpen) return null;
 

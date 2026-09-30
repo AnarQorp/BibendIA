@@ -161,6 +161,8 @@ export const PresupuestosView: React.FC = () => {
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
   const [isVehicleModalOpen, setIsVehicleModalOpen] = useState(false);
+  const [customerModalInitial, setCustomerModalInitial] = useState<{ name?: string; phone?: string; email?: string }>({});
+  const [vehicleModalInitial, setVehicleModalInitial] = useState<{ plate?: string; make?: string; model?: string; year?: number; vin?: string; customerId?: string }>({});
   const [manualModalParams, setManualModalParams] = useState<{
     title?: string;
     plate?: string;
@@ -822,6 +824,34 @@ export const PresupuestosView: React.FC = () => {
               <Plus className="w-4 h-4" />
               <span>Borrador Manual</span>
             </button>
+
+            {/* Visible New Customer CTA */}
+            <button
+              type="button"
+              onClick={() => {
+                setCustomerModalInitial({});
+                setIsCustomerModalOpen(true);
+              }}
+              className="px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all border border-slate-300 shrink-0"
+              title="Registrar nuevo cliente en taller"
+            >
+              <User className="w-4 h-4 text-blue-600" />
+              <span>+ Nuevo cliente</span>
+            </button>
+
+            {/* Visible New Vehicle CTA */}
+            <button
+              type="button"
+              onClick={() => {
+                setVehicleModalInitial({});
+                setIsVehicleModalOpen(true);
+              }}
+              className="px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all border border-slate-300 shrink-0"
+              title="Añadir nuevo vehículo en taller"
+            >
+              <Car className="w-4 h-4 text-emerald-600" />
+              <span>+ Añadir vehículo</span>
+            </button>
           </div>
         </div>
 
@@ -1330,7 +1360,14 @@ export const PresupuestosView: React.FC = () => {
                     {!activeQuote.customerId && (
                       <button
                         type="button"
-                        onClick={() => setIsCustomerModalOpen(true)}
+                        onClick={() => {
+                          setCustomerModalInitial({
+                            name: activeQuote?.backendDraft?.customerSnapshot?.name || activeQuote?.customerName,
+                            phone: activeQuote?.backendDraft?.customerSnapshot?.phone,
+                            email: activeQuote?.backendDraft?.customerSnapshot?.email,
+                          });
+                          setIsCustomerModalOpen(true);
+                        }}
                         className="px-3 py-1.5 bg-white border border-blue-300 text-blue-700 hover:bg-blue-100/60 font-bold rounded-lg text-2xs transition"
                       >
                         Guardar Cliente en Ficha
@@ -1339,7 +1376,17 @@ export const PresupuestosView: React.FC = () => {
                     {!activeQuote.vehicleId && (
                       <button
                         type="button"
-                        onClick={() => setIsVehicleModalOpen(true)}
+                        onClick={() => {
+                          setVehicleModalInitial({
+                            plate: activeQuote?.backendDraft?.vehicleSnapshot?.plate || activeQuote?.vehiclePlate,
+                            make: activeQuote?.backendDraft?.vehicleSnapshot?.make,
+                            model: activeQuote?.backendDraft?.vehicleSnapshot?.model,
+                            year: activeQuote?.backendDraft?.vehicleSnapshot?.year,
+                            vin: activeQuote?.backendDraft?.vehicleSnapshot?.vin,
+                            customerId: activeQuote?.customerId || undefined,
+                          });
+                          setIsVehicleModalOpen(true);
+                        }}
                         className="px-3 py-1.5 bg-blue-600 text-white hover:bg-blue-700 font-bold rounded-lg text-2xs transition shadow-2xs"
                       >
                         Guardar Vehículo en Ficha
@@ -1631,11 +1678,14 @@ export const PresupuestosView: React.FC = () => {
       {/* Manual Customer Registration Modal */}
       <ManualCustomerModal
         isOpen={isCustomerModalOpen}
-        onClose={() => setIsCustomerModalOpen(false)}
+        onClose={() => {
+          setIsCustomerModalOpen(false);
+          setCustomerModalInitial({});
+        }}
         tenantId={tenantId}
-        initialName={activeQuote?.backendDraft?.customerSnapshot?.name || activeQuote?.customerName || ''}
-        initialPhone={activeQuote?.backendDraft?.customerSnapshot?.phone || ''}
-        initialEmail={activeQuote?.backendDraft?.customerSnapshot?.email || ''}
+        initialName={customerModalInitial.name || ''}
+        initialPhone={customerModalInitial.phone || ''}
+        initialEmail={customerModalInitial.email || ''}
         onCustomerCreated={(newCust) => {
           setFeedbackNotice({
             type: 'success',
@@ -1647,14 +1697,17 @@ export const PresupuestosView: React.FC = () => {
       {/* Manual Vehicle Registration Modal */}
       <ManualVehicleModal
         isOpen={isVehicleModalOpen}
-        onClose={() => setIsVehicleModalOpen(false)}
+        onClose={() => {
+          setIsVehicleModalOpen(false);
+          setVehicleModalInitial({});
+        }}
         tenantId={tenantId}
-        initialPlate={activeQuote?.backendDraft?.vehicleSnapshot?.plate || activeQuote?.vehiclePlate || ''}
-        initialMake={activeQuote?.backendDraft?.vehicleSnapshot?.make || ''}
-        initialModel={activeQuote?.backendDraft?.vehicleSnapshot?.model || ''}
-        initialYear={activeQuote?.backendDraft?.vehicleSnapshot?.year}
-        initialVin={activeQuote?.backendDraft?.vehicleSnapshot?.vin || ''}
-        initialCustomerId={activeQuote?.customerId || undefined}
+        initialPlate={vehicleModalInitial.plate || ''}
+        initialMake={vehicleModalInitial.make || ''}
+        initialModel={vehicleModalInitial.model || ''}
+        initialYear={vehicleModalInitial.year}
+        initialVin={vehicleModalInitial.vin || ''}
+        initialCustomerId={vehicleModalInitial.customerId}
         onVehicleCreated={(newVeh) => {
           setFeedbackNotice({
             type: 'success',
