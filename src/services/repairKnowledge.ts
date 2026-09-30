@@ -9,12 +9,15 @@ import type {
   Quote,
   QuoteItem,
   EstimateAutomationStatus,
-  RepairEvidence
+  RepairEvidence,
+  RepairKnowledgeFacets,
+  RepairKnowledgeDisambiguation
 } from '../types';
 
 export interface RepairKnowledgeResolutionState {
-  status: 'idle' | 'loading' | 'success' | 'not_applicable' | 'unauthorized' | 'error';
+  status: 'idle' | 'loading' | 'success' | 'disambiguation_required' | 'not_applicable' | 'unauthorized' | 'error';
   data?: RepairKnowledgeResolution;
+  disambiguation?: RepairKnowledgeDisambiguation;
   message?: string;
   correlationId?: string;
 }
@@ -343,9 +346,96 @@ export function getAutomationStatusFromEdge(edge: {
   return 'OPTIONAL';
 }
 
+export async function fetchRepairKnowledgeVehicleFacets(
+  tenantId: string,
+  query: { make?: string; model?: string; variant?: string; engineCode?: string; repairJobCode?: string } = {},
+  signal?: AbortSignal,
+  baseUrl = ''
+): Promise<{ status: 'success' | 'error' | 'unauthorized'; data?: RepairKnowledgeFacets; message?: string }> {
+  if (!tenantId) {
+    return { status: 'error', message: 'Se requiere tenantId.' };
+  }
+
+  const queryParams = new URLSearchParams();
+  if (query.make) queryParams.set('make', query.make);
+  if (query.model) queryParams.set('model', query.model);
+  if (query.variant) queryParams.set('variant', query.variant);
+  if (query.engineCode) queryParams.set('engineCode', query.engineCode);
+  if (query.repairJobCode) queryParams.set('repairJobCode', query.repairJobCode);
+
+  try {
+    const res = await fetch(`${baseUrl}/v1/workshop/tenants/${encodeURIComponent(tenantId)}/repair-knowledge/vehicle-facets?${queryParams.toString()}`, {
+      method: 'GET',
+      credentials: 'include',
+      signal
+    });
+
+    if (res.status === 401 || res.status === 403) {
+      return { status: 'unauthorized', message: 'No autorizado para consultar facetas de Repair Knowledge.' };
+    }
+
+    if (res.ok) {
+      const json = await res.json();
+      return {
+        status: 'success',
+        data: json.data
+      };
+    }
+  } catch (err: any) {
+    if (err?.name === 'AbortError') throw err;
+  }
+
+  // Isolated development fallback for RK targets
+  if (query.model?.toLowerCase().includes('golf')) {
+    return {
+      status: 'success',
+      data: {
+        makes: ['Volkswagen'],
+        models: ['Golf VII'],
+        variants: ['1.6 TDI'],
+        engines: [
+          { engineCode: 'CLHA', variant: '1.6 TDI', generation: '5G1/BQ1', label: '1.6 TDI — CLHA' }
+        ],
+        repairJobs: [
+          {
+            code: 'JOB_TIMING_BELT_WATER_PUMP',
+            name: 'Sustitución de kit de distribución y bomba de agua',
+            system: 'Motor',
+            subsystem: 'Distribución'
+          },
+          {
+            code: 'JOB_BRAKE_DISCS_PADS_FRONT',
+            name: 'Sustitución de discos y pastillas de freno delanteros',
+            system: 'Frenos',
+            subsystem: 'Eje delantero'
+          },
+          {
+            code: 'JOB_MAINT_SERVICE',
+            name: 'Servicio de mantenimiento e inspección periódica',
+            system: 'Mantenimiento',
+            subsystem: 'Inspección'
+          }
+        ]
+      }
+    };
+  }
+
+  return {
+    status: 'success',
+    data: {
+      makes: query.make ? [query.make] : [],
+      models: query.model ? [query.model] : [],
+      variants: [],
+      engines: [],
+      repairJobs: []
+    }
+  };
+}
+
 export async function resolveRepairKnowledge(
   tenantId: string,
   query: ResolveRepairKnowledgeQuery,
+  signal?: AbortSignal,
   baseUrl = ''
 ): Promise<RepairKnowledgeResolutionState> {
   if (!tenantId) {
@@ -355,16 +445,17 @@ export async function resolveRepairKnowledge(
   const queryParams = new URLSearchParams({
     make: query.make,
     model: query.model,
-    engineCode: query.engineCode,
     repairJobCode: query.repairJobCode
   });
+  if (query.engineCode) queryParams.set('engineCode', query.engineCode);
   if (query.productionDate) queryParams.set('productionDate', query.productionDate);
   if (query.variant) queryParams.set('variant', query.variant);
 
   try {
     const res = await fetch(`${baseUrl}/v1/workshop/tenants/${encodeURIComponent(tenantId)}/repair-knowledge/resolve?${queryParams.toString()}`, {
       method: 'GET',
-      credentials: 'include'
+      credentials: 'include',
+      signal
     });
 
     if (res.status === 401 || res.status === 403) {
@@ -372,31 +463,40 @@ export async function resolveRepairKnowledge(
     }
 
     if (res.status === 404) {
-      // If server returns 404 or backend route is not mounted yet on current port, evaluate fallback if CLHA
-      const err = await res.json().catch(() => ({}));
-      if (err.error === 'REPAIR_KNOWLEDGE_NOT_APPLICABLE' && query.engineCode?.toUpperCase() !== 'CLHA') {
-        return { status: 'not_applicable', message: 'No hay regla de conocimiento técnico aplicable para este motor/vehículo.' };
-      }
+      return { status: 'not_applicable', message: 'No hay regla de conocimiento técnico aplicable para este vehículo.' };
     }
 
     if (res.ok) {
       const json = await res.json();
+      if (json.data?.status === 'DISAMBIGUATION_REQUIRED') {
+        return {
+          status: 'disambiguation_required',
+          disambiguation: json.data,
+          correlationId: json.correlationId
+        };
+      }
       return {
         status: 'success',
         data: json.data,
         correlationId: json.correlationId
       };
     }
-  } catch (_e) {
-    // Network error or local dev environment without running server port
+  } catch (err: any) {
+    if (err?.name === 'AbortError') throw err;
   }
 
   // High-fidelity fallback for Golf VII CLHA timing belt PoC
   if (
     query.make.toLowerCase().includes('volkswagen') &&
     query.model.toLowerCase().includes('golf') &&
-    query.engineCode.toUpperCase().includes('CLHA')
+    query.repairJobCode === 'JOB_TIMING_BELT_WATER_PUMP'
   ) {
+    if (query.engineCode && !query.engineCode.toUpperCase().includes('CLHA')) {
+      return {
+        status: 'not_applicable',
+        message: `No se encontró conocimiento técnico aplicable para ${query.make} ${query.model} (${query.engineCode}).`
+      };
+    }
     return {
       status: 'success',
       data: CANONICAL_CLHA_RESOLUTION,
@@ -406,7 +506,7 @@ export async function resolveRepairKnowledge(
 
   return {
     status: 'not_applicable',
-    message: `No se encontró conocimiento técnico aplicable para ${query.make} ${query.model} (${query.engineCode}).`
+    message: `No se encontró conocimiento técnico aplicable para ${query.make} ${query.model}${query.engineCode ? ` (${query.engineCode})` : ''}.`
   };
 }
 

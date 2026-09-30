@@ -165,6 +165,25 @@ export const IntegracionesView: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* External Technical Data Sources & Attribution */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-2">
+        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+          Fuentes de Datos de Catálogo
+        </h3>
+        <p className="text-xs text-slate-600 leading-relaxed">
+          Los datos base de marcas, modelos y tipologías de vehículos provienen del catálogo de acceso abierto:{' '}
+          <a
+            href="https://vehiclesdb.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-600 hover:text-blue-800 font-semibold underline"
+          >
+            Vehicle data by VehiclesDB
+          </a>{' '}
+          (licencia CC-BY-4.0).
+        </p>
+      </div>
     </div>
   );
 };

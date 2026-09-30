@@ -518,7 +518,7 @@ export interface EditEstimateDraftCommand {
 export interface ResolveRepairKnowledgeQuery {
   make: string;
   model: string;
-  engineCode: string;
+  engineCode?: string;
   repairJobCode: string;
   productionDate?: string;
   variant?: string;
@@ -530,10 +530,13 @@ export interface CreateEstimateDraftCommand {
   vehicle: {
     make: string;
     model: string;
-    engineCode: string;
+    engineCode?: string;
     productionDate?: string;
     variant?: string;
   };
   repairJobCode: string;
 }
+
+export * from './vehicleCatalog';
+
 

@@ -179,6 +179,19 @@ export const Sidebar: React.FC = () => {
               </button>
             </div>
           )}
+
+          {/* Discreet Data Source Attribution */}
+          <div className="pt-2 px-1 text-center border-t border-slate-800/40">
+            <a
+              href="https://vehiclesdb.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[10px] text-slate-500 hover:text-slate-400 transition inline-block"
+              title="Catálogo de vehículos provisto por VehiclesDB"
+            >
+              Vehicle data by VehiclesDB
+            </a>
+          </div>
         </div>
       </aside>
     </>
