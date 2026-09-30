@@ -171,6 +171,9 @@ export const PresupuestosView: React.FC = () => {
     condition?: string | null;
     notes?: string | null;
     evidence?: RepairEvidence[];
+    knowledgeRevision?: string | null;
+    version?: number | null;
+    applicabilityCode?: string | null;
   } | null>(null);
 
   // Editing state
@@ -1172,8 +1175,8 @@ export const PresupuestosView: React.FC = () => {
                     {activeQuote.isPersistedBackendDraft ? 'Propuesta técnica recomendada:' : 'Estimación de Taller:'}
                   </span>
                   {activeQuote.applicabilityCode && (
-                    <span className="text-[10px] font-mono bg-slate-200 text-slate-700 px-2 py-0.5 rounded">
-                      {activeQuote.applicabilityCode}
+                    <span className="text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-0.5 rounded-full">
+                      Aplicabilidad verificada
                     </span>
                   )}
                 </div>
@@ -1187,9 +1190,9 @@ export const PresupuestosView: React.FC = () => {
                 <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-start gap-2.5">
                   <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                   <div className="space-y-0.5">
-                    <p className="font-bold">Modificaciones conservadas en almacenamiento local</p>
+                    <p className="font-bold">Modificaciones pendientes de sincronización</p>
                     <p className="text-[11px] text-amber-800 leading-relaxed">
-                      El borrador técnico original está registrado en el backend, pero los precios asignados o líneas modificadas manualmente no están sincronizados en el servidor.
+                      El borrador técnico original está guardado, pero las modificaciones realizadas manualmente en las líneas aún no se han sincronizado.
                     </p>
                   </div>
                 </div>
@@ -1286,7 +1289,10 @@ export const PresupuestosView: React.FC = () => {
                                     confidenceState: item.confidenceState,
                                     automationStatus: item.automationStatus,
                                     confidenceReason: item.confidenceReason,
-                                    evidence: item.evidence
+                                    evidence: item.evidence,
+                                    applicabilityCode: activeQuote.applicabilityCode,
+                                    knowledgeRevision: activeQuote.knowledgeRevision,
+                                    version: activeQuote.version
                                   })
                                 }
                                 className="text-[11px] text-blue-600 hover:text-blue-800 font-bold underline flex items-center justify-center gap-1 mx-auto"
@@ -1390,7 +1396,7 @@ export const PresupuestosView: React.FC = () => {
                       <button
                         type="button"
                         disabled
-                        title="El canal de envío directo por WhatsApp para presupuestos se encuentra en preparación técnica (bloqueo de backend: no existe endpoint de despacho de mensajes salientes)."
+                        title="El canal de envío directo por WhatsApp para presupuestos se encuentra en preparación técnica."
                         className="w-full sm:w-auto bg-slate-100 border border-slate-300 text-slate-400 font-bold px-5 py-3 rounded-xl text-xs flex items-center justify-center gap-2 cursor-not-allowed opacity-80 min-h-[44px]"
                       >
                         <Check className="w-4 h-4 text-slate-400" />

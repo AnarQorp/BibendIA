@@ -55,7 +55,7 @@ export const SeguimientosView: React.FC = () => {
               Módulo de Comunicación Saliente en Preparación
             </h3>
             <p className="text-xs text-slate-600 leading-relaxed">
-              El envío automatizado de recordatorios y recuperación de clientes requiere la activación del canal de mensajería saliente en backend (bloqueo técnico: no existe endpoint de despacho de mensajes proactivos).
+              El envío automatizado de recordatorios y recuperación de clientes requiere la activación del canal de mensajería para el taller.
             </p>
             <p className="text-xs text-slate-500 leading-relaxed">
               Actualmente puedes consultar y editar tus borradores técnicos en <strong>Presupuestos</strong> y revisar la planificación operativa en la <strong>Agenda</strong>.

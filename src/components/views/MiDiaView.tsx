@@ -151,7 +151,7 @@ export const MiDiaView: React.FC = () => {
                 <span className="text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-mono">Modo Productivo</span>
               </div>
               <p className="text-sm text-slate-600 leading-relaxed">
-                Agenda sincronizada con el backend de BibendIA. Hay <strong className="text-slate-900 font-bold">{realAppointments.length} {realAppointments.length === 1 ? 'cita confirmada' : 'citas confirmadas'}</strong> en el taller ({realTodayAppointments.length} programadas para hoy).
+                Agenda actualizada. Hay <strong className="text-slate-900 font-bold">{realAppointments.length} {realAppointments.length === 1 ? 'cita confirmada' : 'citas confirmadas'}</strong> en el taller ({realTodayAppointments.length} programadas para hoy).
               </p>
             </div>
 
@@ -353,7 +353,7 @@ export const MiDiaView: React.FC = () => {
                 <p className="font-bold text-slate-900">Capacidades Activas:</p>
                 <p className="flex items-center gap-1.5 text-emerald-700"><Check className="w-3 h-3 text-emerald-600" /> Gestión de huecos y citas en Agenda</p>
                 <p className="flex items-center gap-1.5 text-emerald-700"><Check className="w-3 h-3 text-emerald-600" /> Protección PII y descifrado verificado</p>
-                <p className="flex items-center gap-1.5 text-emerald-700"><Check className="w-3 h-3 text-emerald-600" /> Sincronización contra backend canónico</p>
+                <p className="flex items-center gap-1.5 text-emerald-700"><Check className="w-3 h-3 text-emerald-600" /> Sincronización en tiempo real</p>
               </div>
 
               <div className="p-3.5 bg-amber-50/70 border border-amber-200 rounded-xl space-y-2 text-xs text-amber-900">
@@ -362,7 +362,7 @@ export const MiDiaView: React.FC = () => {
                   <Clock className="w-3.5 h-3.5 text-amber-600" /> Voz IA (Twilio / ElevenLabs): integración preparada · pendiente de activación productiva y smoke real
                 </p>
                 <p className="text-[11px] leading-relaxed text-amber-900/80">
-                  Los módulos de voz interactiva, presupuestación automática contra catálogo y la bandeja de chat están en desarrollo o pendientes de activación productiva. Cero mocks en build productivo.
+                  Los módulos de voz interactiva, presupuestación automática contra catálogo y la bandeja de mensajes están en preparación técnica para su activación operativa.
                 </p>
               </div>
             </div>

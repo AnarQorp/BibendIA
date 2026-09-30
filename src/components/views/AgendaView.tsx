@@ -377,7 +377,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
         <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-xs text-amber-900 flex items-start gap-3">
           <Lock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
           <div className="space-y-1">
-            <p className="font-bold">Sesión Requerida para Acceso al Backend</p>
+            <p className="font-bold">Sesión requerida para consultar la agenda</p>
             <p className="text-amber-800">{realState.message} (Mostrando vista operativa mientras se completa el inicio de sesión).</p>
           </div>
         </div>
@@ -387,7 +387,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
         <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 text-xs text-rose-900 flex items-start gap-3">
           <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
           <div>
-            <p className="font-bold">Error al consultar el backend</p>
+            <p className="font-bold">Error al consultar la agenda del taller</p>
             <p className="text-rose-800">{realState.message}</p>
           </div>
         </div>

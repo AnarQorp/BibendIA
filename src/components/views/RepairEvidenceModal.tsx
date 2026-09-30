@@ -28,6 +28,9 @@ export interface RepairEvidenceModalProps {
     condition?: string | null;
     notes?: string | null;
     evidence?: RepairEvidence[];
+    knowledgeRevision?: string | null;
+    version?: number | null;
+    applicabilityCode?: string | null;
   } | null;
 }
 
@@ -158,6 +161,27 @@ export const RepairEvidenceModal: React.FC<RepairEvidenceModalProps> = ({
                   <p className="text-[11px] text-slate-600">
                     Criterio técnico: <strong className="text-slate-900 font-mono">{item.confidenceReason}</strong>
                   </p>
+                )}
+
+                {(item.applicabilityCode || item.knowledgeRevision || (item.version !== undefined && item.version !== null)) && (
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-1.5 text-[11px]">
+                    <span className="font-bold text-slate-900 block">Detalles de trazabilidad</span>
+                    {item.applicabilityCode && (
+                      <p className="text-[10px] text-slate-600 font-mono break-all">
+                        Aplicabilidad: <span className="text-slate-800">{item.applicabilityCode}</span>
+                      </p>
+                    )}
+                    {item.knowledgeRevision && (
+                      <p className="text-[10px] text-slate-600 font-mono break-all">
+                        Revisión: <span className="text-slate-800">{item.knowledgeRevision}</span>
+                      </p>
+                    )}
+                    {item.version !== undefined && item.version !== null && (
+                      <p className="text-[10px] text-slate-600 font-mono">
+                        Versión: <span className="text-slate-800">v{item.version}</span>
+                      </p>
+                    )}
+                  </div>
                 )}
 
                 {evidenceList.length === 0 ? (

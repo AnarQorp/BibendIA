@@ -440,7 +440,9 @@ export const RepairKnowledgeFlowModal: React.FC<RepairKnowledgeFlowModalProps> =
                                 confidenceReason: edge.confidenceReason,
                                 condition: edge.condition,
                                 notes: edge.notes,
-                                evidence: edge.evidence
+                                evidence: edge.evidence,
+                                applicabilityCode: resolution?.applicability?.code,
+                                knowledgeRevision: (resolution as any)?.knowledgeRevision
                               })
                             }
                             className="text-xs text-blue-600 hover:text-blue-800 font-semibold underline flex items-center gap-1"

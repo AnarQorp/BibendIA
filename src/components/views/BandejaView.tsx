@@ -99,7 +99,7 @@ export const BandejaView: React.FC = () => {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-rose-800 font-bold text-sm">
                 <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-                <span>Error al Consultar Citas en Backend</span>
+                <span>Error al consultar citas</span>
               </div>
               <button
                 onClick={refreshAppointments}
@@ -140,7 +140,7 @@ export const BandejaView: React.FC = () => {
         {appointmentState.status === 'loading' && (
           <div className="bg-white border border-slate-200 rounded-2xl p-6 text-center shadow-xs space-y-2">
             <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
-            <p className="text-xs font-semibold text-slate-600">Consultando estado de citas con el backend...</p>
+            <p className="text-xs font-semibold text-slate-600">Consultando estado de citas del taller...</p>
           </div>
         )}
 
@@ -202,15 +202,15 @@ export const BandejaView: React.FC = () => {
               <h3 className="text-sm font-bold text-slate-900">Citas en Taller</h3>
               <p className="text-xs text-slate-500 mt-1">
                 {appointmentState.status === 'success'
-                  ? `${totalAppointments} citas registradas en backend (${todayCount} para hoy).`
+                  ? `${totalAppointments} citas registradas (${todayCount} para hoy).`
                   : appointmentState.status === 'empty'
                   ? 'Sin citas registradas aún para este taller.'
                   : appointmentState.status === 'error'
-                  ? `Error de sincronización con backend.${appointmentState.correlationId ? ` Ref: ${appointmentState.correlationId}` : ''}`
+                  ? `Error de sincronización de citas.${appointmentState.correlationId ? ` Ref: ${appointmentState.correlationId}` : ''}`
                   : appointmentState.status === 'unauthorized'
                   ? 'Acceso no autorizado (401/403). Sesión de taller requerida.'
                   : appointmentState.status === 'loading'
-                  ? 'Consultando citas en backend...'
+                  ? 'Consultando citas...'
                   : 'Esperando sesión activa de taller.'}
               </p>
             </div>

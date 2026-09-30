@@ -662,7 +662,7 @@ export function convertEstimateDraftToQuote(
   const laborItem: QuoteItem = {
     id: `labor-${draft.id}`,
     category: 'labor',
-    description: `${operationName}${draft.repairJobCode ? ` (${draft.repairJobCode})` : ''}`,
+    description: operationName,
     quantity: 3.5, // 3.5 standard workshop hours for timing belt + water pump
     unitPrice: draft.operation?.unitPrice ?? null,
     total: (draft.operation?.unitPrice !== null && draft.operation?.unitPrice !== undefined) ? Math.round(draft.operation.unitPrice * 3.5 * 100) / 100 : null,
@@ -723,8 +723,6 @@ export function convertEstimateDraftToQuote(
   else if (draft.status === 'sent') quoteStatus = 'sent';
   else if (draft.status === 'approved') quoteStatus = 'accepted';
 
-  const revisionStr = draft.knowledgeRevision ? `${draft.knowledgeRevision.slice(0, 15)}... ` : '';
-
   return {
     id: draft.id,
     number: quoteNumber,
@@ -738,7 +736,7 @@ export function convertEstimateDraftToQuote(
     tax,
     total,
     estimatedLaborHours: 3.5,
-    aiRationale: `Borrador técnico generado mediante Repair Knowledge (${draft.applicabilityCode || 'General'}). ${revisionStr}v${draft.version || 1}`,
+    aiRationale: 'Propuesta técnica elaborada a partir del conocimiento técnico verificado para este vehículo y motorización.',
     uncertaintyWarning: allSelectedPriced
       ? undefined
       : 'Precios pendientes de asignación por el taller o DMS. Las piezas obligatorias han sido incluidas según manual OEM.',
