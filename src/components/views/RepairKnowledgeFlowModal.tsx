@@ -9,21 +9,16 @@ import {
   Ban,
   Car,
   Wrench,
-  ArrowRight,
   RefreshCw,
   FileCheck,
   ChevronRight,
-  ShieldCheck,
   Info
 } from 'lucide-react';
 import type {
   Vehicle,
   Customer,
-  EstimateDraft,
   RepairKnowledgeResolution,
-  RepairKnowledgeEdge,
-  EstimateAutomationStatus,
-  RepairEvidence
+  EstimateAutomationStatus
 } from '../../types';
 import {
   resolveRepairKnowledge,
@@ -31,6 +26,10 @@ import {
   convertEstimateDraftToQuote,
   getAutomationStatusFromEdge
 } from '../../services/repairKnowledge';
+import {
+  formatAutomationStatus,
+  formatPartName
+} from '../../utils/workshopFormatters';
 
 export interface RepairKnowledgeFlowModalProps {
   isOpen: boolean;
@@ -40,6 +39,8 @@ export interface RepairKnowledgeFlowModalProps {
   customers: Customer[];
   onDraftCreated: (newQuote: any) => void;
   onInspectEvidence: (item: any) => void;
+  initialVehicleId?: string;
+  initialJobCode?: string;
 }
 
 export const RepairKnowledgeFlowModal: React.FC<RepairKnowledgeFlowModalProps> = ({
@@ -49,26 +50,34 @@ export const RepairKnowledgeFlowModal: React.FC<RepairKnowledgeFlowModalProps> =
   vehicles,
   customers,
   onDraftCreated,
-  onInspectEvidence
+  onInspectEvidence,
+  initialVehicleId,
+  initialJobCode
 }) => {
   if (!isOpen) return null;
 
   // Step state: 'select' | 'preview' | 'creating'
   const [step, setStep] = useState<'select' | 'preview' | 'creating'>('select');
 
-  // Selection inputs (Default to Volkswagen Golf VII CLHA for immediate testing)
-  const defaultGolf = vehicles.find(v => v.brand.toLowerCase().includes('volkswagen') || v.model.toLowerCase().includes('golf'));
-  const [selectedVehicleId, setSelectedVehicleId] = useState<string>(defaultGolf?.id || vehicles[0]?.id || 'v5');
-  const [make, setMake] = useState<string>('Volkswagen');
-  const [model, setModel] = useState<string>('Golf VII');
-  const [engineCode, setEngineCode] = useState<string>('CLHA');
-  const [repairJobCode, setRepairJobCode] = useState<string>('JOB_TIMING_BELT_WATER_PUMP');
+  // Selection inputs
+  const defaultVehicle = initialVehicleId 
+    ? vehicles.find(v => v.id === initialVehicleId)
+    : vehicles.find(v => v.brand.toLowerCase().includes('volkswagen') || v.model.toLowerCase().includes('golf')) || vehicles[0];
+
+  const [selectedVehicleId, setSelectedVehicleId] = useState<string>(defaultVehicle?.id || 'v5');
+  const [make, setMake] = useState<string>(defaultVehicle?.brand || 'Volkswagen');
+  const [model, setModel] = useState<string>(defaultVehicle?.model ? defaultVehicle.model.split(' ')[0] : 'Golf VII');
+  const [engineCode, setEngineCode] = useState<string>(
+    defaultVehicle?.motorization && defaultVehicle.motorization.includes('CLHA')
+      ? 'CLHA'
+      : (defaultVehicle?.motorization?.split(' ')[0] || 'CLHA')
+  );
+  const [repairJobCode, setRepairJobCode] = useState<string>(initialJobCode || 'JOB_TIMING_BELT_WATER_PUMP');
 
   // Resolution state from GET /repair-knowledge/resolve
   const [resolution, setResolution] = useState<RepairKnowledgeResolution | null>(null);
   const [isLoadingResolution, setIsLoadingResolution] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [correlationId, setCorrelationId] = useState<string | null>(null);
 
   // Sync inputs when vehicle dropdown changes
   const handleVehicleSelect = (vId: string) => {
@@ -80,7 +89,7 @@ export const RepairKnowledgeFlowModal: React.FC<RepairKnowledgeFlowModalProps> =
       if (found.motorization && found.motorization.includes('CLHA')) {
         setEngineCode('CLHA');
       } else if (found.motorization) {
-        setEngineCode(found.motorization.split(' ')[0] || 'GENERIC');
+        setEngineCode(found.motorization.split(' ')[0] || 'CLHA');
       }
     }
   };
@@ -102,14 +111,13 @@ export const RepairKnowledgeFlowModal: React.FC<RepairKnowledgeFlowModalProps> =
 
     if (res.status === 'success' && res.data) {
       setResolution(res.data);
-      setCorrelationId(res.correlationId || null);
       setStep('preview');
     } else {
-      setErrorMessage(res.message || 'No se encontró conocimiento técnico aplicable para los parámetros especificados.');
+      setErrorMessage(res.message || 'No se encontró propuesta técnica para los datos especificados.');
     }
   };
 
-  // Step 2 -> Step 3: Confirm and create persistent draft (POST /estimate-drafts)
+  // Step 2 -> Step 3: Confirm and create persistent draft
   const handleConfirmCreateDraft = async () => {
     setStep('creating');
     setErrorMessage(null);
@@ -141,37 +149,23 @@ export const RepairKnowledgeFlowModal: React.FC<RepairKnowledgeFlowModalProps> =
       onClose();
     } else {
       setStep('preview');
-      setErrorMessage(res.message || 'Error al persistir el borrador técnico en el backend.');
+      setErrorMessage(res.message || 'Error al guardar el borrador del presupuesto.');
     }
   };
 
-  const getLiteralStatusBadge = (status: EstimateAutomationStatus) => {
-    switch (status) {
-      case 'AUTO_INCLUDED':
-        return (
-          <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
-            AUTO_INCLUDED
-          </span>
-        );
-      case 'OPTIONAL':
-        return (
-          <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-blue-100 text-blue-800 border border-blue-300">
-            OPTIONAL
-          </span>
-        );
-      case 'REVIEW_REQUIRED':
-        return (
-          <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-100 text-amber-800 border border-amber-300">
-            REVIEW_REQUIRED
-          </span>
-        );
-      case 'BLOCKED':
-        return (
-          <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-rose-100 text-rose-800 border border-rose-300">
-            BLOCKED
-          </span>
-        );
-    }
+  const renderStatusBadge = (status: EstimateAutomationStatus) => {
+    const p = formatAutomationStatus(status);
+    let icon = <CheckCircle2 className="w-3 h-3 text-emerald-600" />;
+    if (status === 'OPTIONAL') icon = <HelpCircle className="w-3 h-3 text-blue-600" />;
+    if (status === 'REVIEW_REQUIRED') icon = <AlertTriangle className="w-3 h-3 text-amber-600" />;
+    if (status === 'BLOCKED') icon = <Ban className="w-3 h-3 text-slate-500" />;
+
+    return (
+      <span className={`px-2 py-0.5 rounded text-[11px] font-bold border flex items-center gap-1 ${p.badgeClass}`}>
+        {icon}
+        {p.label}
+      </span>
+    );
   };
 
   return (
@@ -185,14 +179,9 @@ export const RepairKnowledgeFlowModal: React.FC<RepairKnowledgeFlowModalProps> =
               <Sparkles className="w-5 h-5 text-amber-300" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-base font-extrabold text-slate-900">Nuevo Presupuesto Técnico (Repair Knowledge)</h3>
-                <span className="text-[10px] font-mono font-bold bg-blue-50 text-blue-700 px-2 py-0.5 rounded border border-blue-200">
-                  RK03 Slice
-                </span>
-              </div>
+              <h3 className="text-base font-extrabold text-slate-900">Nuevo Presupuesto con Conocimiento Técnico</h3>
               <p className="text-xs text-slate-500">
-                Flujo: Vehículo/Reparación → Consultar Conocimiento → Propuesta Técnica → Crear Borrador Idempotente
+                Consulta especificaciones y genera el borrador técnico con las piezas y operaciones recomendadas.
               </p>
             </div>
           </div>
@@ -209,17 +198,17 @@ export const RepairKnowledgeFlowModal: React.FC<RepairKnowledgeFlowModalProps> =
         <div className="border-b border-slate-200 bg-slate-100/70 px-6 py-2.5 flex items-center justify-between text-xs">
           <div className={`flex items-center gap-2 font-bold ${step === 'select' ? 'text-blue-600' : 'text-slate-500'}`}>
             <span className="w-5 h-5 rounded-full bg-white border border-slate-300 flex items-center justify-center text-[11px] font-mono">1</span>
-            <span>Vehículo & Reparación</span>
+            <span>Vehículo y Trabajo</span>
           </div>
           <ChevronRight className="w-4 h-4 text-slate-400" />
           <div className={`flex items-center gap-2 font-bold ${step === 'preview' ? 'text-blue-600' : 'text-slate-500'}`}>
             <span className="w-5 h-5 rounded-full bg-white border border-slate-300 flex items-center justify-center text-[11px] font-mono">2</span>
-            <span>Propuesta Técnica Resuelta</span>
+            <span>Propuesta de Partidas</span>
           </div>
           <ChevronRight className="w-4 h-4 text-slate-400" />
           <div className={`flex items-center gap-2 font-bold ${step === 'creating' ? 'text-blue-600' : 'text-slate-500'}`}>
             <span className="w-5 h-5 rounded-full bg-white border border-slate-300 flex items-center justify-center text-[11px] font-mono">3</span>
-            <span>Borrador Idempotente</span>
+            <span>Guardando Borrador</span>
           </div>
         </div>
 
@@ -239,11 +228,11 @@ export const RepairKnowledgeFlowModal: React.FC<RepairKnowledgeFlowModalProps> =
           {step === 'select' && (
             <form onSubmit={handleQueryKnowledge} className="space-y-6">
               
-              {/* Quick Vehicle Picker from Workshop */}
+              {/* Quick Vehicle Picker */}
               <div className="space-y-2">
                 <label className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
                   <Car className="w-4 h-4 text-blue-600" />
-                  <span>Seleccionar Vehículo del Taller</span>
+                  <span>Seleccionar Vehículo</span>
                 </label>
                 <select
                   value={selectedVehicleId}
@@ -256,61 +245,58 @@ export const RepairKnowledgeFlowModal: React.FC<RepairKnowledgeFlowModalProps> =
                     </option>
                   ))}
                 </select>
-                <p className="text-[11px] text-slate-500">
-                  Tip: Selecciona el <strong className="text-slate-800">Volkswagen Golf VII (CLHA)</strong> para probar el vertical slice canónico de RK01/RK03.
-                </p>
               </div>
 
-              {/* Technical Descriptors Grid */}
+              {/* Vehicle & Engine Descriptors */}
               <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-4">
                 <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
                   <Wrench className="w-4 h-4 text-slate-600" />
-                  <span>Descriptores Técnicos (GET /repair-knowledge/resolve)</span>
+                  <span>Datos del Vehículo y Motor</span>
                 </h4>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
-                    <label className="text-[11px] font-bold text-slate-600 block mb-1">Marca (Make)</label>
+                    <label className="text-[11px] font-bold text-slate-600 block mb-1">Marca</label>
                     <input
                       type="text"
                       value={make}
                       onChange={(e) => setMake(e.target.value)}
                       required
-                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono"
+                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs"
                     />
                   </div>
                   <div>
-                    <label className="text-[11px] font-bold text-slate-600 block mb-1">Modelo (Model)</label>
+                    <label className="text-[11px] font-bold text-slate-600 block mb-1">Modelo</label>
                     <input
                       type="text"
                       value={model}
                       onChange={(e) => setModel(e.target.value)}
                       required
-                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono"
+                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs"
                     />
                   </div>
                   <div>
-                    <label className="text-[11px] font-bold text-slate-600 block mb-1">Código Motor (EngineCode)</label>
+                    <label className="text-[11px] font-bold text-slate-600 block mb-1">Código de motor</label>
                     <input
                       type="text"
                       value={engineCode}
                       onChange={(e) => setEngineCode(e.target.value.toUpperCase())}
                       required
                       placeholder="ej. CLHA"
-                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono font-bold text-blue-600"
+                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-blue-600"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="text-[11px] font-bold text-slate-600 block mb-1">Código de Operación Técnica (RepairJobCode)</label>
+                  <label className="text-[11px] font-bold text-slate-600 block mb-1">Tipo de intervención</label>
                   <select
                     value={repairJobCode}
                     onChange={(e) => setRepairJobCode(e.target.value)}
-                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono font-bold text-slate-900"
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-slate-900"
                   >
                     <option value="JOB_TIMING_BELT_WATER_PUMP">
-                      JOB_TIMING_BELT_WATER_PUMP — Sustitución kit distribución + bomba refrigerante
+                      Sustitución de kit de distribución y bomba de refrigerante
                     </option>
                   </select>
                 </div>
@@ -333,12 +319,12 @@ export const RepairKnowledgeFlowModal: React.FC<RepairKnowledgeFlowModalProps> =
                   {isLoadingResolution ? (
                     <>
                       <RefreshCw className="w-4 h-4 animate-spin" />
-                      <span>Consultando Backend...</span>
+                      <span>Consultando propuesta...</span>
                     </>
                   ) : (
                     <>
                       <Search className="w-4 h-4" />
-                      <span>Consultar Repair Knowledge →</span>
+                      <span>Consultar propuesta técnica →</span>
                     </>
                   )}
                 </button>
@@ -348,27 +334,20 @@ export const RepairKnowledgeFlowModal: React.FC<RepairKnowledgeFlowModalProps> =
           )}
 
           {/* ========================================================================= */}
-          {/* STEP 2: PREVIEW TECHNICAL PROPOSAL RESIDUAL CONTRACT                       */}
+          {/* STEP 2: PREVIEW PROPOSAL                                                  */}
           {/* ========================================================================= */}
           {step === 'preview' && resolution && (
             <div className="space-y-6">
               
-              {/* Applicability Banner */}
+              {/* Applicability Card */}
               <div className="p-4 bg-slate-900 text-white rounded-xl space-y-2">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-800">
-                      GET /repair-knowledge/resolve: 200 OK
-                    </span>
-                    <span className="text-[11px] font-mono text-slate-400">
-                      {resolution.applicability.code}
-                    </span>
-                  </div>
-                  {correlationId && (
-                    <span className="text-[10px] font-mono text-slate-400 hidden sm:inline">
-                      Corr: {correlationId.slice(0, 14)}...
-                    </span>
-                  )}
+                  <span className="text-xs font-bold text-emerald-400 bg-emerald-950/80 px-2.5 py-0.5 rounded border border-emerald-800">
+                    Propuesta técnica disponible
+                  </span>
+                  <span className="text-xs text-slate-300">
+                    {make} {model} ({engineCode})
+                  </span>
                 </div>
 
                 <h4 className="text-sm font-bold text-white pt-1">
@@ -379,20 +358,20 @@ export const RepairKnowledgeFlowModal: React.FC<RepairKnowledgeFlowModalProps> =
                 </p>
               </div>
 
-              {/* Status explanation pills */}
-              <div className="flex flex-wrap items-center gap-3 p-3 bg-slate-50 border border-slate-200 rounded-xl text-[11px]">
-                <span className="font-bold text-slate-700">Estados backend literales:</span>
-                <span className="flex items-center gap-1 font-mono font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded">
-                  AUTO_INCLUDED (Inclusión preceptiva)
+              {/* Status explanation legend */}
+              <div className="flex flex-wrap items-center gap-3 p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs">
+                <span className="font-bold text-slate-700">Criterio de inclusión:</span>
+                <span className="flex items-center gap-1 font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded">
+                  <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Incluido (preceptivo)
                 </span>
-                <span className="flex items-center gap-1 font-mono font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded">
-                  REVIEW_REQUIRED (Condicional / Desgaste)
+                <span className="flex items-center gap-1 font-bold text-blue-800 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded">
+                  <HelpCircle className="w-3 h-3 text-blue-600" /> Opcional
                 </span>
-                <span className="flex items-center gap-1 font-mono font-bold text-blue-800 bg-blue-100 px-2 py-0.5 rounded">
-                  OPTIONAL (Recomendado)
+                <span className="flex items-center gap-1 font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded">
+                  <AlertTriangle className="w-3 h-3 text-amber-600" /> Revisar
                 </span>
-                <span className="flex items-center gap-1 font-mono font-bold text-rose-800 bg-rose-100 px-2 py-0.5 rounded">
-                  BLOCKED (Bloqueado)
+                <span className="flex items-center gap-1 font-bold text-slate-700 bg-slate-100 border border-slate-300 px-2 py-0.5 rounded">
+                  <Ban className="w-3 h-3 text-slate-500" /> No incluido automáticamente
                 </span>
               </div>
 
@@ -400,16 +379,22 @@ export const RepairKnowledgeFlowModal: React.FC<RepairKnowledgeFlowModalProps> =
               <div className="space-y-3">
                 <div className="flex items-center justify-between border-b border-slate-200 pb-2">
                   <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-800">
-                    Componentes Técnicos y Consumibles ({resolution.components.length + resolution.consumables.length})
+                    Partidas técnicas y consumibles ({resolution.components.length + resolution.consumables.length})
                   </h4>
-                  <span className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded font-bold">
-                    Precios pendientes de asignación en taller
+                  <span className="text-xs text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded font-bold">
+                    Precios a valorar en borrador
                   </span>
                 </div>
 
                 <div className="space-y-2">
                   {[...resolution.components, ...resolution.consumables].map((edge) => {
                     const autoStatus = getAutomationStatusFromEdge(edge);
+                    const displayName = formatPartName({
+                      partRoleCode: edge.partRole.code,
+                      partRoleName: edge.partRole.name,
+                      edgeCode: edge.code
+                    });
+
                     return (
                       <div
                         key={edge.code}
@@ -417,22 +402,18 @@ export const RepairKnowledgeFlowModal: React.FC<RepairKnowledgeFlowModalProps> =
                       >
                         <div className="space-y-1">
                           <div className="flex items-center gap-2">
-                            {getLiteralStatusBadge(autoStatus)}
-                            <span className="text-xs font-bold text-slate-900">{edge.partRole.name}</span>
-                            <span className="text-[10px] font-mono text-slate-400">
+                            {renderStatusBadge(autoStatus)}
+                            <span className="text-xs font-bold text-slate-900">{displayName}</span>
+                            <span className="text-[11px] text-slate-500">
                               (Cant: {edge.quantity ?? '—'})
                             </span>
                           </div>
 
-                          <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
-                            <span>Tipo: <strong className="text-slate-700">{edge.requirementType}</strong></span>
-                            <span>· Confianza: <strong className="text-slate-700 font-mono">{edge.confidenceState}</strong></span>
-                            {edge.replaceOnce && (
-                              <span className="text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded text-[10px] font-bold">
-                                1 solo uso (Tornillo angular)
-                              </span>
-                            )}
-                          </div>
+                          {edge.replaceOnce && (
+                            <span className="text-purple-700 bg-purple-50 px-2 py-0.5 rounded text-[10px] font-bold inline-block">
+                              Sustitución preceptiva (1 solo uso)
+                            </span>
+                          )}
 
                           {edge.condition && (
                             <p className="text-[11px] text-amber-700 italic">
@@ -442,7 +423,7 @@ export const RepairKnowledgeFlowModal: React.FC<RepairKnowledgeFlowModalProps> =
                         </div>
 
                         <div className="flex items-center gap-3 shrink-0 self-end sm:self-center">
-                          <span className="px-2 py-1 bg-amber-50 text-amber-800 border border-amber-200 rounded text-xs font-mono font-bold">
+                          <span className="px-2.5 py-1 bg-amber-50 text-amber-800 border border-amber-200 rounded text-xs font-semibold">
                             Precio pendiente
                           </span>
 
@@ -450,7 +431,7 @@ export const RepairKnowledgeFlowModal: React.FC<RepairKnowledgeFlowModalProps> =
                             type="button"
                             onClick={() =>
                               onInspectEvidence({
-                                title: edge.partRole.name,
+                                title: displayName,
                                 itemType: edge.itemKind,
                                 repairBomEdgeId: edge.code,
                                 confidenceState: edge.confidenceState,
@@ -465,7 +446,7 @@ export const RepairKnowledgeFlowModal: React.FC<RepairKnowledgeFlowModalProps> =
                             className="text-xs text-blue-600 hover:text-blue-800 font-semibold underline flex items-center gap-1"
                           >
                             <Info className="w-3.5 h-3.5" />
-                            <span>Por qué aparece</span>
+                            <span>Por qué se recomienda</span>
                           </button>
                         </div>
                       </div>
@@ -481,7 +462,7 @@ export const RepairKnowledgeFlowModal: React.FC<RepairKnowledgeFlowModalProps> =
                   onClick={() => setStep('select')}
                   className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl"
                 >
-                  ← Modificar Consulta
+                  ← Modificar Datos
                 </button>
 
                 <button
@@ -490,7 +471,7 @@ export const RepairKnowledgeFlowModal: React.FC<RepairKnowledgeFlowModalProps> =
                   className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs rounded-xl flex items-center justify-center gap-2 shadow-sm transition"
                 >
                   <FileCheck className="w-4 h-4 text-emerald-300" />
-                  <span>Confirmar y Crear Borrador Técnico (POST) →</span>
+                  <span>Crear Borrador de Presupuesto →</span>
                 </button>
               </div>
 
@@ -505,13 +486,10 @@ export const RepairKnowledgeFlowModal: React.FC<RepairKnowledgeFlowModalProps> =
               <div className="w-12 h-12 rounded-full border-4 border-blue-600 border-t-transparent animate-spin mx-auto" />
               <div className="space-y-1">
                 <h4 className="text-base font-extrabold text-slate-900">
-                  Creando Borrador Técnico Idempotente...
+                  Guardando borrador de presupuesto...
                 </h4>
-                <p className="text-xs text-slate-500 font-mono">
-                  POST /v1/workshop/tenants/{tenantId.slice(0, 8)}.../estimate-drafts
-                </p>
-                <p className="text-xs text-slate-400 max-w-md mx-auto pt-2">
-                  El servidor registra la aplicabilidad, el número de revisión del conocimiento técnico y las líneas con precios explícitamente pendientes.
+                <p className="text-xs text-slate-500 max-w-md mx-auto pt-1">
+                  Preparando las líneas y tiempos de intervención para que puedas asignar precios y mano de obra.
                 </p>
               </div>
             </div>

@@ -28,6 +28,7 @@ import {
 } from '../../services/workshopAppointments';
 import { loadHumanSession } from '../../services/humanSession';
 import type { WorkshopAppointmentResponse } from '../../types';
+import { formatAppointmentSource } from '../../utils/workshopFormatters';
 
 export interface AgendaViewProps {
   tenantId?: string | null;
@@ -59,7 +60,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
     demoModeActive
   } = useDemo();
 
-  const { searchParams } = useRouter();
+  const { searchParams, navigate } = useRouter();
 
   // Tenant Resolution (Prop -> Window/Env -> URL param -> LocalStorage)
   const [activeTenantId, setActiveTenantId] = useState<string | null>(() => {
@@ -274,15 +275,9 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
               <span className="text-xs font-bold bg-blue-50 text-blue-800 border border-blue-200 px-2.5 py-0.5 rounded-md flex items-center gap-1">
                 <CalendarIcon className="w-3.5 h-3.5 text-blue-600" /> Agenda de Taller
               </span>
-              {activeTenantId ? (
-                <span className="text-xs text-slate-500 font-mono bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
-                  Tenant: {activeTenantId.slice(0, 8)}...
-                </span>
-              ) : (
-                <span className="text-xs text-amber-700 font-semibold bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                  Sin Tenant Autorizado
-                </span>
-              )}
+              <span className="text-xs text-emerald-800 font-semibold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Conectado
+              </span>
             </div>
             <h1 className="text-lg sm:text-xl font-extrabold text-slate-900 tracking-tight">
               Calendario Operativo y Planificación
@@ -315,25 +310,18 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
               </button>
             </div>
 
-            {/* Sync or Tenant Selector Button */}
+            {/* Sync Button */}
             {!demoModeActive && activeTenantId && (
               <button
                 onClick={() => loadRealAppointments(activeTenantId)}
                 disabled={realState.status === 'loading'}
                 className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition shadow-xs disabled:opacity-50"
-                title="Sincronizar con el backend"
+                title="Sincronizar con el taller"
               >
                 <RotateCcw className={`w-3.5 h-3.5 ${realState.status === 'loading' ? 'animate-spin' : ''}`} />
                 <span>Sincronizar</span>
               </button>
             )}
-
-            <button
-              onClick={() => setShowTenantModal(true)}
-              className="px-3 py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold transition"
-            >
-              Configurar Tenant
-            </button>
           </div>
         </div>
 
@@ -489,11 +477,14 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
                                 </p>
                                 <div className="flex items-center justify-between text-[10px] text-slate-600">
                                   <span className="truncate">{app.customerName}</span>
-                                  {app.source === 'phone_ai' && (
-                                    <span title="Cita capturada por voz">
-                                      <Phone className="w-2.5 h-2.5 text-blue-600 shrink-0 ml-1" />
-                                    </span>
-                                  )}
+                                  {(() => {
+                                    const src = formatAppointmentSource(app.source);
+                                    return (
+                                      <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded border shrink-0 ${src.bg} ${src.text} ${src.border}`}>
+                                        {src.label}
+                                      </span>
+                                    );
+                                  })()}
                                 </div>
                               </button>
                             ))}
@@ -560,9 +551,17 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
                             </div>
 
                             <div className="space-y-1">
-                              <div className="flex items-center gap-2">
+                              <div className="flex flex-wrap items-center gap-2">
                                 <h4 className="text-sm font-bold text-slate-900">{app.serviceTitle}</h4>
                                 <span className="license-plate">{app.vehiclePlate}</span>
+                                {(() => {
+                                  const src = formatAppointmentSource(app.source);
+                                  return (
+                                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${src.bg} ${src.text} ${src.border}`}>
+                                      {src.label}
+                                    </span>
+                                  );
+                                })()}
                               </div>
                               <p className="text-xs text-slate-600">
                                 Cliente: <strong className="text-slate-900 font-bold">{app.customerName}</strong>
@@ -671,9 +670,17 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold bg-blue-50 text-blue-800 border border-blue-200 px-2 py-0.5 rounded font-mono">
-                    Cita ID: {selectedAppointment.id.slice(0, 8)}...
+                  <span className="text-xs font-bold bg-blue-50 text-blue-800 border border-blue-200 px-2 py-0.5 rounded">
+                    Cita en Taller
                   </span>
+                  {(() => {
+                    const src = formatAppointmentSource(selectedAppointment.source);
+                    return (
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded border ${src.bg} ${src.text} ${src.border}`}>
+                        {src.label}
+                      </span>
+                    );
+                  })()}
                   <span className="text-xs font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
                     {selectedAppointment.status}
                   </span>
@@ -728,18 +735,37 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
               )}
 
               {selectedAppointment.evidenceRef && (
-                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-[11px] text-slate-500 font-mono space-y-0.5">
-                  <span className="font-bold text-slate-700 block">Evidencia de Confirmación:</span>
-                  <span className="truncate block text-slate-600">{selectedAppointment.evidenceRef}</span>
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-600 flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>Cita confirmada y validada en el sistema del taller.</span>
                 </div>
               )}
             </div>
 
             {/* Modal Actions */}
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 pt-2 border-t border-slate-100">
               <button
+                type="button"
+                onClick={() => {
+                  const targetVehicleId = selectedAppointment.raw?.vehicle_id || '';
+                  const params = new URLSearchParams();
+                  params.set('new', 'rk');
+                  if (targetVehicleId) params.set('vehicleId', targetVehicleId);
+                  if (selectedAppointment.vehiclePlate) params.set('plate', selectedAppointment.vehiclePlate);
+                  if (selectedAppointment.serviceTitle) params.set('reason', selectedAppointment.serviceTitle);
+                  setSelectedAppointment(null);
+                  navigate(`/presupuestos?${params.toString()}`);
+                }}
+                className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 shadow-sm"
+              >
+                <FileText className="w-3.5 h-3.5" />
+                <span>Preparar Presupuesto</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setSelectedAppointment(null)}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition"
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition text-center"
               >
                 Cerrar
               </button>

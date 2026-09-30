@@ -66,9 +66,9 @@ export const MiDiaView: React.FC = () => {
               <Lock className="w-6 h-6 stroke-[1.75]" />
             </div>
             <div className="max-w-md mx-auto space-y-1">
-              <h3 className="text-sm font-extrabold text-slate-900">Contexto de Taller Pendiente de Sesión</h3>
+              <h3 className="text-sm font-extrabold text-slate-900">Sesión de Taller Requerida</h3>
               <p className="text-xs text-slate-500 leading-relaxed">
-                Para consultar las citas y la jornada de Mi Día, se requiere una sesión activa con membresía autorizada en un taller. De acuerdo con el modelo de seguridad P0.2 / P0.3, la identidad del taller se deriva de forma segura en el servidor.
+                Para consultar las citas y la jornada de Mi Día, inicia sesión con un usuario autorizado en el taller.
               </p>
             </div>
           </div>
@@ -82,7 +82,7 @@ export const MiDiaView: React.FC = () => {
         <div className="p-3 sm:p-6 max-w-7xl mx-auto space-y-4 sm:space-y-6 animate-fadeIn">
           <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center shadow-xs space-y-3">
             <div className="w-7 h-7 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
-            <p className="text-xs font-semibold text-slate-600">Consultando jornada y citas contra el contrato real de taller...</p>
+            <p className="text-xs font-semibold text-slate-600">Consultando jornada y citas programadas del taller...</p>
           </div>
         </div>
       );
@@ -98,16 +98,10 @@ export const MiDiaView: React.FC = () => {
                 <Lock className="w-5 h-5" />
               </div>
               <div className="space-y-1">
-                <h3 className="text-sm font-extrabold text-slate-900">Autenticación de Taller Requerida (401 / 403)</h3>
+                <h3 className="text-sm font-extrabold text-slate-900">Acceso no autorizado</h3>
                 <p className="text-xs text-slate-600 leading-relaxed max-w-2xl">
-                  {appointmentState.message}
+                  {appointmentState.message || 'Tu usuario no dispone de permisos activos para este taller. Inicia sesión con la cuenta correspondiente.'}
                 </p>
-                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs font-mono text-slate-600 mt-2">
-                  <p className="font-bold text-slate-800">Invariante de Seguridad P0.2 / P0.3:</p>
-                  <p className="text-[11px] text-slate-500 pt-0.5">
-                    El backend rechaza peticiones anónimas o sin autorización válida de taller. El frontend no inventa tokens ni simula estar conectado mientras el flujo de autenticación esté en integración.
-                  </p>
-                </div>
               </div>
             </div>
           </div>

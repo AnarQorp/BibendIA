@@ -112,6 +112,9 @@ export interface QuoteItem {
   pricingProvenance?: 'MANUAL_WORKSHOP' | null;
   mutationKey?: string;
   selected?: boolean;
+  partRoleCode?: string | null;
+  partRoleName?: string | null;
+  edgeCode?: string | null;
 }
 
 export interface Quote {

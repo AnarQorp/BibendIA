@@ -35,10 +35,14 @@ export const RouterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const navigate = useCallback((path: string) => {
     if (typeof window === 'undefined') return;
     const target = path === '/' ? '/midia' : path;
-    if (window.location.pathname !== target) {
-      window.history.pushState({}, '', target);
-      setCurrentPath(target);
-      setSearchParams(new URLSearchParams(window.location.search));
+    const [pathname, search] = target.split('?');
+    const normalizedPath = pathname === '/' || pathname === '' ? '/midia' : pathname;
+    const fullTarget = search !== undefined ? `${normalizedPath}?${search}` : normalizedPath;
+    const currentFull = window.location.pathname + window.location.search;
+    if (currentFull !== fullTarget) {
+      window.history.pushState({}, '', fullTarget);
+      setCurrentPath(normalizedPath);
+      setSearchParams(new URLSearchParams(search !== undefined ? `?${search}` : ''));
     }
   }, []);
 

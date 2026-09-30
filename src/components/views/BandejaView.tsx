@@ -215,8 +215,8 @@ export const BandejaView: React.FC = () => {
               </p>
             </div>
             <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-              <span>Reconciliación backend</span>
-              <span className="font-semibold text-emerald-600">GET /appointments</span>
+              <span>Sincronización</span>
+              <span className="font-semibold text-emerald-600">Activa</span>
             </div>
           </div>
 
@@ -232,12 +232,12 @@ export const BandejaView: React.FC = () => {
             <div>
               <h3 className="text-sm font-bold text-slate-900">Bandeja de Texto / Chat</h3>
               <p className="text-xs text-slate-500 mt-1">
-                La mensajería interactiva todavía no está disponible en el contrato Workshop actual.
+                La mensajería de chat directo se habilitará en la siguiente actualización del taller.
               </p>
             </div>
             <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-              <span>Estado contrato</span>
-              <span className="font-semibold text-amber-700">Contrato actual</span>
+              <span>Canal</span>
+              <span className="font-semibold text-slate-600">En desarrollo</span>
             </div>
           </div>
         </div>
@@ -250,13 +250,13 @@ export const BandejaView: React.FC = () => {
             </div>
             <div className="space-y-1">
               <h3 className="text-sm font-bold text-slate-900">
-                Arquitectura de Adquisición y Cero Mocks en Producción
+                Recepción Telefónica y Mensajería de Taller
               </h3>
               <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
-                En la arquitectura actual, la integración de telefonía con agente de voz está preparada y pendiente de activación productiva y smoke real. Una vez activada, las citas capturadas se persistirán en la base de datos central del taller mediante <code className="px-1.5 py-0.5 bg-slate-100 text-slate-800 rounded text-xs font-mono font-bold">GET /v1/workshop/tenants/:tenantId/appointments</code>.
+                Las citas concertadas a través de la atención telefónica automatizada se sincronizan directamente con el sistema de tu taller.
               </p>
               <p className="text-xs sm:text-sm text-slate-600 leading-relaxed pt-1">
-                Por política de soberanía e integridad de datos (P0.2/P0.3), no se presentan conversaciones simuladas o mensajes ficticios en el entorno productivo. Cualquier cita generada aparecerá de inmediato en la sección de <strong>Agenda</strong> y en <strong>Mi Día</strong>.
+                Todas las citas confirmadas se reflejan inmediatamente en la <strong>Agenda</strong> y en tu planificación de <strong>Mi Día</strong>.
               </p>
             </div>
           </div>

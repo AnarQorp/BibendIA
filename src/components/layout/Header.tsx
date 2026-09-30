@@ -9,7 +9,9 @@ export const Header: React.FC = () => {
     startVoiceInput, 
     isListening, 
     resetAllState,
-    toggleMobileSidebar
+    toggleMobileSidebar,
+    demoFeatureEnabled,
+    demoModeActive
   } = useDemo();
 
   const getSectionTitle = () => {
@@ -80,13 +82,15 @@ export const Header: React.FC = () => {
           </span>
         </div>
 
-        <button
-          onClick={resetAllState}
-          className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all shrink-0"
-          title="Reiniciar datos de la demo"
-        >
-          <RotateCcw className="w-4 h-4" />
-        </button>
+        {demoFeatureEnabled && demoModeActive && (
+          <button
+            onClick={resetAllState}
+            className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all shrink-0"
+            title="Reiniciar datos de la demo"
+          >
+            <RotateCcw className="w-4 h-4" />
+          </button>
+        )}
       </div>
     </header>
   );

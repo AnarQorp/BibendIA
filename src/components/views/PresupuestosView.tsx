@@ -45,6 +45,14 @@ import {
 } from '../../services/repairKnowledge';
 import { loadHumanSession } from '../../services/humanSession';
 import { getWorkshopTenantId } from '../../services/workshopAppointments';
+import { useRouter } from '../../router/RouterContext';
+import { 
+  formatAutomationStatus, 
+  formatPartName, 
+  formatQuoteStatus, 
+  formatUnitPrice, 
+  formatLineTotal 
+} from '../../utils/workshopFormatters';
 
 export const PresupuestosView: React.FC = () => {
   const {
@@ -139,8 +147,18 @@ export const PresupuestosView: React.FC = () => {
   const [mobileView, setMobileView] = useState<'list' | 'detail'>('list');
   const [statusFilter, setStatusFilter] = useState<'all' | 'draft' | 'pending_approval' | 'sent'>('all');
 
-  // Modals state
+  // Modals and Contextual Navigation
+  const { searchParams } = useRouter();
   const [isRkModalOpen, setIsRkModalOpen] = useState(false);
+  const [initialRkVehicleId, setInitialRkVehicleId] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (searchParams.get('new') === 'rk') {
+      const vId = searchParams.get('vehicleId');
+      if (vId) setInitialRkVehicleId(vId);
+      setIsRkModalOpen(true);
+    }
+  }, [searchParams]);
   const [evidenceModalItem, setEvidenceModalItem] = useState<{
     title: string;
     itemType?: string;
@@ -238,7 +256,21 @@ export const PresupuestosView: React.FC = () => {
 
   const handleStartEditing = () => {
     if (!activeQuote) return;
-    setEditForm(JSON.parse(JSON.stringify(activeQuote)));
+    const cloned = JSON.parse(JSON.stringify(activeQuote));
+    // Translate item descriptions to natural workshop terms for any RK lines
+    cloned.items = cloned.items.map((item: QuoteItem) => {
+      const naturalName = formatPartName({
+        partRoleCode: item.partRoleCode,
+        partRoleName: item.partRoleName,
+        description: item.description,
+        edgeCode: item.repairBomEdgeId
+      });
+      return {
+        ...item,
+        description: naturalName
+      };
+    });
+    setEditForm(cloned);
     setIsEditing(true);
   };
 
@@ -515,7 +547,7 @@ export const PresupuestosView: React.FC = () => {
         setDeletedManualLineIds([]);
         setFeedbackNotice({
           type: 'success',
-          text: `Presupuesto ${updatedQuote.number} persistido con éxito en PostgreSQL (v${result.data.version}). Cambios sincronizados.`
+          text: `Presupuesto ${updatedQuote.number} guardado correctamente. Cambios sincronizados.`
         });
         return;
       }
@@ -534,14 +566,14 @@ export const PresupuestosView: React.FC = () => {
             setEditForm(JSON.parse(JSON.stringify(reloadedQuote)));
             setFeedbackNotice({
               type: 'error',
-              text: `Conflicto de versión (409): Otro usuario o proceso actualizó este borrador a la versión v${fresh.data.version}. Se han recargado los datos más recientes del servidor. Por favor, revisa y reintenta tu guardado.`
+              text: `Conflicto de concurrencia: Otro usuario o proceso actualizó este presupuesto. Se han recargado los datos más recientes. Por favor, revisa y vuelve a guardar.`
             });
             return;
           }
         }
         setFeedbackNotice({
           type: 'error',
-          text: result.message || 'Conflicto de concurrencia al persistir el borrador.'
+          text: result.message || 'Conflicto de concurrencia al guardar el presupuesto.'
         });
         return;
       }
@@ -582,7 +614,7 @@ export const PresupuestosView: React.FC = () => {
     setMobileView('detail');
     setFeedbackNotice({
       type: 'success',
-      text: `Borrador técnico ${newQuote.number} creado y persistido en PostgreSQL (v${newQuote.version ?? 1}). Precios pendientes de valoración manual.`
+      text: `Presupuesto ${newQuote.number} preparado con las partidas recomendadas. Ya puedes asignar precios y mano de obra.`
     });
   };
 
@@ -591,7 +623,7 @@ export const PresupuestosView: React.FC = () => {
       case 'draft':
         return (
           <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-300">
-            Borrador Taller
+            Borrador
           </span>
         );
       case 'pending_approval':
@@ -602,54 +634,33 @@ export const PresupuestosView: React.FC = () => {
         );
       case 'sent':
         return (
-          <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200 flex items-center gap-1">
-            <Check className="w-3 h-3 text-emerald-600" /> Enviado por WhatsApp
+          <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-md bg-blue-50 text-blue-800 border border-blue-200 flex items-center gap-1">
+            <Check className="w-3 h-3 text-blue-600" /> Enviado por WhatsApp
           </span>
         );
       case 'accepted':
         return (
-          <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-md bg-blue-50 text-blue-800 border border-blue-200">
+          <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200">
             Aceptado por Cliente
           </span>
         );
       default:
         return (
           <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-md bg-slate-100 text-slate-700">
-            {status}
+            {formatQuoteStatus(status)}
           </span>
         );
     }
   };
 
   const getLiteralStatusBadge = (status?: EstimateAutomationStatus) => {
-    switch (status) {
-      case 'AUTO_INCLUDED':
-        return (
-          <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
-            AUTO_INCLUDED
-          </span>
-        );
-      case 'OPTIONAL':
-        return (
-          <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-blue-100 text-blue-800 border border-blue-300">
-            OPTIONAL
-          </span>
-        );
-      case 'REVIEW_REQUIRED':
-        return (
-          <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-100 text-amber-800 border border-amber-300">
-            REVIEW_REQUIRED
-          </span>
-        );
-      case 'BLOCKED':
-        return (
-          <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-rose-100 text-rose-800 border border-rose-300">
-            BLOCKED
-          </span>
-        );
-      default:
-        return null;
-    }
+    if (!status) return null;
+    const p = formatAutomationStatus(status);
+    return (
+      <span className={`px-2 py-0.5 rounded text-[10px] font-bold border inline-block ${p.badgeClass}`}>
+        {p.label}
+      </span>
+    );
   };
 
   return (
@@ -665,12 +676,12 @@ export const PresupuestosView: React.FC = () => {
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-base font-extrabold text-slate-900 tracking-tight">Presupuestos de Taller</h2>
-                <span className="text-[10px] font-mono font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded">
-                  Repair Knowledge (RK03) Activo
+                <span className="text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 px-2.5 py-0.5 rounded">
+                  Conocimiento Técnico Activo
                 </span>
               </div>
               <p className="text-xs text-slate-500">
-                Flujo técnico: Consulta de manuales oficiales, inclusión preceptiva de piezas y creación de borradores persistentes.
+                Consulta de intervenciones recomendadas, partidas necesarias y creación directa de presupuestos.
               </p>
             </div>
           </div>
@@ -682,7 +693,7 @@ export const PresupuestosView: React.FC = () => {
               className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-extrabold flex items-center gap-2 shadow-xs transition-all shrink-0"
             >
               <Sparkles className="w-4 h-4 text-amber-300" />
-              <span>+ Nuevo con Repair Knowledge</span>
+              <span>+ Nuevo Presupuesto Técnico</span>
             </button>
 
             {/* Secondary Manual Draft Button */}
@@ -744,7 +755,7 @@ export const PresupuestosView: React.FC = () => {
               onClick={() => setIsRkModalOpen(true)}
               className="text-xs font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1"
             >
-              <Sparkles className="w-3.5 h-3.5" /> + RK
+              <Sparkles className="w-3.5 h-3.5" /> + Nuevo
             </button>
           </div>
 
@@ -843,8 +854,8 @@ export const PresupuestosView: React.FC = () => {
                       EDITANDO: {editForm.number}
                     </span>
                     {editForm.isPersistedBackendDraft && (
-                      <span className="text-[10px] font-mono font-bold bg-blue-50 text-blue-800 border border-blue-300 px-2 py-0.5 rounded flex items-center gap-1">
-                        <Database className="w-3 h-3 text-blue-600" /> PostgreSQL (v{editForm.version ?? 1})
+                      <span className="text-[10px] font-medium bg-blue-50 text-blue-800 border border-blue-200 px-2 py-0.5 rounded flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3 text-blue-600" /> Guardado en taller
                       </span>
                     )}
                   </div>
@@ -1127,8 +1138,8 @@ export const PresupuestosView: React.FC = () => {
                     {getStatusBadge(activeQuote.status)}
 
                     {activeQuote.isPersistedBackendDraft && (
-                      <span className="text-[10px] font-mono font-bold bg-emerald-50 text-emerald-800 border border-emerald-300 px-2 py-0.5 rounded flex items-center gap-1">
-                        <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Borrador Persistido (PostgreSQL{activeQuote.version ? ` v${activeQuote.version}` : ''})
+                      <span className="text-[10px] font-medium bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Guardado
                       </span>
                     )}
 
@@ -1158,7 +1169,7 @@ export const PresupuestosView: React.FC = () => {
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-slate-900 flex items-center gap-1.5">
                     <Sparkles className="w-3.5 h-3.5 text-blue-600" /> 
-                    {activeQuote.isPersistedBackendDraft ? 'Borrador Técnico Oficial (Repair Knowledge):' : 'Estimación de Taller:'}
+                    {activeQuote.isPersistedBackendDraft ? 'Propuesta técnica recomendada:' : 'Estimación de Taller:'}
                   </span>
                   {activeQuote.applicabilityCode && (
                     <span className="text-[10px] font-mono bg-slate-200 text-slate-700 px-2 py-0.5 rounded">
@@ -1225,12 +1236,9 @@ export const PresupuestosView: React.FC = () => {
                           </td>
                           <td className="py-3 px-3">
                             <div className="space-y-0.5">
-                              <span className={`font-semibold ${isDeselected ? 'text-slate-500 line-through' : 'text-slate-900'}`}>{item.description}</span>
-                              {item.repairBomEdgeId && (
-                                <p className="text-[10px] text-slate-400 font-mono">
-                                  BOM Edge: {item.repairBomEdgeId}
-                                </p>
-                              )}
+                              <span className={`font-semibold ${isDeselected ? 'text-slate-500 line-through' : 'text-slate-900'}`}>
+                                {formatPartName(item.description, item.partRoleCode || item.edgeCode, item.category)}
+                              </span>
                               {item.lineSource === 'MANUAL_WORKSHOP' && (
                                 <div>
                                   <span className="text-[9px] font-mono bg-purple-50 text-purple-700 border border-purple-200 px-1 py-0.5 rounded inline-block">
@@ -1282,10 +1290,10 @@ export const PresupuestosView: React.FC = () => {
                                   })
                                 }
                                 className="text-[11px] text-blue-600 hover:text-blue-800 font-bold underline flex items-center justify-center gap-1 mx-auto"
-                                title="Inspeccionar procedencia técnica oficial"
+                                title="Inspeccionar procedencia técnica"
                               >
                                 <Info className="w-3.5 h-3.5" />
-                                <span className="hidden sm:inline">Por qué aparece</span>
+                                <span className="hidden sm:inline">Por qué se recomienda</span>
                               </button>
                             ) : (
                               <span className="text-[10px] text-slate-400">—</span>
@@ -1327,19 +1335,21 @@ export const PresupuestosView: React.FC = () => {
                 </div>
               </div>
 
-              {/* Contract Notice (Honest Technical Transparency) */}
-              <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 text-[11px] text-slate-600 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              {/* Workshop Persistence Status Notice */}
+              <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-600 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <Database className="w-4 h-4 text-blue-600 shrink-0" />
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                   <span>
-                    <strong>Persistencia Técnica:</strong> {activeQuote.isPersistedBackendDraft
-                      ? `Borrador oficial persistido en servidor (ID: ${activeQuote.backendDraftId?.slice(0, 10)}...).`
-                      : 'Borrador almacenado localmente en navegador.'}
+                    {activeQuote.isPersistedBackendDraft
+                      ? 'Presupuesto guardado y sincronizado con el taller.'
+                      : 'Presupuesto en preparación local.'}
                   </span>
                 </div>
-                <span className="font-mono text-[10px] text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded shrink-0">
-                  Bloqueo backend: Falta PATCH /v1/workshop/tenants/:tenantId/estimate-drafts/:draftId
-                </span>
+                {activeQuote.number && (
+                  <span className="font-mono text-[11px] text-slate-500 bg-white border border-slate-200 px-2 py-0.5 rounded shrink-0">
+                    Ref: {activeQuote.number}
+                  </span>
+                )}
               </div>
 
               {/* Action Buttons */}
@@ -1407,10 +1417,14 @@ export const PresupuestosView: React.FC = () => {
       {/* Repair Knowledge Modal (Step flow 1: Query -> 2: Preview -> 3: Create Draft) */}
       <RepairKnowledgeFlowModal
         isOpen={isRkModalOpen}
-        onClose={() => setIsRkModalOpen(false)}
+        onClose={() => {
+          setIsRkModalOpen(false);
+          setInitialRkVehicleId(undefined);
+        }}
         tenantId={tenantId}
         vehicles={vehicles}
         customers={customers}
+        initialVehicleId={initialRkVehicleId}
         onDraftCreated={handleDraftCreatedFromRK}
         onInspectEvidence={(item) => setEvidenceModalItem(item)}
       />
