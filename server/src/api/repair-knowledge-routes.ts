@@ -4,7 +4,8 @@ import { z } from 'zod';
 import { inAuthorizedTenantTransaction } from '../auth/tenant-authorization.js';
 import type { PrincipalContext } from '../auth/principal.js';
 import { assertTenantOperation } from '../modules/tenant-control/tenant-control.js';
-import { createEstimateDraftFromRepairKnowledge, EstimateDraftError } from '../modules/repair-knowledge/estimate-draft.js';
+import type { PiiProtection } from '../security/pii-protection.js';
+import { createEstimateDraftFromRepairKnowledge, createManualEstimateDraft, EstimateDraftError } from '../modules/repair-knowledge/estimate-draft.js';
 import { editEstimateDraft, EstimateDraftEditingError, getEstimateDraft, listEstimateDrafts } from '../modules/repair-knowledge/estimate-draft-editing.js';
 import { listRepairKnowledgeVehicleFacets, resolveRepairKnowledgeProgressively } from '../modules/repair-knowledge/repair-knowledge.js';
 
@@ -39,7 +40,9 @@ const patchBody = z.object({
   lines: z.array(lineChange).max(100).optional(), deleteLineIds: z.array(z.string().uuid()).max(100).optional(),
 }).strict().refine((value) => value.status !== undefined || (value.lines?.length ?? 0) > 0 || (value.deleteLineIds?.length ?? 0) > 0,
   { message: 'at least one change is required' });
-const draftBody = z.object({
+
+const rkDraftBody = z.object({
+  kind: z.literal('repair_knowledge').optional(),
   vehicleId: z.string().uuid(),
   idempotencyKey: z.string().min(8).max(200).regex(/^[A-Za-z0-9._:-]+$/),
   vehicle: z.object({
@@ -52,7 +55,42 @@ const draftBody = z.object({
   repairJobCode: z.string().trim().min(1).max(100),
 }).strict();
 
-export function registerRepairKnowledgeRoutes(app: FastifyInstance, pool: pg.Pool): void {
+const manualDraftBody = z.object({
+  kind: z.literal('manual'),
+  idempotencyKey: z.string().min(8).max(200).regex(/^[A-Za-z0-9._:-]+$/),
+  title: z.string().trim().min(1).max(200).optional(),
+  customerId: z.string().uuid().nullable().optional(),
+  vehicleId: z.string().uuid().nullable().optional(),
+  appointmentId: z.string().uuid().nullable().optional(),
+  customerSnapshot: z.object({
+    name: z.string().trim().max(200).optional(),
+    phone: z.string().trim().max(50).optional(),
+    email: z.string().trim().max(200).optional(),
+  }).strict().optional(),
+  vehicleSnapshot: z.object({
+    plate: z.string().trim().max(20).optional(),
+    make: z.string().trim().max(100).optional(),
+    model: z.string().trim().max(100).optional(),
+    year: z.number().int().min(1900).max(2100).optional(),
+    vin: z.string().trim().max(50).optional(),
+  }).strict().optional(),
+  lines: z.array(z.object({
+    mutationKey: z.string().min(4).max(200).regex(/^[A-Za-z0-9._:-]+$/),
+    description: z.string().trim().min(1).max(500),
+    itemType: z.enum(['PART_ROLE', 'CONSUMABLE', 'LABOR']),
+    quantity: z.number().positive().max(100000).nullable(),
+    unitPrice: z.number().nonnegative().max(9999999999.99).nullable(),
+    currency: z.string().length(3).transform((v) => v.toUpperCase()).nullable(),
+    selected: z.boolean().default(true),
+  })).max(100).optional(),
+}).strict();
+
+const draftPayloadSchema = z.union([
+  manualDraftBody,
+  rkDraftBody,
+]);
+
+export function registerRepairKnowledgeRoutes(app: FastifyInstance, pool: pg.Pool, pii?: PiiProtection): void {
   const auth = { config: { auth: { mode: 'authenticated' as const, audience: 'workshop' as const, principalKinds: ['workshop_user' as const] } } };
 
   app.get('/v1/workshop/tenants/:tenantId/repair-knowledge/resolve', auth, async (request, reply) => {
@@ -76,13 +114,19 @@ export function registerRepairKnowledgeRoutes(app: FastifyInstance, pool: pg.Poo
 
   app.post('/v1/workshop/tenants/:tenantId/estimate-drafts', auth, async (request, reply) => {
     const params = tenantParams.safeParse(request.params);
-    const body = draftBody.safeParse(request.body);
+    const body = draftPayloadSchema.safeParse(request.body);
     if (!params.success || !body.success) return reply.code(400).send({ error: 'INVALID_ESTIMATE_DRAFT_COMMAND', correlationId: request.id });
     if (!request.principal) return reply.code(401).send({ error: 'AUTHENTICATION_REQUIRED' });
     await authorize(pool, request.principal, params.data.tenantId, 'workshop:estimate-drafts:create', request.id);
     try {
-      const draft = await createEstimateDraftFromRepairKnowledge(pool, { tenantId: params.data.tenantId, ...body.data });
-      return reply.code(201).send({ data: draft, correlationId: request.id });
+      if ('kind' in body.data && body.data.kind === 'manual') {
+        if (!pii) throw new Error('PII_PROTECTION_REQUIRED');
+        const draft = await createManualEstimateDraft(pool, pii, { tenantId: params.data.tenantId, ...body.data });
+        return reply.code(201).send({ data: draft, correlationId: request.id });
+      } else {
+        const draft = await createEstimateDraftFromRepairKnowledge(pool, { tenantId: params.data.tenantId, ...(body.data as z.infer<typeof rkDraftBody>) });
+        return reply.code(201).send({ data: draft, correlationId: request.id });
+      }
     } catch (error) {
       if (!(error instanceof EstimateDraftError)) throw error;
       const status = error.code === 'REPAIR_KNOWLEDGE_NOT_APPLICABLE' || error.code === 'VEHICLE_NOT_FOUND' ? 404
@@ -98,7 +142,7 @@ export function registerRepairKnowledgeRoutes(app: FastifyInstance, pool: pg.Poo
     if (!request.principal) return reply.code(401).send({ error: 'AUTHENTICATION_REQUIRED' });
     const data = await inAuthorizedTenantTransaction(pool, { principal: request.principal, requestedTenantId: params.data.tenantId,
       capability: 'workshop:estimate-drafts:read', correlationId: request.id },
-    async (client, context) => { await assertTenantOperation(client, context.tenantId, 'workshop_read'); return listEstimateDrafts(client); });
+    async (client, context) => { await assertTenantOperation(client, context.tenantId, 'workshop_read'); return listEstimateDrafts(client, pii); });
     return { data, correlationId: request.id };
   });
 
@@ -109,7 +153,7 @@ export function registerRepairKnowledgeRoutes(app: FastifyInstance, pool: pg.Poo
     try {
       const data = await inAuthorizedTenantTransaction(pool, { principal: request.principal, requestedTenantId: params.data.tenantId,
         capability: 'workshop:estimate-drafts:read', correlationId: request.id },
-      async (client, context) => { await assertTenantOperation(client, context.tenantId, 'workshop_read'); return getEstimateDraft(client, params.data.draftId); });
+      async (client, context) => { await assertTenantOperation(client, context.tenantId, 'workshop_read'); return getEstimateDraft(client, params.data.draftId, pii); });
       return { data, correlationId: request.id };
     } catch (error) { return editingError(error, reply, request.id); }
   });
@@ -122,7 +166,7 @@ export function registerRepairKnowledgeRoutes(app: FastifyInstance, pool: pg.Poo
       const data = await inAuthorizedTenantTransaction(pool, { principal: request.principal, requestedTenantId: params.data.tenantId,
         capability: 'workshop:estimate-drafts:update', correlationId: request.id }, async (client, context) => {
           await assertTenantOperation(client, context.tenantId, 'domain_mutation');
-          return editEstimateDraft(client, context.tenantId, params.data.draftId, body.data);
+          return editEstimateDraft(client, context.tenantId, params.data.draftId, body.data, pii);
         });
       return { data, correlationId: request.id };
     } catch (error) { return editingError(error, reply, request.id); }

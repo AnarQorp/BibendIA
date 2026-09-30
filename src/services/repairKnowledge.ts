@@ -12,7 +12,8 @@ import type {
   EstimateAutomationStatus,
   RepairEvidence,
   RepairKnowledgeFacets,
-  RepairKnowledgeDisambiguation
+  RepairKnowledgeDisambiguation,
+  CreateManualEstimateDraftCommand
 } from '../types';
 import type { Vehicle } from '../types';
 import { isExplicitDevOrOffline } from './vehicleCatalog';
@@ -716,6 +717,49 @@ export async function createEstimateDraft(
   };
 }
 
+export async function createManualEstimateDraft(
+  tenantId: string,
+  command: CreateManualEstimateDraftCommand,
+  baseUrl = ''
+): Promise<CreateEstimateDraftState> {
+  if (!tenantId) {
+    return { status: 'error', message: 'Se requiere tenantId para crear el borrador manual.' };
+  }
+
+  let failureMessage = 'No se pudo crear el borrador manual en el servidor.';
+  try {
+    const res = await fetch(`${baseUrl}/v1/workshop/tenants/${encodeURIComponent(tenantId)}/estimate-drafts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(command)
+    });
+
+    if (res.status === 401 || res.status === 403) {
+      return { status: 'unauthorized', message: 'No autorizado para crear borradores de presupuesto.' };
+    }
+
+    if (res.status === 409) {
+      return { status: 'conflict', message: 'Conflicto de idempotencia en la creación del borrador manual.' };
+    }
+
+    if (res.status === 201 || res.ok) {
+      const json = await res.json();
+      return {
+        status: 'success',
+        data: json.data,
+        correlationId: json.correlationId
+      };
+    }
+    const error = await res.json().catch(() => ({}));
+    failureMessage = error.error || `HTTP ${res.status}`;
+  } catch (error) {
+    failureMessage = error instanceof Error ? error.message : failureMessage;
+  }
+
+  return { status: 'error', message: failureMessage };
+}
+
 export interface FetchEstimateDraftsState {
   status: 'idle' | 'loading' | 'success' | 'empty' | 'unauthorized' | 'error';
   data?: EstimateDraftSummary[];
@@ -863,10 +907,18 @@ export function convertEstimateDraftToQuote(
   customerName = 'Cliente Taller',
   vehiclePlate = '7731 CKB'
 ): Quote {
-  const quoteNumber = `PRE-RK-${draft.id.slice(-6).toUpperCase()}`;
+  const isManual = draft.draftType === 'MANUAL_WORKSHOP';
+  const quoteNumber = isManual
+    ? `PRE-MAN-${draft.id.slice(-6).toUpperCase()}`
+    : `PRE-RK-${draft.id.slice(-6).toUpperCase()}`;
+
+  const resolvedCustomerName = draft.customerSnapshot?.name || customerName;
+  const resolvedVehiclePlate = draft.vehicleSnapshot?.plate || vehiclePlate;
 
   // Labor line from operation
-  const operationName = draft.operation?.name || 'Mano de obra de taller';
+  const operationName = isManual
+    ? (draft.title || 'Presupuesto manual')
+    : (draft.operation?.name || 'Mano de obra de taller');
   const persistedLaborLines = (draft.lines || []).filter((line) => line.itemType === 'LABOR');
   const laborItem: QuoteItem = {
     id: `labor-${draft.id}`,
@@ -874,17 +926,17 @@ export function convertEstimateDraftToQuote(
     category: 'labor',
     itemType: 'LABOR',
     description: operationName,
-    quantity: 3.5, // 3.5 standard workshop hours for timing belt + water pump
+    quantity: isManual ? 1.0 : 3.5, // Standard labor hours
     unitPrice: draft.operation?.unitPrice ?? null,
-    total: (draft.operation?.unitPrice !== null && draft.operation?.unitPrice !== undefined) ? Math.round(draft.operation.unitPrice * 3.5 * 100) / 100 : null,
+    total: (draft.operation?.unitPrice !== null && draft.operation?.unitPrice !== undefined) ? Math.round(draft.operation.unitPrice * (isManual ? 1.0 : 3.5) * 100) / 100 : null,
     currency: draft.operation?.currency ?? null,
     pricingStatus: draft.operation?.pricingStatus ?? 'PENDING',
     automationStatus: 'AUTO_INCLUDED',
     reviewRequired: false,
-    confidenceState: 'VERIFIED_OEM',
+    confidenceState: isManual ? 'UNKNOWN' : 'VERIFIED_OEM',
     isLocallyModified: false,
     selected: true,
-    lineSource: 'REPAIR_KNOWLEDGE'
+    lineSource: isManual ? 'MANUAL_WORKSHOP' : 'REPAIR_KNOWLEDGE'
   };
 
   // Part lines from draft lines
@@ -908,7 +960,7 @@ export function convertEstimateDraftToQuote(
       evidence: line.evidence,
       confidenceReason: line.confidenceReason,
       isLocallyModified: false,
-      lineSource: line.lineSource || 'REPAIR_KNOWLEDGE',
+      lineSource: line.lineSource || (isManual ? 'MANUAL_WORKSHOP' : 'REPAIR_KNOWLEDGE'),
       pricingProvenance: line.pricingProvenance,
       selected: line.selected !== false,
       partRoleCode: line.partRoleCode,
@@ -918,9 +970,12 @@ export function convertEstimateDraftToQuote(
     };
   });
 
-  const allItems = persistedLaborLines.length > 0 ? partItems : [laborItem, ...partItems];
+  const allItems = (isManual && draft.lines && draft.lines.length > 0) || persistedLaborLines.length > 0
+    ? partItems
+    : (isManual && (!draft.lines || draft.lines.length === 0) ? [] : [laborItem, ...partItems]);
+
   const selectedItems = allItems.filter(i => i.selected !== false);
-  const allSelectedPriced = selectedItems.every(i => i.unitPrice !== null && i.pricingStatus !== 'PENDING');
+  const allSelectedPriced = selectedItems.length > 0 && selectedItems.every(i => i.unitPrice !== null && i.pricingStatus !== 'PENDING');
 
   let subtotal: number | null = null;
   let tax: number | null = null;
@@ -932,6 +987,11 @@ export function convertEstimateDraftToQuote(
     total = Math.round((subtotal + tax) * 100) / 100;
   }
 
+  // Calculate total labor hours from selected labor items
+  const laborHours = selectedItems
+    .filter(i => i.category === 'labor' || i.itemType === 'LABOR')
+    .reduce((sum, item) => sum + (item.quantity ?? 0), 0);
+
   // Status mapping: technical_draft is shown as draft (Borrador)
   let quoteStatus: Quote['status'] = 'draft';
   if (draft.status === 'pending_approval') quoteStatus = 'pending_approval';
@@ -941,8 +1001,8 @@ export function convertEstimateDraftToQuote(
   return {
     id: draft.id,
     number: quoteNumber,
-    customerId: '',
-    vehicleId: draft.vehicleId,
+    customerId: draft.customerId ?? '',
+    vehicleId: draft.vehicleId ?? '',
     title: operationName,
     createdDate: draft.createdAt ? new Date(draft.createdAt).toLocaleDateString('es-ES') : 'Hoy',
     status: quoteStatus,
@@ -950,19 +1010,21 @@ export function convertEstimateDraftToQuote(
     subtotal,
     tax,
     total,
-    estimatedLaborHours: 3.5,
-    aiRationale: 'Propuesta técnica elaborada a partir del conocimiento técnico verificado para este vehículo y motorización.',
+    estimatedLaborHours: laborHours > 0 ? laborHours : (isManual ? 0 : 3.5),
+    aiRationale: isManual
+      ? 'Presupuesto manual elaborado y personalizado por el taller.'
+      : 'Propuesta técnica elaborada a partir del conocimiento técnico verificado para este vehículo y motorización.',
     uncertaintyWarning: allSelectedPriced
       ? undefined
-      : 'Precios pendientes de asignación por el taller o DMS. Las piezas obligatorias han sido incluidas según manual OEM.',
-    customerName,
-    vehiclePlate,
+      : (isManual ? 'Precios pendientes de asignación por el taller.' : 'Precios pendientes de asignación por el taller o DMS. Las piezas obligatorias han sido incluidas según manual OEM.'),
+    customerName: resolvedCustomerName,
+    vehiclePlate: resolvedVehiclePlate,
     backendDraftId: draft.id,
     isPersistedBackendDraft: true,
     hasUnsavedLocalChanges: false,
-    knowledgeRevision: draft.knowledgeRevision,
-    applicabilityCode: draft.applicabilityCode,
-    repairJobCode: draft.repairJobCode,
+    knowledgeRevision: draft.knowledgeRevision ?? undefined,
+    applicabilityCode: draft.applicabilityCode ?? undefined,
+    repairJobCode: draft.repairJobCode ?? undefined,
     idempotencyKey: draft.idempotencyKey,
     version: draft.version,
     backendDraft: draft

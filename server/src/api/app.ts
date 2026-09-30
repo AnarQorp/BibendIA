@@ -29,6 +29,7 @@ import { localIsoDateTime } from './provider-local-time.js';
 import { resolveServiceDuration, ServiceDurationPolicyError, serviceIntentSchema } from '../modules/scheduling/service-duration-policy.js';
 import { registerRepairKnowledgeRoutes } from './repair-knowledge-routes.js';
 import { registerVehicleCatalogRoutes } from './vehicle-catalog-routes.js';
+import { registerWorkshopOperationsRoutes } from './workshop-operations-routes.js';
 
 export type ApiSecurityOptions = {
   authentication?: AuthenticationAdapter;
@@ -117,17 +118,18 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
         `SELECT a.id,a.tenant_id,a.workshop_id,a.case_id,a.customer_id,a.vehicle_id,a.identity_resolution_status,
           a.identity_claim_ciphertext,a.identity_claim_nonce,a.identity_claim_auth_tag,a.identity_claim_key_id,a.service_request,
           a.sensitive_details_ciphertext,a.sensitive_details_nonce,a.sensitive_details_auth_tag,a.sensitive_details_key_id,
-          a.start_at,a.end_at,a.status,a.confirmation_evidence_ref,a.version,
+          a.start_at,a.end_at,a.status,a.confirmation_evidence_ref,a.version,a.origin,
           c.display_name_ciphertext AS customer_name_ciphertext,c.display_name_nonce AS customer_name_nonce,
           c.display_name_auth_tag AS customer_name_auth_tag,c.display_name_key_id AS customer_name_key_id,
           v.plate_ciphertext AS vehicle_plate_ciphertext,v.plate_nonce AS vehicle_plate_nonce,
-          v.plate_auth_tag AS vehicle_plate_auth_tag,v.plate_key_id AS vehicle_plate_key_id
+          v.plate_auth_tag AS vehicle_plate_auth_tag,v.plate_key_id AS vehicle_plate_key_id,
+          v.make AS vehicle_make, v.model AS vehicle_model
          FROM appointments a
          LEFT JOIN customers c ON c.id=a.customer_id AND c.tenant_id=a.tenant_id
          LEFT JOIN vehicles v ON v.id=a.vehicle_id AND v.tenant_id=a.tenant_id
          WHERE a.tenant_id=$1 AND a.pii_migration_state='protected'
-           AND (a.identity_resolution_status='provisional_ambiguous'
-             OR (c.pii_migration_state='protected' AND v.pii_migration_state='protected'))
+           AND (a.identity_resolution_status IN ('provisional_ambiguous', 'workshop_manual')
+             OR ((c.id IS NULL OR c.pii_migration_state='protected') AND (v.id IS NULL OR v.pii_migration_state='protected')))
          ORDER BY a.start_at`, [context.tenantId],
       );
       return result.rows.map((row) => revealWorkshopAppointment(row, pii));
@@ -215,7 +217,8 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
     });
   }
   registerPlatformAdminRoutes(app,pool);
-  registerRepairKnowledgeRoutes(app,pool);
+  registerRepairKnowledgeRoutes(app,pool,pii);
+  registerWorkshopOperationsRoutes(app,pool,pii);
   registerPublicLeadRoute(app,pool,pii,options.publicLead);
   app.post('/v1/providers/twilio/voice/events', {
     config: { rawBody: true, auth: { mode: 'authenticated', audience: 'provider', principalKinds: ['service'] } },
@@ -498,44 +501,68 @@ function voiceProviderPrincipal(principal: PrincipalContext | null, reply: { cod
 }
 
 type ProtectedAppointmentRow = {
-  id: string; tenant_id: string; workshop_id: string; case_id: string; customer_id: string | null; vehicle_id: string | null;
-  identity_resolution_status: 'verified' | 'provisional_new' | 'provisional_ambiguous';
+  id: string; tenant_id: string; workshop_id: string; case_id: string | null; customer_id: string | null; vehicle_id: string | null;
+  identity_resolution_status: 'verified' | 'provisional_new' | 'provisional_ambiguous' | 'workshop_manual';
   identity_claim_ciphertext: Buffer | null; identity_claim_nonce: Buffer | null;
   identity_claim_auth_tag: Buffer | null; identity_claim_key_id: string | null;
   service_request: Record<string, unknown>;
   sensitive_details_ciphertext: Buffer; sensitive_details_nonce: Buffer; sensitive_details_auth_tag: Buffer; sensitive_details_key_id: string;
   customer_name_ciphertext: Buffer | null; customer_name_nonce: Buffer | null; customer_name_auth_tag: Buffer | null; customer_name_key_id: string | null;
   vehicle_plate_ciphertext: Buffer | null; vehicle_plate_nonce: Buffer | null; vehicle_plate_auth_tag: Buffer | null; vehicle_plate_key_id: string | null;
-  start_at: Date; end_at: Date; status: string; confirmation_evidence_ref: string; version: number;
+  vehicle_make?: string | null; vehicle_model?: string | null;
+  start_at: Date; end_at: Date; status: string; confirmation_evidence_ref: string | null; version: number; origin?: string;
 };
 
 function revealWorkshopAppointment(row: ProtectedAppointmentRow, pii: PiiProtection) {
-  const sensitive = JSON.parse(pii.reveal(row.tenant_id, 'appointment.sensitive_details', {
-    ciphertext: row.sensitive_details_ciphertext, nonce: row.sensitive_details_nonce,
-    authTag: row.sensitive_details_auth_tag, keyId: row.sensitive_details_key_id,
-  })) as { symptoms: string[]; notes?: string };
-  const identity = row.identity_resolution_status === 'provisional_ambiguous'
-    ? JSON.parse(pii.reveal(row.tenant_id, 'appointment.identity_claim', {
-      ciphertext: row.identity_claim_ciphertext!, nonce: row.identity_claim_nonce!,
-      authTag: row.identity_claim_auth_tag!, keyId: row.identity_claim_key_id!,
-    })) as { customerName: string; plate: string }
-    : {
-      customerName: pii.reveal(row.tenant_id, 'customer.display_name', {
-        ciphertext: row.customer_name_ciphertext!, nonce: row.customer_name_nonce!,
-        authTag: row.customer_name_auth_tag!, keyId: row.customer_name_key_id!,
-      }),
-      plate: pii.reveal(row.tenant_id, 'vehicle.plate', {
-        ciphertext: row.vehicle_plate_ciphertext!, nonce: row.vehicle_plate_nonce!,
-        authTag: row.vehicle_plate_auth_tag!, keyId: row.vehicle_plate_key_id!,
-      }),
-    };
+  let sensitive: { symptoms: string[]; notes?: string } = { symptoms: [] };
+  if (row.sensitive_details_ciphertext) {
+    try {
+      sensitive = JSON.parse(pii.reveal(row.tenant_id, 'appointment.sensitive_details', {
+        ciphertext: row.sensitive_details_ciphertext, nonce: row.sensitive_details_nonce,
+        authTag: row.sensitive_details_auth_tag, keyId: row.sensitive_details_key_id,
+      })) as { symptoms: string[]; notes?: string };
+    } catch { /* ignore */ }
+  }
+
+  let customerName = 'Cliente';
+  let plate = 'Sin matrícula';
+
+  if (row.customer_name_ciphertext) {
+    customerName = pii.reveal(row.tenant_id, 'customer.display_name', {
+      ciphertext: row.customer_name_ciphertext, nonce: row.customer_name_nonce!,
+      authTag: row.customer_name_auth_tag!, keyId: row.customer_name_key_id!,
+    });
+  }
+  if (row.vehicle_plate_ciphertext) {
+    plate = pii.reveal(row.tenant_id, 'vehicle.plate', {
+      ciphertext: row.vehicle_plate_ciphertext, nonce: row.vehicle_plate_nonce!,
+      authTag: row.vehicle_plate_auth_tag!, keyId: row.vehicle_plate_key_id!,
+    });
+  } else if (row.vehicle_make || row.vehicle_model) {
+    plate = [row.vehicle_make, row.vehicle_model].filter(Boolean).join(' ');
+  }
+
+  if (row.identity_claim_ciphertext && (!row.customer_name_ciphertext || !row.vehicle_plate_ciphertext)) {
+    try {
+      const claim = JSON.parse(pii.reveal(row.tenant_id, 'appointment.identity_claim', {
+        ciphertext: row.identity_claim_ciphertext, nonce: row.identity_claim_nonce!,
+        authTag: row.identity_claim_auth_tag!, keyId: row.identity_claim_key_id!,
+      })) as { customerName?: string; plate?: string; vehicleDescription?: string };
+      if (!row.customer_name_ciphertext && claim.customerName) customerName = claim.customerName;
+      if (!row.vehicle_plate_ciphertext && (claim.plate || claim.vehicleDescription)) {
+        plate = claim.plate || claim.vehicleDescription || plate;
+      }
+    } catch { /* ignore */ }
+  }
+
   return {
     id: row.id, tenant_id: row.tenant_id, workshop_id: row.workshop_id, case_id: row.case_id,
     customer_id: row.customer_id, vehicle_id: row.vehicle_id, identity_resolution: row.identity_resolution_status,
     service_request: { ...row.service_request, symptoms: sensitive.symptoms, notes: sensitive.notes },
     start_at: row.start_at, end_at: row.end_at, status: row.status,
     confirmation_evidence_ref: row.confirmation_evidence_ref, version: row.version,
-    customer_name: identity.customerName,
-    vehicle_plate: identity.plate,
+    origin: row.origin ?? 'voice_phone',
+    customer_name: customerName,
+    vehicle_plate: plate,
   };
 }

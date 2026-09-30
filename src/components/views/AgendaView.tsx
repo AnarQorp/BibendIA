@@ -19,7 +19,8 @@ import {
   Filter,
   CheckCircle2,
   X,
-  FileText
+  FileText,
+  Plus
 } from 'lucide-react';
 import {
   fetchWorkshopAppointments,
@@ -29,6 +30,7 @@ import {
 import { loadHumanSession } from '../../services/humanSession';
 import type { WorkshopAppointmentResponse } from '../../types';
 import { formatAppointmentSource } from '../../utils/workshopFormatters';
+import { ManualAppointmentModal } from './ManualAppointmentModal';
 
 export interface AgendaViewProps {
   tenantId?: string | null;
@@ -46,7 +48,7 @@ interface NormalizedAppointment {
   durationMinutes: number;
   status: string;
   source: 'phone_ai' | 'workshop' | 'web';
-  evidenceRef?: string;
+  evidenceRef?: string | null;
   version?: number;
   raw?: any;
 }
@@ -103,6 +105,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
   const [viewMode, setViewMode] = useState<'week' | 'month' | 'day'>('week');
   const [currentDate, setCurrentDate] = useState<Date>(new Date(2026, 8, 29)); // Default to Sep 29, 2026 or today
   const [selectedAppointment, setSelectedAppointment] = useState<NormalizedAppointment | null>(null);
+  const [isManualAppointmentModalOpen, setIsManualAppointmentModalOpen] = useState(false);
 
   // Real Backend Data State
   const [realState, setRealState] = useState<WorkshopAppointmentsState>({ status: 'idle' });
@@ -161,7 +164,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
           symptoms: app.service_request?.symptoms || [],
           durationMinutes: app.service_request?.estimated_duration_minutes || duration,
           status: app.status || 'confirmed',
-          source: 'phone_ai',
+          source: app.origin === 'workshop_manual' ? 'workshop' : (app.origin === 'web_lead' ? 'web' : 'phone_ai'),
           evidenceRef: app.confirmation_evidence_ref,
           version: app.version,
           raw: app
@@ -309,6 +312,18 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
                 Mensual
               </button>
             </div>
+
+            {/* New Manual Appointment Button */}
+            {activeTenantId && (
+              <button
+                onClick={() => setIsManualAppointmentModalOpen(true)}
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition shadow-xs"
+                title="Crear cita manual de taller"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>+ Nueva Cita</span>
+              </button>
+            )}
 
             {/* Sync Button */}
             {!demoModeActive && activeTenantId && (
@@ -751,24 +766,54 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
             </div>
 
             {/* Modal Actions */}
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 pt-2 border-t border-slate-100">
-              <button
-                type="button"
-                onClick={() => {
-                  const targetVehicleId = selectedAppointment.raw?.vehicle_id || '';
-                  const params = new URLSearchParams();
-                  params.set('new', 'rk');
-                  if (targetVehicleId) params.set('vehicleId', targetVehicleId);
-                  if (selectedAppointment.vehiclePlate) params.set('plate', selectedAppointment.vehiclePlate);
-                  if (selectedAppointment.serviceTitle) params.set('reason', selectedAppointment.serviceTitle);
-                  setSelectedAppointment(null);
-                  navigate(`/presupuestos?${params.toString()}`);
-                }}
-                className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 shadow-sm"
-              >
-                <FileText className="w-3.5 h-3.5" />
-                <span>Preparar Presupuesto</span>
-              </button>
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 pt-2 border-t border-slate-100">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const targetVehicleId = selectedAppointment.raw?.vehicle_id || '';
+                    const params = new URLSearchParams();
+                    params.set('new', 'rk');
+                    if (targetVehicleId) params.set('vehicleId', targetVehicleId);
+                    if (selectedAppointment.vehiclePlate && selectedAppointment.vehiclePlate !== '—') {
+                      params.set('plate', selectedAppointment.vehiclePlate);
+                    }
+                    if (selectedAppointment.serviceTitle) params.set('reason', selectedAppointment.serviceTitle);
+                    setSelectedAppointment(null);
+                    navigate(`/presupuestos?${params.toString()}`);
+                  }}
+                  className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-extrabold transition flex items-center justify-center gap-1.5 shadow-xs"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                  <span>Presupuesto con RK</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const targetVehicleId = selectedAppointment.raw?.vehicle_id || '';
+                    const targetCustomerId = selectedAppointment.raw?.customer_id || '';
+                    const params = new URLSearchParams();
+                    params.set('new', 'manual');
+                    params.set('appointmentId', selectedAppointment.id);
+                    if (targetVehicleId) params.set('vehicleId', targetVehicleId);
+                    if (targetCustomerId) params.set('customerId', targetCustomerId);
+                    if (selectedAppointment.customerName && selectedAppointment.customerName !== 'Cliente Verificado' && selectedAppointment.customerName !== 'Cliente') {
+                      params.set('customerName', selectedAppointment.customerName);
+                    }
+                    if (selectedAppointment.vehiclePlate && selectedAppointment.vehiclePlate !== '—') {
+                      params.set('plate', selectedAppointment.vehiclePlate);
+                    }
+                    if (selectedAppointment.serviceTitle) params.set('reason', selectedAppointment.serviceTitle);
+                    setSelectedAppointment(null);
+                    navigate(`/presupuestos?${params.toString()}`);
+                  }}
+                  className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Presupuesto Manual</span>
+                </button>
+              </div>
 
               <button
                 type="button"
@@ -829,6 +874,18 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
             </form>
           </div>
         </div>
+      )}
+
+      {/* Manual Appointment Modal */}
+      {activeTenantId && (
+        <ManualAppointmentModal
+          isOpen={isManualAppointmentModalOpen}
+          onClose={() => setIsManualAppointmentModalOpen(false)}
+          tenantId={activeTenantId}
+          onAppointmentCreated={() => {
+            loadRealAppointments(activeTenantId);
+          }}
+        />
       )}
 
     </div>

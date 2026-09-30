@@ -4,7 +4,8 @@ import type {
   Quote, 
   QuoteItem, 
   EstimateAutomationStatus, 
-  RepairEvidence
+  RepairEvidence,
+  EstimateDraft
 } from '../../types';
 import { 
   FileText, 
@@ -35,6 +36,9 @@ import {
 } from 'lucide-react';
 import { RepairKnowledgeFlowModal } from './RepairKnowledgeFlowModal';
 import { RepairEvidenceModal } from './RepairEvidenceModal';
+import { ManualEstimateModal } from './ManualEstimateModal';
+import { ManualCustomerModal } from './ManualCustomerModal';
+import { ManualVehicleModal } from './ManualVehicleModal';
 import { 
   fetchEstimateDrafts,
   fetchEstimateDraftById,
@@ -153,6 +157,22 @@ export const PresupuestosView: React.FC = () => {
   const [initialRkVehicleId, setInitialRkVehicleId] = useState<string | undefined>(undefined);
   const [initialRkPlate, setInitialRkPlate] = useState<string | undefined>(undefined);
 
+  // Manual Operations Foundation Modals
+  const [isManualModalOpen, setIsManualModalOpen] = useState(false);
+  const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
+  const [isVehicleModalOpen, setIsVehicleModalOpen] = useState(false);
+  const [manualModalParams, setManualModalParams] = useState<{
+    title?: string;
+    plate?: string;
+    make?: string;
+    model?: string;
+    vehicleId?: string;
+    customerName?: string;
+    customerPhone?: string;
+    customerId?: string;
+    appointmentId?: string;
+  }>({});
+
   useEffect(() => {
     if (searchParams.get('new') === 'rk') {
       const vId = searchParams.get('vehicleId');
@@ -160,6 +180,19 @@ export const PresupuestosView: React.FC = () => {
       if (vId) setInitialRkVehicleId(vId);
       if (plate) setInitialRkPlate(plate);
       setIsRkModalOpen(true);
+    } else if (searchParams.get('new') === 'manual') {
+      setManualModalParams({
+        title: searchParams.get('reason') || searchParams.get('title') || undefined,
+        plate: searchParams.get('plate') || undefined,
+        make: searchParams.get('make') || undefined,
+        model: searchParams.get('model') || undefined,
+        vehicleId: searchParams.get('vehicleId') || undefined,
+        customerName: searchParams.get('customerName') || undefined,
+        customerPhone: searchParams.get('customerPhone') || undefined,
+        customerId: searchParams.get('customerId') || undefined,
+        appointmentId: searchParams.get('appointmentId') || undefined,
+      });
+      setIsManualModalOpen(true);
     }
   }, [searchParams]);
   const [evidenceModalItem, setEvidenceModalItem] = useState<{
@@ -207,6 +240,34 @@ export const PresupuestosView: React.FC = () => {
       setMobileView('detail');
       setFeedbackNotice({ type: 'success', text: 'Borrador de presupuesto generado. Puedes editarlo antes de aprobar.' });
     }
+  };
+
+  const handleOpenManualModal = (params?: typeof manualModalParams) => {
+    if (tenantId) {
+      if (params) setManualModalParams(params);
+      else setManualModalParams({});
+      setIsManualModalOpen(true);
+    } else {
+      handleStartNewQuote();
+    }
+  };
+
+  const handleManualDraftCreated = (draft: EstimateDraft) => {
+    const quote = convertEstimateDraftToQuote(
+      draft,
+      draft.customerSnapshot?.name || 'Cliente Taller',
+      draft.vehicleSnapshot?.plate || '—'
+    );
+    setPostgresQuotes(prev => [quote, ...prev.filter(q => q.id !== quote.id)]);
+    addQuote(quote);
+    setSelectedQuoteId(quote.id);
+    setMobileView('detail');
+    setIsEditing(true);
+    setEditForm(JSON.parse(JSON.stringify(quote)));
+    setFeedbackNotice({
+      type: 'success',
+      text: `Presupuesto manual ${quote.number} creado y guardado en taller. Ya puedes detallar recambios o mano de obra.`
+    });
   };
 
   const handleStartNewQuote = () => {
@@ -261,6 +322,14 @@ export const PresupuestosView: React.FC = () => {
   };
 
   const handleStartManualQuoteFromContext = (context?: { plate?: string; vin?: string; make?: string; model?: string }) => {
+    if (tenantId) {
+      handleOpenManualModal({
+        plate: context?.plate,
+        make: context?.make,
+        model: context?.model,
+      });
+      return;
+    }
     const newId = `q-${Date.now()}`;
     const nextNumber = `PRE-2026-${String(allQuotes.length + 1).padStart(3, '0')}`;
     const vehicleTitle = context?.make && context?.model ? `${context.make} ${context.model}` : 'Vehículo';
@@ -560,12 +629,26 @@ export const PresupuestosView: React.FC = () => {
 
     // Check if quote was a persistent backend draft in PostgreSQL (RK04)
     if (editForm.isPersistedBackendDraft && editForm.backendDraftId) {
-      setIsSaving(true);
       const expectedVersion = editForm.version ?? 1;
       const idempotencyKey = `save-${editForm.backendDraftId}-v${expectedVersion}-${Date.now()}`;
 
       const command = buildEstimateDraftEditCommand(editForm, idempotencyKey, deletedManualLineIds);
+      const hasChanges = (command.lines && command.lines.length > 0) ||
+                         (command.deleteLineIds && command.deleteLineIds.length > 0) ||
+                         command.status !== undefined;
 
+      if (!hasChanges) {
+        setIsEditing(false);
+        setEditForm(null);
+        setDeletedManualLineIds([]);
+        setFeedbackNotice({
+          type: 'success',
+          text: `Presupuesto ${editForm.number} sin modificaciones pendientes.`
+        });
+        return;
+      }
+
+      setIsSaving(true);
       const result = await patchEstimateDraft(tenantId, editForm.backendDraftId, command);
       setIsSaving(false);
 
@@ -733,7 +816,7 @@ export const PresupuestosView: React.FC = () => {
 
             {/* Secondary Manual Draft Button */}
             <button
-              onClick={handleStartNewQuote}
+              onClick={() => handleOpenManualModal()}
               className="px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all border border-slate-300 shrink-0"
             >
               <Plus className="w-4 h-4" />
@@ -1173,6 +1256,12 @@ export const PresupuestosView: React.FC = () => {
                       </span>
                     )}
 
+                    {activeQuote.backendDraft?.draftType === 'MANUAL_WORKSHOP' && (
+                      <span className="text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-200 px-2 py-0.5 rounded flex items-center gap-1">
+                        <Wrench className="w-3 h-3 text-purple-600" /> Presupuesto Manual
+                      </span>
+                    )}
+
                     {activeQuote.hasUnsavedLocalChanges && !activeQuote.isPersistedBackendDraft && (
                       <span className="text-[10px] font-mono font-bold bg-amber-50 text-amber-800 border border-amber-300 px-2 py-0.5 rounded flex items-center gap-1">
                         <AlertTriangle className="w-3 h-3 text-amber-600" /> Modificaciones Locales
@@ -1221,6 +1310,41 @@ export const PresupuestosView: React.FC = () => {
                     <p className="text-[11px] text-amber-800 leading-relaxed">
                       El borrador técnico original está guardado, pero las modificaciones realizadas manualmente en las líneas aún no se han sincronizado.
                     </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Unpersisted Customer / Vehicle Snapshot Banner */}
+              {(!activeQuote.customerId || !activeQuote.vehicleId) && (activeQuote.backendDraft?.customerSnapshot || activeQuote.backendDraft?.vehicleSnapshot) && (
+                <div className="p-3.5 bg-blue-50/70 border border-blue-200 rounded-xl text-xs text-blue-900 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-start gap-2.5">
+                    <Info className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-bold">Ficha de cliente o vehículo pendiente de consolidar</p>
+                      <p className="text-[11px] text-blue-700">
+                        Este presupuesto se creó con datos libres. Puedes guardar una ficha fija en el taller para reutilizarla en futuras citas o presupuestos.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {!activeQuote.customerId && (
+                      <button
+                        type="button"
+                        onClick={() => setIsCustomerModalOpen(true)}
+                        className="px-3 py-1.5 bg-white border border-blue-300 text-blue-700 hover:bg-blue-100/60 font-bold rounded-lg text-2xs transition"
+                      >
+                        Guardar Cliente en Ficha
+                      </button>
+                    )}
+                    {!activeQuote.vehicleId && (
+                      <button
+                        type="button"
+                        onClick={() => setIsVehicleModalOpen(true)}
+                        className="px-3 py-1.5 bg-blue-600 text-white hover:bg-blue-700 font-bold rounded-lg text-2xs transition shadow-2xs"
+                      >
+                        Guardar Vehículo en Ficha
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
@@ -1482,6 +1606,61 @@ export const PresupuestosView: React.FC = () => {
         isOpen={Boolean(evidenceModalItem)}
         onClose={() => setEvidenceModalItem(null)}
         item={evidenceModalItem}
+      />
+
+      {/* Manual Estimate Creation Modal */}
+      <ManualEstimateModal
+        isOpen={isManualModalOpen}
+        onClose={() => {
+          setIsManualModalOpen(false);
+          setManualModalParams({});
+        }}
+        tenantId={tenantId}
+        onDraftCreated={handleManualDraftCreated}
+        initialTitle={manualModalParams.title}
+        initialVehiclePlate={manualModalParams.plate}
+        initialVehicleMake={manualModalParams.make}
+        initialVehicleModel={manualModalParams.model}
+        initialVehicleId={manualModalParams.vehicleId}
+        initialCustomerName={manualModalParams.customerName}
+        initialCustomerPhone={manualModalParams.customerPhone}
+        initialCustomerId={manualModalParams.customerId}
+        initialAppointmentId={manualModalParams.appointmentId}
+      />
+
+      {/* Manual Customer Registration Modal */}
+      <ManualCustomerModal
+        isOpen={isCustomerModalOpen}
+        onClose={() => setIsCustomerModalOpen(false)}
+        tenantId={tenantId}
+        initialName={activeQuote?.backendDraft?.customerSnapshot?.name || activeQuote?.customerName || ''}
+        initialPhone={activeQuote?.backendDraft?.customerSnapshot?.phone || ''}
+        initialEmail={activeQuote?.backendDraft?.customerSnapshot?.email || ''}
+        onCustomerCreated={(newCust) => {
+          setFeedbackNotice({
+            type: 'success',
+            text: `Cliente ${newCust.name} guardado con éxito en el registro de taller.`
+          });
+        }}
+      />
+
+      {/* Manual Vehicle Registration Modal */}
+      <ManualVehicleModal
+        isOpen={isVehicleModalOpen}
+        onClose={() => setIsVehicleModalOpen(false)}
+        tenantId={tenantId}
+        initialPlate={activeQuote?.backendDraft?.vehicleSnapshot?.plate || activeQuote?.vehiclePlate || ''}
+        initialMake={activeQuote?.backendDraft?.vehicleSnapshot?.make || ''}
+        initialModel={activeQuote?.backendDraft?.vehicleSnapshot?.model || ''}
+        initialYear={activeQuote?.backendDraft?.vehicleSnapshot?.year}
+        initialVin={activeQuote?.backendDraft?.vehicleSnapshot?.vin || ''}
+        initialCustomerId={activeQuote?.customerId || undefined}
+        onVehicleCreated={(newVeh) => {
+          setFeedbackNotice({
+            type: 'success',
+            text: `Vehículo ${newVeh.plate || newVeh.vin || `${newVeh.make || ''} ${newVeh.model || ''}`.trim()} registrado con éxito en taller.`
+          });
+        }}
       />
 
     </div>

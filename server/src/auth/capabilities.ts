@@ -3,6 +3,11 @@ export type PlatformRole = 'PLATFORM_ADMIN' | 'PLATFORM_OPERATOR' | 'SUPPORT_REA
 
 export type Capability =
   | 'workshop:appointments:read'
+  | 'workshop:appointments:create'
+  | 'workshop:customers:read'
+  | 'workshop:customers:create'
+  | 'workshop:vehicles:read'
+  | 'workshop:vehicles:create'
   | 'workshop:cases:read'
   | 'workshop:repair-knowledge:read'
   | 'workshop:estimate-drafts:read'
@@ -24,10 +29,33 @@ export type Capability =
   | 'platform:kill-switch:manage';
 
 const workshopCapabilities: Record<WorkshopRole, readonly Capability[]> = {
-  OWNER: ['workshop:appointments:read', 'workshop:cases:read', 'workshop:repair-knowledge:read', 'workshop:estimate-drafts:read', 'workshop:estimate-drafts:create', 'workshop:estimate-drafts:update', 'workshop:configuration:read', 'workshop:configuration:update', 'workshop:memberships:manage'],
-  MANAGER: ['workshop:appointments:read', 'workshop:cases:read', 'workshop:repair-knowledge:read', 'workshop:estimate-drafts:read', 'workshop:estimate-drafts:create', 'workshop:estimate-drafts:update', 'workshop:configuration:read', 'workshop:configuration:update'],
-  RECEPTION: ['workshop:appointments:read', 'workshop:cases:read', 'workshop:repair-knowledge:read', 'workshop:estimate-drafts:read', 'workshop:estimate-drafts:create', 'workshop:estimate-drafts:update'],
-  VIEWER: ['workshop:appointments:read', 'workshop:cases:read', 'workshop:repair-knowledge:read', 'workshop:estimate-drafts:read'],
+  OWNER: [
+    'workshop:appointments:read', 'workshop:appointments:create',
+    'workshop:customers:read', 'workshop:customers:create',
+    'workshop:vehicles:read', 'workshop:vehicles:create',
+    'workshop:cases:read', 'workshop:repair-knowledge:read',
+    'workshop:estimate-drafts:read', 'workshop:estimate-drafts:create', 'workshop:estimate-drafts:update',
+    'workshop:configuration:read', 'workshop:configuration:update', 'workshop:memberships:manage'
+  ],
+  MANAGER: [
+    'workshop:appointments:read', 'workshop:appointments:create',
+    'workshop:customers:read', 'workshop:customers:create',
+    'workshop:vehicles:read', 'workshop:vehicles:create',
+    'workshop:cases:read', 'workshop:repair-knowledge:read',
+    'workshop:estimate-drafts:read', 'workshop:estimate-drafts:create', 'workshop:estimate-drafts:update',
+    'workshop:configuration:read', 'workshop:configuration:update'
+  ],
+  RECEPTION: [
+    'workshop:appointments:read', 'workshop:appointments:create',
+    'workshop:customers:read', 'workshop:customers:create',
+    'workshop:vehicles:read', 'workshop:vehicles:create',
+    'workshop:cases:read', 'workshop:repair-knowledge:read',
+    'workshop:estimate-drafts:read', 'workshop:estimate-drafts:create', 'workshop:estimate-drafts:update'
+  ],
+  VIEWER: [
+    'workshop:appointments:read', 'workshop:customers:read', 'workshop:vehicles:read',
+    'workshop:cases:read', 'workshop:repair-knowledge:read', 'workshop:estimate-drafts:read'
+  ],
 };
 
 const allPlatformCapabilities: readonly Capability[] = [

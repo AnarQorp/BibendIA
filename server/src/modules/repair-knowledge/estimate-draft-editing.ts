@@ -28,29 +28,81 @@ export class EstimateDraftEditingError extends Error {
   }
 }
 
-export async function listEstimateDrafts(client: pg.PoolClient): Promise<Array<Pick<EstimateDraft,
-  'id' | 'vehicleId' | 'repairJobCode' | 'status' | 'version' | 'createdAt' | 'updatedAt'>>> {
-  const result = await client.query<any>(`SELECT d.id,d.vehicle_id,j.code repair_job_code,d.status,d.version,d.created_at,d.updated_at
-    FROM estimate_drafts d JOIN repair_jobs j ON j.id=d.repair_job_id
-    WHERE d.status<>'superseded' ORDER BY d.updated_at DESC,d.id`);
-  return result.rows.map((row: any) => ({ id: row.id, vehicleId: row.vehicle_id, repairJobCode: row.repair_job_code,
-    status: row.status, version: row.version, createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString() }));
+export async function listEstimateDrafts(
+  client: pg.PoolClient,
+  pii?: import('../../security/pii-protection.js').PiiProtection,
+): Promise<Array<any>> {
+  const result = await client.query<any>(`
+    SELECT d.id, d.tenant_id, d.vehicle_id, d.customer_id, d.title, d.draft_type,
+           j.code repair_job_code, d.status, d.version, d.created_at, d.updated_at,
+           d.vehicle_snapshot,
+           d.customer_claim_ciphertext, d.customer_claim_nonce, d.customer_claim_auth_tag, d.customer_claim_key_id,
+           d.vehicle_claim_ciphertext, d.vehicle_claim_nonce, d.vehicle_claim_auth_tag, d.vehicle_claim_key_id
+    FROM estimate_drafts d
+    LEFT JOIN repair_jobs j ON j.id=d.repair_job_id
+    WHERE d.status<>'superseded'
+    ORDER BY d.updated_at DESC, d.id
+  `);
+  return result.rows.map((row: any) => {
+    let customerSnapshot: any = null;
+    let vehicleSnapshot: any = row.vehicle_snapshot ?? {};
+    if (pii && row.customer_claim_ciphertext) {
+      try {
+        customerSnapshot = JSON.parse(pii.reveal(row.tenant_id, 'draft.customer_claim', {
+          ciphertext: row.customer_claim_ciphertext, nonce: row.customer_claim_nonce,
+          authTag: row.customer_claim_auth_tag, keyId: row.customer_claim_key_id,
+        }));
+      } catch { /* ignore */ }
+    }
+    if (pii && row.vehicle_claim_ciphertext) {
+      try {
+        const vClaim = JSON.parse(pii.reveal(row.tenant_id, 'draft.vehicle_claim', {
+          ciphertext: row.vehicle_claim_ciphertext, nonce: row.vehicle_claim_nonce,
+          authTag: row.vehicle_claim_auth_tag, keyId: row.vehicle_claim_key_id,
+        }));
+        vehicleSnapshot = { ...vehicleSnapshot, ...vClaim };
+      } catch { /* ignore */ }
+    }
+    return {
+      id: row.id,
+      vehicleId: row.vehicle_id,
+      customerId: row.customer_id,
+      title: row.title,
+      draftType: row.draft_type,
+      repairJobCode: row.repair_job_code,
+      status: row.status,
+      version: row.version,
+      createdAt: row.created_at.toISOString(),
+      updatedAt: row.updated_at.toISOString(),
+      customerSnapshot,
+      vehicleSnapshot,
+    };
+  });
 }
 
-export async function getEstimateDraft(client: pg.PoolClient, id: string): Promise<EstimateDraft> {
-  const draft = await loadEstimateDraft(client, id);
+export async function getEstimateDraft(
+  client: pg.PoolClient,
+  id: string,
+  pii?: import('../../security/pii-protection.js').PiiProtection,
+): Promise<EstimateDraft> {
+  const draft = await loadEstimateDraft(client, id, pii);
   if (!draft) throw new EstimateDraftEditingError('ESTIMATE_DRAFT_NOT_FOUND');
   return draft;
 }
 
-export async function editEstimateDraft(client: pg.PoolClient, tenantId: string, id: string,
-  command: EditEstimateDraftCommand): Promise<EstimateDraft> {
+export async function editEstimateDraft(
+  client: pg.PoolClient,
+  tenantId: string,
+  id: string,
+  command: EditEstimateDraftCommand,
+  pii?: import('../../security/pii-protection.js').PiiProtection,
+): Promise<EstimateDraft> {
   const hash = requestHash(command);
   const replay = await client.query<{ request_hash: string }>(
     'SELECT request_hash FROM estimate_draft_mutations WHERE draft_id=$1 AND idempotency_key=$2', [id, command.idempotencyKey]);
   if (replay.rowCount) {
     if (replay.rows[0].request_hash !== hash) throw new EstimateDraftEditingError('ESTIMATE_MUTATION_CONFLICT');
-    return getEstimateDraft(client, id);
+    return getEstimateDraft(client, id, pii);
   }
 
   const locked = await client.query<{ version: number; status: EstimateDraftStatus }>(

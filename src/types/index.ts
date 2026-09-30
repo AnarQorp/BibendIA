@@ -182,7 +182,7 @@ export interface WorkshopAppointmentResponse {
   id: string;
   tenant_id: string;
   workshop_id: string;
-  case_id: string;
+  case_id: string | null;
   customer_id: string | null;
   vehicle_id: string | null;
   identity_resolution?: IdentityResolution | string;
@@ -196,10 +196,11 @@ export interface WorkshopAppointmentResponse {
   start_at: string;
   end_at: string;
   status: string;
-  confirmation_evidence_ref: string;
+  confirmation_evidence_ref: string | null;
   version: number;
   customer_name: string;
   vehicle_plate: string;
+  origin?: 'voice_phone' | 'workshop_manual' | 'web_lead' | 'dms_import' | string;
 }
 
 export interface TenantControlResponse {
@@ -465,26 +466,37 @@ export interface EstimateDraftLine {
 
 export interface EstimateDraftSummary {
   id: string;
-  vehicleId: string;
-  repairJobCode: string;
+  vehicleId: string | null;
+  customerId?: string | null;
+  repairJobCode?: string | null;
+  draftType?: 'REPAIR_KNOWLEDGE' | 'MANUAL_WORKSHOP';
+  title?: string | null;
   status: EstimateDraftStatus;
   version: number;
   createdAt: string;
   updatedAt: string;
+  customerSnapshot?: { name?: string; phone?: string; email?: string } | null;
+  vehicleSnapshot?: { plate?: string; make?: string; model?: string; year?: number; vin?: string } | null;
 }
 
 export interface EstimateDraft {
   id: string;
   tenantId: string;
-  vehicleId: string;
-  repairJobCode: string;
-  applicabilityCode: string;
+  draftType?: 'REPAIR_KNOWLEDGE' | 'MANUAL_WORKSHOP';
+  vehicleId: string | null;
+  customerId?: string | null;
+  appointmentId?: string | null;
+  repairJobCode: string | null;
+  applicabilityCode: string | null;
+  title?: string | null;
   status: EstimateDraftStatus;
   version: number;
   idempotencyKey: string;
-  knowledgeRevision: string;
+  knowledgeRevision: string | null;
   createdAt: string;
   updatedAt?: string;
+  customerSnapshot?: { name?: string; phone?: string; email?: string } | null;
+  vehicleSnapshot?: { plate?: string; make?: string; model?: string; year?: number; vin?: string } | null;
   operation: {
     code: string;
     name: string;
@@ -495,6 +507,77 @@ export interface EstimateDraft {
     editable: true;
   };
   lines: EstimateDraftLine[];
+}
+
+export interface CreateManualEstimateDraftCommand {
+  kind: 'manual';
+  idempotencyKey: string;
+  title?: string;
+  customerId?: string | null;
+  vehicleId?: string | null;
+  appointmentId?: string | null;
+  customerSnapshot?: {
+    name?: string;
+    phone?: string;
+    email?: string;
+  };
+  vehicleSnapshot?: {
+    plate?: string;
+    make?: string;
+    model?: string;
+    year?: number;
+    vin?: string;
+  };
+  lines?: {
+    mutationKey: string;
+    description: string;
+    itemType: 'PART_ROLE' | 'CONSUMABLE' | 'LABOR';
+    quantity: number | null;
+    unitPrice: number | null;
+    currency: string | null;
+    selected?: boolean;
+  }[];
+}
+
+export interface WorkshopCustomer {
+  id: string;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  notes: string | null;
+}
+
+export interface WorkshopVehicle {
+  id: string;
+  plate: string | null;
+  make: string | null;
+  model: string | null;
+  year: number | null;
+  vin: string | null;
+  customerId?: string | null;
+}
+
+export interface CreateWorkshopAppointmentCommand {
+  idempotencyKey: string;
+  startAt: string;
+  endAt?: string;
+  durationMinutes: number;
+  serviceIntent: string;
+  notes?: string;
+  customerId?: string | null;
+  vehicleId?: string | null;
+  customerSnapshot?: {
+    name?: string;
+    phone?: string;
+    email?: string;
+  };
+  vehicleSnapshot?: {
+    plate?: string;
+    make?: string;
+    model?: string;
+    year?: number;
+    vin?: string;
+  };
 }
 
 export interface EstimateLineChange {
