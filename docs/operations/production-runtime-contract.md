@@ -42,11 +42,11 @@ Migrations are forward-only. SQL/file rollback is not promised and schema rollba
 - API `GET /health/live`: process-only liveness; no external calls.
 - API `GET /health/ready`: validates API DB connectivity, exclusive runtime membership in `bibendia_api`, and exact schema 001–011. PII keyrings and all startup configuration were already validated before listen.
 - Worker `GET /health/live`: process-only liveness.
-- Worker `GET /health/ready`: validates Worker DB connectivity, membership in `bibendia_worker`, exact schema, and reports `mode: disabled`.
+- Worker `GET /health/ready`: returns 200 only when DB identity/schema are exact and a real enabled adapter capability is configured; disabled/unconfigured returns 503.
 - Health responses use stable status/error codes only and never return URLs, credentials, exception text, PII or provider responses.
 - Twilio/ElevenLabs outages do not affect health.
 
-The Worker defaults to `WORKER_MODE=disabled`. This is a deliberate safe operational mode, not a simulated adapter. Any other value is rejected at startup until a reviewed production outbound adapter is implemented in a later block, so this artifact cannot claim or execute Outbox effects. Enablement requires a new compatible artifact and explicit release approval.
+The Worker defaults to `WORKER_MODE=disabled`, which is non-operational and therefore not ready. `enabled` is accepted only with a complete SMTP adapter configuration and an explicit UTC `WORKER_ACTIVATION_NOT_BEFORE` cutoff. The dispatcher claims only registered event types at or after that cutoff. Historical and unsupported backlog remains visible and unmodified; it is never treated as delivered merely because the process is healthy.
 
 SIGTERM makes API stop accepting connections, drain Fastify work and close its pool. Worker stops its health listener and closes its pool; because it is disabled it holds no claims. Both have a bounded `SHUTDOWN_TIMEOUT_MS`, after which they exit non-zero.
 
@@ -65,7 +65,11 @@ SIGTERM makes API stop accepting connections, drain Fastify work and close its p
 | `PUBLIC_API_BASE_URL` | API | conditional | no | URL; required only when provider ingress configured | restart |
 | `PORT` | API | no | no | 1–65535; default 3100 | restart |
 | `WORKER_HEALTH_PORT` | Worker | no | no | 1–65535; default 3101 | restart |
-| `WORKER_MODE` | Worker | no | no | must be `disabled`; default disabled; other values refuse startup | new approved artifact required |
+| `WORKER_MODE` | Worker | no | no | `disabled` (default) or `enabled`; enabled requires all adapter/cutoff variables | restart |
+| `WORKER_ACTIVATION_NOT_BEFORE` | Worker enabled | yes | no | exact UTC instant; events older than this are never claimed or mutated | restart |
+| `WORKER_POLL_INTERVAL_MS` | Worker | no | no | 100–60000; default 1000 | restart |
+| `WORKER_SMTP_HOST`, `WORKER_SMTP_PORT`, `WORKER_SMTP_TLS_MODE`, `WORKER_SMTP_USER`, `WORKER_SMTP_PASSWORD`, `WORKER_SMTP_SENDER`, `WORKER_SMTP_DESTINATION` | Worker enabled | yes | password only | complete group; enables only `public_lead.notification_requested` | restart |
+| `WORKER_SMTP_TIMEOUT_MS` | Worker enabled | no | no | 1000–60000; default 10000 | restart |
 | `WORKER_ID` | Worker | no | no | non-secret operational instance label; defaults to process id | restart |
 | `SHUTDOWN_TIMEOUT_MS` | API/Worker | no | no | integer 1000–60000; default 10000 | restart |
 | `PII_ENCRYPTION_KEYS_JSON` | API | yes | yes | JSON key-id to base64 32-byte keys; invalid/missing refuses startup | add versions + restart before re-encryption |

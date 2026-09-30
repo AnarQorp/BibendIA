@@ -9,7 +9,7 @@ Security invariants:
 - runtime readiness requires exact migrations 001–009 and the expected DB role membership;
 - PII keyrings are validated before the API listens;
 - disabled integrations do not require future credentials;
-- Worker is disabled by default and any `WORKER_MODE` other than `disabled` is refused because no production outbound adapter exists;
+- Worker is disabled and not ready by default; enabled mode requires the reviewed SMTP adapter, an explicit activation cutoff, and never claims historical or unsupported event types;
 - health and structured errors expose stable codes, not underlying exception messages or configuration;
 - immutable artifact identity is present in labels and logs.
 

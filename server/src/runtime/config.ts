@@ -18,10 +18,16 @@ export type ApiRuntimeConfig = RuntimeIdentity & {
 };
 
 export type WorkerRuntimeConfig = RuntimeIdentity & {
-  mode: 'disabled';
+  mode: 'disabled' | 'enabled';
   healthPort: number;
   shutdownTimeoutMs: number;
   workerId: string;
+  pollIntervalMs: number;
+  activationNotBefore?: Date;
+  smtp?: {
+    host: string; port: number; tlsMode: 'tls' | 'starttls'; user: string; password: string;
+    sender: string; destination: string; timeoutMs: number;
+  };
 };
 
 export class RuntimeConfigError extends Error {
@@ -94,12 +100,44 @@ function optionalUuid(value:string|undefined):string|undefined {
 
 export function loadWorkerRuntimeConfig(env: NodeJS.ProcessEnv = process.env): WorkerRuntimeConfig {
   const mode = env.WORKER_MODE ?? 'disabled';
-  if (mode !== 'disabled') throw new RuntimeConfigError('WORKER_ADAPTER_NOT_CONFIGURED');
+  if (mode !== 'disabled' && mode !== 'enabled') throw new RuntimeConfigError('WORKER_MODE_INVALID');
+  const activationNotBefore = mode === 'enabled'
+    ? requiredInstant(env.WORKER_ACTIVATION_NOT_BEFORE, 'WORKER_ACTIVATION_NOT_BEFORE_INVALID')
+    : undefined;
+  const smtp = smtpWorkerConfig(env);
+  if (mode === 'enabled' && !smtp) throw new RuntimeConfigError('WORKER_ADAPTER_NOT_CONFIGURED');
   return {
     ...runtimeIdentity(env), mode,
     healthPort: integer(env.WORKER_HEALTH_PORT ?? '3101', 1, 65535, 'WORKER_HEALTH_PORT_INVALID'),
     shutdownTimeoutMs: integer(env.SHUTDOWN_TIMEOUT_MS ?? '10000', 1000, 60000, 'SHUTDOWN_TIMEOUT_INVALID'),
     workerId: env.WORKER_ID?.trim() || `worker-${process.pid}`,
+    pollIntervalMs: integer(env.WORKER_POLL_INTERVAL_MS ?? '1000', 100, 60000, 'WORKER_POLL_INTERVAL_INVALID'),
+    activationNotBefore,
+    smtp,
+  };
+}
+
+function requiredInstant(value: string | undefined, code: string): Date {
+  if (!value || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value)) throw new RuntimeConfigError(code);
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) throw new RuntimeConfigError(code);
+  return parsed;
+}
+
+function smtpWorkerConfig(env: NodeJS.ProcessEnv): WorkerRuntimeConfig['smtp'] {
+  const names = ['WORKER_SMTP_HOST','WORKER_SMTP_PORT','WORKER_SMTP_TLS_MODE','WORKER_SMTP_USER','WORKER_SMTP_PASSWORD','WORKER_SMTP_SENDER','WORKER_SMTP_DESTINATION'] as const;
+  const configured = names.some((name) => Boolean(env[name]?.trim()));
+  if (!configured) return undefined;
+  if (names.some((name) => !env[name]?.trim())) throw new RuntimeConfigError('WORKER_SMTP_CONFIG_INCOMPLETE');
+  const tlsMode = env.WORKER_SMTP_TLS_MODE!.trim();
+  if (!['tls','starttls'].includes(tlsMode)) throw new RuntimeConfigError('WORKER_SMTP_TLS_MODE_INVALID');
+  return {
+    host: env.WORKER_SMTP_HOST!.trim(),
+    port: integer(env.WORKER_SMTP_PORT!, 1, 65535, 'WORKER_SMTP_PORT_INVALID'),
+    tlsMode: tlsMode as 'tls' | 'starttls',
+    user: env.WORKER_SMTP_USER!.trim(), password: env.WORKER_SMTP_PASSWORD!, sender: env.WORKER_SMTP_SENDER!.trim(),
+    destination: env.WORKER_SMTP_DESTINATION!.trim(),
+    timeoutMs: integer(env.WORKER_SMTP_TIMEOUT_MS ?? '10000', 1000, 60000, 'WORKER_SMTP_TIMEOUT_INVALID'),
   };
 }
 
