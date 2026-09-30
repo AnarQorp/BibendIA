@@ -4,9 +4,7 @@ import type {
   Quote, 
   QuoteItem, 
   EstimateAutomationStatus, 
-  RepairEvidence,
-  EditEstimateDraftCommand,
-  EstimateLineChange
+  RepairEvidence
 } from '../../types';
 import { 
   FileText, 
@@ -41,6 +39,7 @@ import {
   fetchEstimateDrafts,
   fetchEstimateDraftById,
   patchEstimateDraft,
+  buildEstimateDraftEditCommand,
   convertEstimateDraftToQuote
 } from '../../services/repairKnowledge';
 import { loadHumanSession } from '../../services/humanSession';
@@ -565,39 +564,7 @@ export const PresupuestosView: React.FC = () => {
       const expectedVersion = editForm.version ?? 1;
       const idempotencyKey = `save-${editForm.backendDraftId}-v${expectedVersion}-${Date.now()}`;
 
-      // Format lines for PATCH:
-      const patchLines: EstimateLineChange[] = editForm.items
-        .filter(item => !item.id?.startsWith('labor-'))
-        .map(item => {
-          const isLabor = item.category === 'labor';
-          const itemType: 'PART_ROLE' | 'CONSUMABLE' | 'LABOR' = isLabor
-            ? 'LABOR'
-            : (item.repairBomEdgeId?.includes('CONSUMABLE') ? 'CONSUMABLE' : 'PART_ROLE');
-
-          const linePayload: EstimateLineChange = {
-            description: item.description,
-            itemType,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
-            currency: item.unitPrice !== null ? 'EUR' : null,
-            selected: item.selected !== false
-          };
-
-          if (item.mutationKey) {
-            linePayload.mutationKey = item.mutationKey;
-          } else if (item.id) {
-            linePayload.id = item.id;
-          }
-
-          return linePayload;
-        });
-
-      const command: EditEstimateDraftCommand = {
-        expectedVersion,
-        idempotencyKey,
-        lines: patchLines,
-        deleteLineIds: deletedManualLineIds.length > 0 ? deletedManualLineIds : undefined
-      };
+      const command = buildEstimateDraftEditCommand(editForm, idempotencyKey, deletedManualLineIds);
 
       const result = await patchEstimateDraft(tenantId, editForm.backendDraftId, command);
       setIsSaving(false);
@@ -1047,11 +1014,6 @@ export const PresupuestosView: React.FC = () => {
                                 <div className="flex flex-wrap items-center gap-1.5">
                                   {item.automationStatus && (
                                     <div>{getLiteralStatusBadge(item.automationStatus)}</div>
-                                  )}
-                                  {item.repairBomEdgeId && (
-                                    <span className="text-[10px] text-slate-400 font-mono">
-                                      Ref: {item.repairBomEdgeId}
-                                    </span>
                                   )}
                                   {isDeselected && (
                                     <span className="text-[10px] bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded font-bold font-mono">

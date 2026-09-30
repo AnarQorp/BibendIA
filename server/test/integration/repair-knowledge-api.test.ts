@@ -160,4 +160,40 @@ describe('Repair Knowledge product API', () => {
     expect(denied.statusCode).toBe(403);
     await app.close();
   });
+
+  it('persists Workshop labor and part pricing and returns both after reload', async () => {
+    const app = buildApi(pool, { authentication });
+    const created = await app.inject({ method: 'POST', url: `/v1/workshop/tenants/${ids.tenant}/estimate-drafts`,
+      headers: { authorization: 'Bearer rk-user' }, payload: { vehicleId: ids.vehicle,
+        idempotencyKey: 'rk04-workshop-payload-create', vehicle: { make: 'Volkswagen', model: 'Golf VII', engineCode: 'CLHA' },
+        repairJobCode: 'JOB_TIMING_BELT_WATER_PUMP' } });
+    expect(created.statusCode).toBe(201);
+    const draft = created.json().data;
+    const firstPart = draft.lines[0];
+    const lines = draft.lines.map((line: any) => ({
+      id: line.id,
+      description: line.description,
+      itemType: line.repairBomEdgeId?.includes('CONSUMABLE') ? 'CONSUMABLE' : 'PART_ROLE',
+      quantity: line.quantity,
+      unitPrice: line.id === firstPart.id ? 123.45 : line.unitPrice,
+      currency: line.id === firstPart.id ? 'EUR' : null,
+      selected: line.selected !== false,
+    }));
+    lines.push({ mutationKey: 'operation-labor-rk04-regression', description: draft.operation.name,
+      itemType: 'LABOR', quantity: 3.5, unitPrice: 55, currency: 'EUR', selected: true });
+    const edited = await app.inject({ method: 'PATCH', url: `/v1/workshop/tenants/${ids.tenant}/estimate-drafts/${draft.id}`,
+      headers: { authorization: 'Bearer rk-user' }, payload: { expectedVersion: draft.version,
+        idempotencyKey: 'rk04-workshop-payload-edit', lines } });
+    expect(edited.statusCode).toBe(200);
+    expect(edited.json().data.lines.find((line: any) => line.id === firstPart.id).unitPrice).toBe(123.45);
+    expect(edited.json().data.lines.find((line: any) => line.itemType === 'LABOR')).toMatchObject({
+      unitPrice: 55, currency: 'EUR', lineSource: 'MANUAL_WORKSHOP'
+    });
+    const reloaded = await app.inject({ method: 'GET', url: `/v1/workshop/tenants/${ids.tenant}/estimate-drafts/${draft.id}`,
+      headers: { authorization: 'Bearer rk-user' } });
+    expect(reloaded.statusCode).toBe(200);
+    expect(reloaded.json().data.lines.find((line: any) => line.id === firstPart.id).unitPrice).toBe(123.45);
+    expect(reloaded.json().data.lines.find((line: any) => line.itemType === 'LABOR').unitPrice).toBe(55);
+    await app.close();
+  });
 });

@@ -115,6 +115,7 @@ export interface QuoteItem {
   partRoleCode?: string | null;
   partRoleName?: string | null;
   edgeCode?: string | null;
+  itemType?: 'PART_ROLE' | 'CONSUMABLE' | 'LABOR';
 }
 
 export interface Quote {

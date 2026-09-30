@@ -6,6 +6,7 @@ import type {
   EstimateDraftLine,
   EstimateDraftSummary,
   EditEstimateDraftCommand,
+  EstimateLineChange,
   Quote,
   QuoteItem,
   EstimateAutomationStatus,
@@ -608,6 +609,7 @@ export async function createEstimateDraft(
     return { status: 'error', message: 'Se requiere tenantId para crear el borrador técnico.' };
   }
 
+  let failureMessage = 'No se pudo crear el borrador técnico en el servidor.';
   try {
     const res = await fetch(`${baseUrl}/v1/workshop/tenants/${encodeURIComponent(tenantId)}/estimate-drafts`, {
       method: 'POST',
@@ -632,8 +634,14 @@ export async function createEstimateDraft(
         correlationId: json.correlationId
       };
     }
-  } catch (_e) {
-    // Server unreachable in local preview
+    const error = await res.json().catch(() => ({}));
+    failureMessage = error.error || `HTTP ${res.status}`;
+  } catch (error) {
+    failureMessage = error instanceof Error ? error.message : failureMessage;
+  }
+
+  if (!isExplicitDevOrOffline()) {
+    return { status: 'error', message: failureMessage };
   }
 
   // Synthesize realistic persistent draft matching the exact RK04 server contract
@@ -848,9 +856,12 @@ export function convertEstimateDraftToQuote(
 
   // Labor line from operation
   const operationName = draft.operation?.name || 'Mano de obra de taller';
+  const persistedLaborLines = (draft.lines || []).filter((line) => line.itemType === 'LABOR');
   const laborItem: QuoteItem = {
     id: `labor-${draft.id}`,
+    mutationKey: `operation-labor-${draft.id}`,
     category: 'labor',
+    itemType: 'LABOR',
     description: operationName,
     quantity: 3.5, // 3.5 standard workshop hours for timing belt + water pump
     unitPrice: draft.operation?.unitPrice ?? null,
@@ -888,11 +899,15 @@ export function convertEstimateDraftToQuote(
       isLocallyModified: false,
       lineSource: line.lineSource || 'REPAIR_KNOWLEDGE',
       pricingProvenance: line.pricingProvenance,
-      selected: line.selected !== false
+      selected: line.selected !== false,
+      partRoleCode: line.partRoleCode,
+      partRoleName: line.partRoleName,
+      edgeCode: line.edgeCode,
+      itemType: line.itemType
     };
   });
 
-  const allItems = [laborItem, ...partItems];
+  const allItems = persistedLaborLines.length > 0 ? partItems : [laborItem, ...partItems];
   const selectedItems = allItems.filter(i => i.selected !== false);
   const allSelectedPriced = selectedItems.every(i => i.unitPrice !== null && i.pricingStatus !== 'PENDING');
 
@@ -940,5 +955,33 @@ export function convertEstimateDraftToQuote(
     idempotencyKey: draft.idempotencyKey,
     version: draft.version,
     backendDraft: draft
+  };
+}
+
+export function buildEstimateDraftEditCommand(
+  quote: Quote,
+  idempotencyKey: string,
+  deleteLineIds: string[] = []
+): EditEstimateDraftCommand {
+  const lines: EstimateLineChange[] = quote.items.map((item) => {
+    const itemType = item.itemType ?? (item.category === 'labor' ? 'LABOR' : 'PART_ROLE');
+    const line: EstimateLineChange = {
+      description: item.description,
+      itemType,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      currency: item.unitPrice === null ? null : (item.currency ?? 'EUR'),
+      selected: item.selected !== false
+    };
+    if (item.mutationKey) line.mutationKey = item.mutationKey;
+    else line.id = item.id;
+    return line;
+  });
+
+  return {
+    expectedVersion: quote.version ?? 1,
+    idempotencyKey,
+    lines,
+    deleteLineIds: deleteLineIds.length > 0 ? deleteLineIds : undefined
   };
 }
