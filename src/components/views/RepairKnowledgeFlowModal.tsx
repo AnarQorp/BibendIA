@@ -60,7 +60,7 @@ export const RepairKnowledgeFlowModal: React.FC<RepairKnowledgeFlowModalProps> =
   const [step, setStep] = useState<'select' | 'preview' | 'creating'>('select');
 
   // Selection inputs
-  const defaultVehicle = initialVehicleId 
+  const defaultVehicle = initialVehicleId
     ? vehicles.find(v => v.id === initialVehicleId)
     : vehicles.find(v => v.brand.toLowerCase().includes('volkswagen') || v.model.toLowerCase().includes('golf')) || vehicles[0];
 

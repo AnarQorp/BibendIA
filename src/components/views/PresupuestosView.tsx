@@ -46,12 +46,12 @@ import {
 import { loadHumanSession } from '../../services/humanSession';
 import { getWorkshopTenantId } from '../../services/workshopAppointments';
 import { useRouter } from '../../router/RouterContext';
-import { 
-  formatAutomationStatus, 
-  formatPartName, 
-  formatQuoteStatus, 
-  formatUnitPrice, 
-  formatLineTotal 
+import {
+  formatAutomationStatus,
+  formatPartName,
+  formatQuoteStatus,
+  formatUnitPrice,
+  formatLineTotal
 } from '../../utils/workshopFormatters';
 
 export const PresupuestosView: React.FC = () => {
