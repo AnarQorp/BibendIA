@@ -3,12 +3,12 @@ import type pg from 'pg';
 import { z } from 'zod';
 import { inTenantTransaction } from '../../persistence/pool.js';
 import { decideEstimateLine, type EstimateAutomationStatus } from './estimate-draft-policy.js';
-import { resolveRepairKnowledge, type RepairKnowledgeEdge, type RepairKnowledgeResolution } from './repair-knowledge.js';
+import { resolveRepairKnowledgeProgressively, type RepairKnowledgeEdge, type RepairKnowledgeResolution } from './repair-knowledge.js';
 
 const commandSchema = z.object({
   tenantId: z.string().uuid(), vehicleId: z.string().uuid(), idempotencyKey: z.string().min(8).max(200).regex(/^[A-Za-z0-9._:-]+$/),
   vehicle: z.object({ make: z.string().trim().min(1).max(100), model: z.string().trim().min(1).max(100),
-    engineCode: z.string().trim().min(1).max(50), productionDate: z.string().date().optional(), variant: z.string().trim().min(1).max(100).optional() }).strict(),
+    engineCode: z.string().trim().min(1).max(50).optional(), productionDate: z.string().date().optional(), variant: z.string().trim().min(1).max(100).optional() }).strict(),
   repairJobCode: z.string().trim().min(1).max(100),
 }).strict();
 
@@ -30,14 +30,16 @@ export type EstimateDraft = {
 };
 
 export class EstimateDraftError extends Error {
-  constructor(readonly code: 'REPAIR_KNOWLEDGE_NOT_APPLICABLE' | 'VEHICLE_NOT_FOUND' | 'VEHICLE_DESCRIPTOR_MISMATCH' | 'IDEMPOTENCY_CONFLICT') {
+  constructor(readonly code: 'REPAIR_KNOWLEDGE_NOT_APPLICABLE' | 'REPAIR_KNOWLEDGE_DISAMBIGUATION_REQUIRED' | 'VEHICLE_NOT_FOUND' | 'VEHICLE_DESCRIPTOR_MISMATCH' | 'IDEMPOTENCY_CONFLICT') {
     super(code); this.name = 'EstimateDraftError';
   }
 }
 
 export async function createEstimateDraftFromRepairKnowledge(pool: pg.Pool, raw: CreateEstimateDraftCommand): Promise<EstimateDraft> {
   const command = commandSchema.parse(raw);
-  const knowledge = await resolveRepairKnowledge(pool, { ...command.vehicle, repairJobCode: command.repairJobCode });
+  const resolution = await resolveRepairKnowledgeProgressively(pool, { ...command.vehicle, repairJobCode: command.repairJobCode });
+  if (resolution?.status === 'DISAMBIGUATION_REQUIRED') throw new EstimateDraftError('REPAIR_KNOWLEDGE_DISAMBIGUATION_REQUIRED');
+  const knowledge = resolution;
   if (!knowledge) throw new EstimateDraftError('REPAIR_KNOWLEDGE_NOT_APPLICABLE');
   const revision = knowledgeRevision(knowledge);
 
@@ -121,5 +123,7 @@ async function loadDraft(client: pg.PoolClient, id: string): Promise<EstimateDra
 }
 
 function knowledgeRevision(knowledge: RepairKnowledgeResolution): string {
-  return `sha256:${createHash('sha256').update(JSON.stringify(knowledge)).digest('hex')}`;
+  const canonical = { applicability: knowledge.applicability, repairJob: knowledge.repairJob,
+    components: knowledge.components, consumables: knowledge.consumables };
+  return `sha256:${createHash('sha256').update(JSON.stringify(canonical)).digest('hex')}`;
 }

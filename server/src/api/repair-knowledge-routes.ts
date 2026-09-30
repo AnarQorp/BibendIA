@@ -6,17 +6,22 @@ import type { PrincipalContext } from '../auth/principal.js';
 import { assertTenantOperation } from '../modules/tenant-control/tenant-control.js';
 import { createEstimateDraftFromRepairKnowledge, EstimateDraftError } from '../modules/repair-knowledge/estimate-draft.js';
 import { editEstimateDraft, EstimateDraftEditingError, getEstimateDraft, listEstimateDrafts } from '../modules/repair-knowledge/estimate-draft-editing.js';
-import { resolveRepairKnowledge } from '../modules/repair-knowledge/repair-knowledge.js';
+import { listRepairKnowledgeVehicleFacets, resolveRepairKnowledgeProgressively } from '../modules/repair-knowledge/repair-knowledge.js';
 
 const tenantParams = z.object({ tenantId: z.string().uuid() });
 const draftParams = tenantParams.extend({ draftId: z.string().uuid() });
 const resolutionQuery = z.object({
   make: z.string().trim().min(1).max(100),
   model: z.string().trim().min(1).max(100),
-  engineCode: z.string().trim().min(1).max(50),
+  engineCode: z.string().trim().min(1).max(50).optional(),
   repairJobCode: z.string().trim().min(1).max(100),
   productionDate: z.string().date().optional(),
   variant: z.string().trim().min(1).max(100).optional(),
+}).strict();
+const facetsQuery = z.object({
+  make: z.string().trim().min(1).max(100).optional(), model: z.string().trim().min(1).max(100).optional(),
+  variant: z.string().trim().min(1).max(100).optional(), engineCode: z.string().trim().min(1).max(50).optional(),
+  repairJobCode: z.string().trim().min(1).max(100).optional(),
 }).strict();
 const lineChange = z.object({
   id: z.string().uuid().optional(), mutationKey: z.string().min(8).max(200).regex(/^[A-Za-z0-9._:-]+$/).optional(),
@@ -40,7 +45,7 @@ const draftBody = z.object({
   vehicle: z.object({
     make: z.string().trim().min(1).max(100),
     model: z.string().trim().min(1).max(100),
-    engineCode: z.string().trim().min(1).max(50),
+    engineCode: z.string().trim().min(1).max(50).optional(),
     productionDate: z.string().date().optional(),
     variant: z.string().trim().min(1).max(100).optional(),
   }).strict(),
@@ -56,9 +61,17 @@ export function registerRepairKnowledgeRoutes(app: FastifyInstance, pool: pg.Poo
     if (!params.success || !query.success) return reply.code(400).send({ error: 'INVALID_REPAIR_KNOWLEDGE_QUERY', correlationId: request.id });
     if (!request.principal) return reply.code(401).send({ error: 'AUTHENTICATION_REQUIRED' });
     await authorize(pool, request.principal, params.data.tenantId, 'workshop:repair-knowledge:read', request.id);
-    const resolution = await resolveRepairKnowledge(pool, query.data);
+    const resolution = await resolveRepairKnowledgeProgressively(pool, query.data);
     if (!resolution) return reply.code(404).send({ error: 'REPAIR_KNOWLEDGE_NOT_APPLICABLE', correlationId: request.id });
     return { data: resolution, correlationId: request.id };
+  });
+
+  app.get('/v1/workshop/tenants/:tenantId/repair-knowledge/vehicle-facets', auth, async (request, reply) => {
+    const params = tenantParams.safeParse(request.params); const query = facetsQuery.safeParse(request.query);
+    if (!params.success || !query.success) return reply.code(400).send({ error: 'INVALID_REPAIR_KNOWLEDGE_FACETS_QUERY', correlationId: request.id });
+    if (!request.principal) return reply.code(401).send({ error: 'AUTHENTICATION_REQUIRED' });
+    await authorize(pool, request.principal, params.data.tenantId, 'workshop:repair-knowledge:read', request.id);
+    return { data: await listRepairKnowledgeVehicleFacets(pool, query.data), correlationId: request.id };
   });
 
   app.post('/v1/workshop/tenants/:tenantId/estimate-drafts', auth, async (request, reply) => {
@@ -73,6 +86,7 @@ export function registerRepairKnowledgeRoutes(app: FastifyInstance, pool: pg.Poo
     } catch (error) {
       if (!(error instanceof EstimateDraftError)) throw error;
       const status = error.code === 'REPAIR_KNOWLEDGE_NOT_APPLICABLE' || error.code === 'VEHICLE_NOT_FOUND' ? 404
+        : error.code === 'REPAIR_KNOWLEDGE_DISAMBIGUATION_REQUIRED' ? 409
         : error.code === 'IDEMPOTENCY_CONFLICT' || error.code === 'VEHICLE_DESCRIPTOR_MISMATCH' ? 409 : 400;
       return reply.code(status).send({ error: error.code, correlationId: request.id });
     }

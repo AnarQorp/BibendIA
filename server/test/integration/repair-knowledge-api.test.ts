@@ -33,6 +33,37 @@ afterAll(async () => {
 });
 
 describe('Repair Knowledge product API', () => {
+  it('serves authorized progressive vehicle facets from Repair Knowledge', async () => {
+    const app = buildApi(pool, { authentication });
+    const response = await app.inject({ method: 'GET',
+      url: `/v1/workshop/tenants/${ids.tenant}/repair-knowledge/vehicle-facets?make=Volkswagen&model=Golf%20VII`,
+      headers: { authorization: 'Bearer rk-user' } });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data).toMatchObject({ makes: ['Volkswagen'], models: ['Golf VII'] });
+    expect(response.json().data.engines).toContainEqual({ engineCode: 'CLHA', variant: '1.6 TDI', generation: '5G1/BQ1', label: '1.6 TDI — CLHA' });
+    await app.close();
+  });
+
+  it('resolves and creates a draft without requiring engine when RK is unambiguous', async () => {
+    const app = buildApi(pool, { authentication });
+    const query = new URLSearchParams({ make: 'Volkswagen', model: 'Golf VII', repairJobCode: 'JOB_TIMING_BELT_WATER_PUMP' });
+    const resolved = await app.inject({ method: 'GET', url: `/v1/workshop/tenants/${ids.tenant}/repair-knowledge/resolve?${query}`,
+      headers: { authorization: 'Bearer rk-user' } });
+    expect(resolved.statusCode).toBe(200);
+    expect(resolved.json().data).toMatchObject({ status: 'RESOLVED', applicability: { engineCode: 'CLHA' } });
+    const created = await app.inject({ method: 'POST', url: `/v1/workshop/tenants/${ids.tenant}/estimate-drafts`,
+      headers: { authorization: 'Bearer rk-user' }, payload: { vehicleId: ids.vehicle, idempotencyKey: 'rk05-no-engine-001',
+        vehicle: { make: 'Volkswagen', model: 'Golf VII' }, repairJobCode: 'JOB_TIMING_BELT_WATER_PUMP' } });
+    expect(created.statusCode).toBe(201);
+    expect(created.json().data.applicabilityCode).toBe('APP_VAG_GOLF7_16TDI_CLHA_JOB_TIMING_BELT_WATER_PUMP');
+    const explicitEngine = await app.inject({ method: 'POST', url: `/v1/workshop/tenants/${ids.tenant}/estimate-drafts`,
+      headers: { authorization: 'Bearer rk-user' }, payload: { vehicleId: ids.vehicle, idempotencyKey: 'rk05-with-engine-001',
+        vehicle: { make: 'Volkswagen', model: 'Golf VII', engineCode: 'CLHA' }, repairJobCode: 'JOB_TIMING_BELT_WATER_PUMP' } });
+    expect(explicitEngine.statusCode).toBe(201);
+    expect(explicitEngine.json().data.knowledgeRevision).toBe(created.json().data.knowledgeRevision);
+    await app.close();
+  });
+
   it('resolves the RK01 PoC with operation, applicability, components, consumables, and edge provenance', async () => {
     const app = buildApi(pool, { authentication });
     const query = new URLSearchParams({ make: 'Volkswagen', model: 'Golf VII', engineCode: 'CLHA', repairJobCode: 'JOB_TIMING_BELT_WATER_PUMP' });
@@ -71,6 +102,9 @@ describe('Repair Knowledge product API', () => {
     const response = await app.inject({ method: 'GET', url: `/v1/workshop/tenants/${ids.otherTenant}/repair-knowledge/resolve?${query}`,
       headers: { authorization: 'Bearer rk-user' } });
     expect(response.statusCode).toBe(403);
+    const facets = await app.inject({ method: 'GET', url: `/v1/workshop/tenants/${ids.otherTenant}/repair-knowledge/vehicle-facets`,
+      headers: { authorization: 'Bearer rk-user' } });
+    expect(facets.statusCode).toBe(403);
     await app.close();
   });
 
