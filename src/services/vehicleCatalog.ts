@@ -1,21 +1,32 @@
 import type {
   VehicleCatalogFacets,
   VehicleCatalogQuery,
+  VehicleCatalogSource,
   VehicleKind
 } from '../types/vehicleCatalog';
 
 /**
  * Isolated development fallback slice of VehiclesDB (dataset 2026.09.1)
- * Used ONLY when local dev environment has no running backend or before migrations 020/021 are applied.
+ * Used ONLY in explicit local development/test/offline environments
+ * when migrations 020/021 are not applied to the local database.
  */
-const DEV_VEHICLES_DB_SOURCE = {
-  provider: 'VehiclesDB',
-  version: '2026.09.1',
-  artifactSha256: '5cbed181c933e16e7ffeaf2cb7fcbd831774e2223f35eea60d1bd6b115c7d2ca',
+export function isExplicitDevOrOffline(): boolean {
+  if (typeof window === 'undefined') return true;
+  const host = window.location.hostname;
+  const isLocal = host === 'localhost' || host === '127.0.0.1' || host.endsWith('.local');
+  const isDevMode = Boolean((import.meta as any).env?.DEV);
+  const isExplicitDevParam = new URLSearchParams(window.location.search).has('mock_catalog');
+  return isLocal || isDevMode || isExplicitDevParam;
+}
+
+const DEV_FALLBACK_SOURCE: VehicleCatalogSource = {
+  provider: 'VehiclesDB (Slice de desarrollo local)',
+  version: 'dev-offline',
+  artifactSha256: null,
   license: 'CC-BY-4.0',
   attribution: 'Vehicle data by VehiclesDB (https://vehiclesdb.com)',
   attributionUrl: 'https://vehiclesdb.com',
-  importedAt: '2026-09-30T10:00:00.000Z'
+  importedAt: null
 };
 
 const DEV_MAKES_CAR = [
@@ -236,14 +247,28 @@ export async function fetchVehicleCatalogFacets(
         isFallback: false
       };
     }
+
+    // In production or live environments, never mask a real server error with fallback
+    if (!isExplicitDevOrOffline()) {
+      return {
+        status: 'error',
+        message: `Error al consultar el catálogo de vehículos (${res.status}).`
+      };
+    }
   } catch (err: any) {
     if (err?.name === 'AbortError') {
       throw err;
     }
-    // Network / server unavailable fallback
+    // In production, an unreachable API must fail closed
+    if (!isExplicitDevOrOffline()) {
+      return {
+        status: 'error',
+        message: 'No se pudo conectar con el catálogo de vehículos en producción.'
+      };
+    }
   }
 
-  // Isolated development fallback
+  // Isolated development/test fallback: only reachable in local dev or explicit test environments
   const makesPool = kind === 'van' ? DEV_MAKES_VAN : DEV_MAKES_CAR;
   const filteredMakes = query.make
     ? makesPool.filter(m => m.sourceMakeId.toLowerCase() === query.make?.toLowerCase() || m.name.toLowerCase() === query.make?.toLowerCase())
@@ -265,7 +290,7 @@ export async function fetchVehicleCatalogFacets(
   return {
     status: 'success',
     data: {
-      source: DEV_VEHICLES_DB_SOURCE,
+      source: DEV_FALLBACK_SOURCE,
       makes: filteredMakes,
       models: filteredModels
     },

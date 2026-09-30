@@ -13,6 +13,7 @@ import type {
   RepairKnowledgeFacets,
   RepairKnowledgeDisambiguation
 } from '../types';
+import { isExplicitDevOrOffline } from './vehicleCatalog';
 
 export interface RepairKnowledgeResolutionState {
   status: 'idle' | 'loading' | 'success' | 'disambiguation_required' | 'not_applicable' | 'unauthorized' | 'error';
@@ -381,11 +382,18 @@ export async function fetchRepairKnowledgeVehicleFacets(
         data: json.data
       };
     }
+
+    if (!isExplicitDevOrOffline()) {
+      return { status: 'error', message: `Error al consultar operaciones técnicas (${res.status}).` };
+    }
   } catch (err: any) {
     if (err?.name === 'AbortError') throw err;
+    if (!isExplicitDevOrOffline()) {
+      return { status: 'error', message: 'No se pudo conectar con el servicio de conocimiento técnico.' };
+    }
   }
 
-  // Isolated development fallback for RK targets
+  // Isolated development fallback for RK targets (only in local dev / test)
   if (query.model?.toLowerCase().includes('golf')) {
     return {
       status: 'success',
@@ -414,6 +422,35 @@ export async function fetchRepairKnowledgeVehicleFacets(
             name: 'Servicio de mantenimiento e inspección periódica',
             system: 'Mantenimiento',
             subsystem: 'Inspección'
+          }
+        ]
+      }
+    };
+  }
+
+  if (query.model?.toLowerCase().includes('león') || query.model?.toLowerCase().includes('leon')) {
+    return {
+      status: 'success',
+      data: {
+        makes: ['Seat'],
+        models: ['León 5F'],
+        variants: ['2.0 TDI', '1.6 TDI'],
+        engines: [
+          { engineCode: 'CRMB', variant: '2.0 TDI', generation: '5F1/5F5/5F8', label: '2.0 TDI — CRMB (150 CV)' },
+          { engineCode: 'CLHA', variant: '1.6 TDI', generation: '5F1/5F5/5F8', label: '1.6 TDI — CLHA (105 CV)' }
+        ],
+        repairJobs: [
+          {
+            code: 'JOB_BRAKE_DISCS_PADS_FRONT',
+            name: 'Sustitución de discos y pastillas de freno delanteros',
+            system: 'Frenos',
+            subsystem: 'Eje delantero'
+          },
+          {
+            code: 'JOB_TIMING_BELT_WATER_PUMP',
+            name: 'Sustitución de kit de distribución y bomba de agua',
+            system: 'Motor',
+            subsystem: 'Distribución'
           }
         ]
       }
@@ -481,11 +518,63 @@ export async function resolveRepairKnowledge(
         correlationId: json.correlationId
       };
     }
+
+    if (!isExplicitDevOrOffline()) {
+      return {
+        status: 'error',
+        message: `Error al consultar la propuesta técnica (${res.status}).`
+      };
+    }
   } catch (err: any) {
     if (err?.name === 'AbortError') throw err;
+    if (!isExplicitDevOrOffline()) {
+      return {
+        status: 'error',
+        message: 'No se pudo conectar con el servicio de conocimiento técnico en producción.'
+      };
+    }
   }
 
-  // High-fidelity fallback for Golf VII CLHA timing belt PoC
+  // Isolated development fallback for Seat León: demonstrates DISAMBIGUATION_REQUIRED
+  if (
+    query.make.toLowerCase().includes('seat') &&
+    (query.model.toLowerCase().includes('león') || query.model.toLowerCase().includes('leon'))
+  ) {
+    if (!query.engineCode) {
+      return {
+        status: 'disambiguation_required',
+        disambiguation: {
+          status: 'DISAMBIGUATION_REQUIRED',
+          reason: 'VARIANT_REQUIRED',
+          options: [
+            { engineCode: 'CRMB', variant: '2.0 TDI', generation: '5F1/5F5/5F8', label: '2.0 TDI — CRMB (150 CV)' },
+            { engineCode: 'CLHA', variant: '1.6 TDI', generation: '5F1/5F5/5F8', label: '1.6 TDI — CLHA (105 CV)' }
+          ]
+        },
+        correlationId: `poc-disambig-${Date.now()}`
+      };
+    }
+    return {
+      status: 'success',
+      data: {
+        ...CANONICAL_CLHA_RESOLUTION,
+        applicability: {
+          code: `APP_SEAT_LEON5F_${query.engineCode}_JOB`,
+          make: 'Seat',
+          model: 'León 5F',
+          generation: '5F1/5F5/5F8',
+          variant: query.engineCode === 'CRMB' ? '2.0 TDI' : '1.6 TDI',
+          engineCode: query.engineCode,
+          productionFrom: '2012-10-01',
+          productionTo: '2020-08-31',
+          restrictions: null
+        }
+      },
+      correlationId: `poc-corr-${Date.now()}`
+    };
+  }
+
+  // High-fidelity fallback for Golf VII CLHA timing belt PoC (resolves without engine because only 1 applicability exists)
   if (
     query.make.toLowerCase().includes('volkswagen') &&
     query.model.toLowerCase().includes('golf') &&

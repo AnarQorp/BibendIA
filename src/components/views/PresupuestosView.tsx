@@ -152,11 +152,14 @@ export const PresupuestosView: React.FC = () => {
   const { searchParams } = useRouter();
   const [isRkModalOpen, setIsRkModalOpen] = useState(false);
   const [initialRkVehicleId, setInitialRkVehicleId] = useState<string | undefined>(undefined);
+  const [initialRkPlate, setInitialRkPlate] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     if (searchParams.get('new') === 'rk') {
       const vId = searchParams.get('vehicleId');
+      const plate = searchParams.get('plate');
       if (vId) setInitialRkVehicleId(vId);
+      if (plate) setInitialRkPlate(plate);
       setIsRkModalOpen(true);
     }
   }, [searchParams]);
@@ -256,6 +259,68 @@ export const PresupuestosView: React.FC = () => {
     setIsEditing(true);
     setMobileView('detail');
     setFeedbackNotice({ type: 'success', text: `Nuevo presupuesto ${nextNumber} creado en modo borrador.` });
+  };
+
+  const handleStartManualQuoteFromContext = (context?: { plate?: string; vin?: string; make?: string; model?: string }) => {
+    const newId = `q-${Date.now()}`;
+    const nextNumber = `PRE-2026-${String(allQuotes.length + 1).padStart(3, '0')}`;
+    const vehicleTitle = context?.make && context?.model ? `${context.make} ${context.model}` : 'Vehículo';
+    const foundVehicle = context?.plate
+      ? vehicles.find(v => v.plate.toUpperCase() === context.plate?.toUpperCase())
+      : undefined;
+    const foundCustomer = foundVehicle
+      ? customers.find(c => c.id === (foundVehicle as any).customerId)
+      : undefined;
+
+    const blankQuote: Quote = {
+      id: newId,
+      number: nextNumber,
+      customerId: foundCustomer?.id || '',
+      vehicleId: foundVehicle?.id || '',
+      customerName: foundCustomer?.name || 'Cliente Taller',
+      vehiclePlate: context?.plate || foundVehicle?.plate || '0000-XXX',
+      title: `Intervención · ${vehicleTitle}`,
+      createdDate: 'Hoy',
+      status: 'draft',
+      items: [
+        {
+          id: `item-${Date.now()}-1`,
+          category: 'part',
+          description: 'Recambio principal',
+          quantity: 1,
+          unitPrice: null,
+          total: null,
+          pricingStatus: 'PENDING',
+          isLocallyModified: false
+        },
+        {
+          id: `item-${Date.now()}-2`,
+          category: 'labor',
+          description: 'Mano de obra (sustitución y montaje)',
+          quantity: 1.0,
+          unitPrice: 50.0,
+          total: 50.0,
+          pricingStatus: 'MANUALLY_PRICED',
+          isLocallyModified: false
+        }
+      ],
+      subtotal: 50.0,
+      tax: 10.5,
+      total: 60.5,
+      estimatedLaborHours: 1.0,
+      aiRationale: `Borrador manual para ${vehicleTitle}. Operaciones y partidas configurables por el taller.`,
+      isPersistedBackendDraft: false,
+      hasUnsavedLocalChanges: false
+    };
+    addQuote(blankQuote);
+    setSelectedQuoteId(newId);
+    setEditForm(JSON.parse(JSON.stringify(blankQuote)));
+    setIsEditing(true);
+    setMobileView('detail');
+    setFeedbackNotice({
+      type: 'success',
+      text: `Presupuesto manual ${nextNumber} iniciado para ${vehicleTitle}. Datos del vehículo conservados.`
+    });
   };
 
   const handleStartEditing = () => {
@@ -1438,13 +1503,16 @@ export const PresupuestosView: React.FC = () => {
         onClose={() => {
           setIsRkModalOpen(false);
           setInitialRkVehicleId(undefined);
+          setInitialRkPlate(undefined);
         }}
         tenantId={tenantId}
         vehicles={vehicles}
         customers={customers}
         initialVehicleId={initialRkVehicleId}
+        initialPlate={initialRkPlate}
         onDraftCreated={handleDraftCreatedFromRK}
         onInspectEvidence={(item) => setEvidenceModalItem(item)}
+        onContinueManual={handleStartManualQuoteFromContext}
       />
 
       {/* Evidence & Provenance Modal */}

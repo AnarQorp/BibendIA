@@ -8,11 +8,11 @@ export type VehicleKind = 'car' | 'van';
 export interface VehicleCatalogSource {
   provider: string;
   version: string;
-  artifactSha256: string;
+  artifactSha256?: string | null;
   license: string;
   attribution: string;
   attributionUrl: string;
-  importedAt: string;
+  importedAt?: string | null;
 }
 
 export interface VehicleCatalogMake {

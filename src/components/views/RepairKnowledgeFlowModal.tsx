@@ -14,7 +14,8 @@ import {
   ChevronRight,
   Info,
   Layers,
-  Check
+  Check,
+  FileText
 } from 'lucide-react';
 import type {
   Vehicle,
@@ -48,8 +49,10 @@ export interface RepairKnowledgeFlowModalProps {
   customers: Customer[];
   onDraftCreated: (newQuote: any) => void;
   onInspectEvidence: (item: any) => void;
+  onContinueManual?: (context: { plate?: string; vin?: string; make?: string; model?: string }) => void;
   initialVehicleId?: string;
   initialJobCode?: string;
+  initialPlate?: string;
 }
 
 export const RepairKnowledgeFlowModal: React.FC<RepairKnowledgeFlowModalProps> = ({
@@ -60,8 +63,10 @@ export const RepairKnowledgeFlowModal: React.FC<RepairKnowledgeFlowModalProps> =
   customers,
   onDraftCreated,
   onInspectEvidence,
+  onContinueManual,
   initialVehicleId,
-  initialJobCode
+  initialJobCode,
+  initialPlate
 }) => {
   if (!isOpen) return null;
 
@@ -71,11 +76,11 @@ export const RepairKnowledgeFlowModal: React.FC<RepairKnowledgeFlowModalProps> =
   // Contextual initial vehicle from Agenda if available
   const initialVehicle = initialVehicleId
     ? vehicles.find(v => v.id === initialVehicleId)
-    : undefined;
+    : (initialPlate ? vehicles.find(v => v.plate.toUpperCase() === initialPlate.toUpperCase()) : undefined);
 
   // 1. Vehicle Identification (Optional Inputs)
-  const [plate, setPlate] = useState<string>(initialVehicle?.plate || '');
-  const [vin, setVin] = useState<string>('');
+  const [plate, setPlate] = useState<string>(initialPlate || initialVehicle?.plate || '');
+  const [vin, setVin] = useState<string>(initialVehicle?.vin || '');
   const [kind, setKind] = useState<VehicleKind>('car');
 
   // 2. Vehicle Catalog State
@@ -667,6 +672,29 @@ export const RepairKnowledgeFlowModal: React.FC<RepairKnowledgeFlowModalProps> =
                 >
                   Cancelar
                 </button>
+
+                {!isRkCovered && selectedModelId && selectedModel && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const makeName = makes.find(m => m.sourceMakeId === selectedMake)?.name || selectedMake;
+                      const modelName = selectedModel?.name || '';
+                      if (onContinueManual) {
+                        onContinueManual({
+                          plate: plate.trim() || initialVehicle?.plate,
+                          vin: vin.trim() || initialVehicle?.vin,
+                          make: makeName,
+                          model: modelName
+                        });
+                      }
+                      onClose();
+                    }}
+                    className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs rounded-xl flex items-center gap-2 shadow-xs transition"
+                  >
+                    <FileText className="w-4 h-4" />
+                    <span>Continuar con presupuesto manual →</span>
+                  </button>
+                )}
 
                 {isRkCovered && (
                   <button
