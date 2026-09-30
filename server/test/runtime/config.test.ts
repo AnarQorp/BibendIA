@@ -66,9 +66,18 @@ describe('production runtime configuration', () => {
     })).toThrow(/ELEVENLABSWEBHOOK_CONFIG_INCOMPLETE/);
   });
 
-  it('keeps Worker disabled by default and refuses enablement without an approved adapter', () => {
+  it('keeps Worker disabled by default and enables only with an explicit cutoff and complete approved adapter', () => {
     expect(loadWorkerRuntimeConfig(base).mode).toBe('disabled');
-    expect(() => loadWorkerRuntimeConfig({ ...base, WORKER_MODE: 'enabled' })).toThrow(/WORKER_ADAPTER_NOT_CONFIGURED/);
+    expect(() => loadWorkerRuntimeConfig({ ...base, WORKER_MODE: 'enabled' })).toThrow(/WORKER_ACTIVATION_NOT_BEFORE_INVALID/);
+    const smtp = {
+      ...base, WORKER_MODE: 'enabled', WORKER_ACTIVATION_NOT_BEFORE: '2026-10-01T00:00:00Z',
+      WORKER_SMTP_HOST: 'smtp.example.com', WORKER_SMTP_PORT: '465', WORKER_SMTP_TLS_MODE: 'tls',
+      WORKER_SMTP_USER: 'worker', WORKER_SMTP_PASSWORD: 'secret', WORKER_SMTP_SENDER: 'no-reply@bibendia.com',
+      WORKER_SMTP_DESTINATION: 'info@bibendia.com',
+    };
+    expect(loadWorkerRuntimeConfig(smtp)).toMatchObject({ mode: 'enabled', activationNotBefore: new Date('2026-10-01T00:00:00Z') });
+    expect(() => loadWorkerRuntimeConfig({ ...smtp, WORKER_ACTIVATION_NOT_BEFORE: undefined })).toThrow(/ACTIVATION_NOT_BEFORE_INVALID/);
+    expect(() => loadWorkerRuntimeConfig({ ...smtp, WORKER_SMTP_PASSWORD: undefined })).toThrow(/SMTP_CONFIG_INCOMPLETE/);
   });
 
   it('loads human auth atomically, requires the pilot tenant and enforces separate MFA policy', () => {

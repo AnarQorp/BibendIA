@@ -51,7 +51,10 @@ export async function listWorkerTenantIds(pool: pg.Pool): Promise<string[]> {
   } finally { client.release(); }
 }
 
-export async function claimOutboxBatch(pool: pg.Pool, tenantId: string, limit = 20, workerId = 'worker') {
+export type OutboxClaimPolicy = { eventTypes?: readonly string[]; occurredNotBefore?: Date };
+
+export async function claimOutboxBatch(pool: pg.Pool, tenantId: string, limit = 20, workerId = 'worker', policy: OutboxClaimPolicy = {}) {
+  if (policy.eventTypes?.length === 0) return [];
   return inTenantTransaction(pool, tenantId, async (client) => {
     // Expired claims that never crossed the effect boundary are safe to reclaim. Once an effect
     // started, expiry means uncertainty and requires reconciliation/manual intervention.
@@ -61,11 +64,17 @@ export async function claimOutboxBatch(pool: pg.Pool, tenantId: string, limit = 
          last_error_code=CASE WHEN effect_started_at IS NULL THEN last_error_code ELSE 'LEASE_EXPIRED_AFTER_EFFECT_START' END,
          last_error_at=CASE WHEN effect_started_at IS NULL THEN last_error_at ELSE now() END,
          effect_started_at=NULL
-       WHERE tenant_id=$1 AND delivery_state='in_progress' AND lease_until < now()`, [tenantId],
+       WHERE tenant_id=$1 AND delivery_state='in_progress' AND lease_until < now()
+         AND ($2::text[] IS NULL OR event_type=ANY($2::text[]))
+         AND ($3::timestamptz IS NULL OR occurred_at >= $3::timestamptz)`,
+      [tenantId, policy.eventTypes ?? null, policy.occurredNotBefore ?? null],
     );
     await client.query(`UPDATE outbox_events SET delivery_state='dead_letter',dead_lettered_at=now(),
       last_error_code='EVENT_OBSOLETE',last_error_at=now(),next_attempt_at=NULL
-      WHERE tenant_id=$1 AND delivery_state IN ('not_attempted','failed_safe_to_retry') AND effect_valid_until<=now()`, [tenantId]);
+      WHERE tenant_id=$1 AND delivery_state IN ('not_attempted','failed_safe_to_retry') AND effect_valid_until<=now()
+        AND ($2::text[] IS NULL OR event_type=ANY($2::text[]))
+        AND ($3::timestamptz IS NULL OR occurred_at >= $3::timestamptz)`,
+      [tenantId, policy.eventTypes ?? null, policy.occurredNotBefore ?? null]);
     const token = randomUUID();
     const result = await client.query<ClaimedOutboxEvent>(
       `UPDATE outbox_events SET delivery_state='in_progress',lease_owner=$3,lease_token=$4,
@@ -74,9 +83,11 @@ export async function claimOutboxBatch(pool: pg.Pool, tenantId: string, limit = 
          WHERE o.tenant_id=$1 AND o.delivery_state IN ('not_attempted','failed_safe_to_retry')
          AND (o.next_attempt_at IS NULL OR o.next_attempt_at<=now())
          AND o.effect_valid_until>now()
+         AND ($5::text[] IS NULL OR o.event_type=ANY($5::text[]))
+         AND ($6::timestamptz IS NULL OR o.occurred_at >= $6::timestamptz)
          AND t.lifecycle_status IN ('pilot','active') AND t.kill_switch_enabled=false
          ORDER BY o.occurred_at,o.id FOR UPDATE OF o SKIP LOCKED LIMIT $2)
-       RETURNING *`, [tenantId, limit, workerId, token],
+       RETURNING *`, [tenantId, limit, workerId, token, policy.eventTypes ?? null, policy.occurredNotBefore ?? null],
     );
     return result.rows;
   }, 'bibendia_worker');
