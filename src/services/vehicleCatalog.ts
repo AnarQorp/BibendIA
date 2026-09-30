@@ -10,13 +10,17 @@ import type {
  * Used ONLY in explicit local development/test/offline environments
  * when migrations 020/021 are not applied to the local database.
  */
+export function canUseVehicleCatalogFallback(location: Pick<URL, 'hostname'> | undefined, isDevMode: boolean): boolean {
+  if (!isDevMode) return false;
+  if (!location) return true;
+  const { hostname } = location;
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname.endsWith('.local');
+}
+
 export function isExplicitDevOrOffline(): boolean {
-  if (typeof window === 'undefined') return true;
-  const host = window.location.hostname;
-  const isLocal = host === 'localhost' || host === '127.0.0.1' || host.endsWith('.local');
   const isDevMode = Boolean((import.meta as any).env?.DEV);
-  const isExplicitDevParam = new URLSearchParams(window.location.search).has('mock_catalog');
-  return isLocal || isDevMode || isExplicitDevParam;
+  const location = typeof window === 'undefined' ? undefined : window.location;
+  return canUseVehicleCatalogFallback(location, isDevMode);
 }
 
 const DEV_FALLBACK_SOURCE: VehicleCatalogSource = {
