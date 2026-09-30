@@ -33,6 +33,7 @@ import {
   fetchRepairKnowledgeVehicleFacets,
   resolveRepairKnowledge,
   createEstimateDraft,
+  resolveWorkshopVehicleId,
   convertEstimateDraftToQuote,
   getAutomationStatusFromEdge
 } from '../../services/repairKnowledge';
@@ -348,11 +349,18 @@ export const RepairKnowledgeFlowModal: React.FC<RepairKnowledgeFlowModalProps> =
     const idempotencyKey = `rk-draft-${tenantId.slice(0, 4)}-${Date.now()}`;
     const selectedVeh = initialVehicle || vehicles[0];
     const selectedCust = customers[0];
+    const vehicleId = resolveWorkshopVehicleId(initialVehicleId, vehicles);
+
+    if (!vehicleId) {
+      setStep('preview');
+      setErrorMessage('Selecciona un vehículo guardado en el taller antes de crear el borrador técnico.');
+      return;
+    }
 
     const target = selectedModel.repairKnowledgeTargets[0];
 
     const command = {
-      vehicleId: selectedVeh?.id || 'v5',
+      vehicleId,
       idempotencyKey,
       vehicle: {
         make: target.make,

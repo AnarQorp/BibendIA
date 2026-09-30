@@ -14,6 +14,7 @@ import type {
   RepairKnowledgeFacets,
   RepairKnowledgeDisambiguation
 } from '../types';
+import type { Vehicle } from '../types';
 import { isExplicitDevOrOffline } from './vehicleCatalog';
 
 export interface RepairKnowledgeResolutionState {
@@ -29,6 +30,13 @@ export interface CreateEstimateDraftState {
   data?: EstimateDraft;
   message?: string;
   correlationId?: string;
+}
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function resolveWorkshopVehicleId(initialVehicleId: string | undefined, vehicles: Vehicle[]): string | null {
+  if (initialVehicleId && UUID_PATTERN.test(initialVehicleId)) return initialVehicleId;
+  return vehicles.find((vehicle) => UUID_PATTERN.test(vehicle.id))?.id ?? null;
 }
 
 // Canonical PoC Resolution Data (Matches VAG 1.6 TDI CLHA Timing Belt + Water Pump)
@@ -607,6 +615,9 @@ export async function createEstimateDraft(
 ): Promise<CreateEstimateDraftState> {
   if (!tenantId) {
     return { status: 'error', message: 'Se requiere tenantId para crear el borrador técnico.' };
+  }
+  if (!UUID_PATTERN.test(command.vehicleId)) {
+    return { status: 'error', message: 'Selecciona un vehículo guardado en el taller antes de crear el borrador técnico.' };
   }
 
   let failureMessage = 'No se pudo crear el borrador técnico en el servidor.';

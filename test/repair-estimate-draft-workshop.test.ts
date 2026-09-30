@@ -3,8 +3,12 @@ import type { EstimateDraft } from '../src/types';
 import {
   buildEstimateDraftEditCommand,
   convertEstimateDraftToQuote,
-  createEstimateDraft
+  createEstimateDraft,
+  fetchEstimateDraftById,
+  resolveWorkshopVehicleId
 } from '../src/services/repairKnowledge';
+
+const UUID_PATTERN_FOR_TEST = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const draft: EstimateDraft = {
   id: '11111111-1111-4111-8111-111111111111',
@@ -60,6 +64,53 @@ afterEach(() => {
 });
 
 describe('Workshop RK draft persistence contract', () => {
+  it('preserves the real Agenda vehicle UUID when local demo vehicles do not contain it', async () => {
+    const agendaVehicleId = draft.vehicleId;
+    const vehicleId = resolveWorkshopVehicleId(agendaVehicleId, [{
+      id: 'v1', plate: '0000 DEM', brand: 'Volkswagen', model: 'Golf VII',
+      year: 2015, kilometers: 100_000, motorization: '1.6 TDI', vin: 'DEMO'
+    }]);
+    expect(vehicleId).toBe(agendaVehicleId);
+
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: draft, correlationId: 'post-correlation' }), {
+        status: 201, headers: { 'Content-Type': 'application/json' }
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: draft, correlationId: 'get-correlation' }), {
+        status: 200, headers: { 'Content-Type': 'application/json' }
+      }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const command = {
+      vehicleId: vehicleId!,
+      idempotencyKey: 'rk-draft-workshop-command',
+      vehicle: { make: 'Volkswagen', model: 'Golf VII', engineCode: 'CLHA' },
+      repairJobCode: 'JOB_TIMING_BELT_WATER_PUMP'
+    };
+    const created = await createEstimateDraft(draft.tenantId, command);
+    expect(created).toMatchObject({ status: 'success', data: { id: draft.id } });
+    expect(created.data?.id).toMatch(UUID_PATTERN_FOR_TEST);
+    const sentBody = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+    expect(sentBody).toEqual(command);
+
+    const reloaded = await fetchEstimateDraftById(draft.tenantId, created.data!.id);
+    expect(reloaded).toMatchObject({ status: 'success', data: { id: draft.id } });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects a local demo vehicle id before issuing the production POST', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const result = await createEstimateDraft(draft.tenantId, {
+      vehicleId: 'v1',
+      idempotencyKey: 'rk-draft-invalid-vehicle',
+      vehicle: { make: 'Volkswagen', model: 'Golf VII', engineCode: 'CLHA' },
+      repairJobCode: 'JOB_TIMING_BELT_WATER_PUMP'
+    });
+    expect(result.status).toBe('error');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('fails closed instead of fabricating a persisted draft when the production POST fails', async () => {
     vi.stubGlobal('window', { location: new URL('https://app.bibendia.com/presupuestos') });
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: 'SERVER_FAILURE' }), {
