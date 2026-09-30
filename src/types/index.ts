@@ -538,5 +538,3 @@ export interface CreateEstimateDraftCommand {
 }
 
 export * from './vehicleCatalog';
-
-
