@@ -2,6 +2,7 @@ export type NavSection =
   | 'midia' 
   | 'bandeja' 
   | 'agenda' 
+  | 'directorio'
   | 'presupuestos' 
   | 'seguimientos' 
   | 'proveedores'
@@ -545,6 +546,12 @@ export interface WorkshopCustomer {
   phone: string | null;
   email: string | null;
   notes: string | null;
+  vehicles?: WorkshopVehicle[];
+  activitySummary?: {
+    appointmentsCount: number;
+    estimatesCount: number;
+    lastAppointmentAt: string | null;
+  };
 }
 
 export interface WorkshopVehicle {
@@ -555,6 +562,71 @@ export interface WorkshopVehicle {
   year: number | null;
   vin: string | null;
   customerId?: string | null;
+  customer?: {
+    id: string;
+    name: string;
+    phone?: string | null;
+    email?: string | null;
+  } | null;
+}
+
+export interface WorkshopAppointmentSummary {
+  id: string;
+  startAt: string;
+  endAt: string;
+  serviceIntent: string;
+  status: string;
+  origin?: string;
+  vehicleId?: string | null;
+  vehiclePlate?: string | null;
+  vehicleMake?: string | null;
+  vehicleModel?: string | null;
+}
+
+export interface WorkshopEstimateSummary {
+  id: string;
+  title: string | null;
+  draftType?: 'REPAIR_KNOWLEDGE' | 'MANUAL_WORKSHOP';
+  provenance: 'manual' | 'rk' | 'mixed';
+  status: string;
+  total: number;
+  linesCount?: number;
+  createdAt: string;
+  updatedAt: string;
+  vehicleId?: string | null;
+  vehiclePlate?: string | null;
+  vehicleMake?: string | null;
+  vehicleModel?: string | null;
+}
+
+export interface CustomerDetailResponse {
+  customer: WorkshopCustomer;
+  vehicles: WorkshopVehicle[];
+  activity: {
+    appointments: WorkshopAppointmentSummary[];
+    estimates: WorkshopEstimateSummary[];
+  };
+}
+
+export interface VehicleDetailResponse {
+  vehicle: WorkshopVehicle;
+  customer: {
+    id: string;
+    name: string;
+    phone?: string | null;
+    email?: string | null;
+  } | null;
+  customers: Array<{
+    id: string;
+    name: string;
+    phone?: string | null;
+    email?: string | null;
+    role: string;
+  }>;
+  activity: {
+    appointments: WorkshopAppointmentSummary[];
+    estimates: WorkshopEstimateSummary[];
+  };
 }
 
 export interface CreateWorkshopAppointmentCommand {
@@ -597,6 +669,8 @@ export interface EditEstimateDraftCommand {
   status?: EstimateDraftStatus;
   lines?: EstimateLineChange[];
   deleteLineIds?: string[];
+  customerId?: string | null;
+  vehicleId?: string | null;
 }
 
 export interface ResolveRepairKnowledgeQuery {

@@ -10,6 +10,8 @@ export interface ManualAppointmentModalProps {
   onAppointmentCreated: (appt: WorkshopAppointmentResponse) => void;
   initialDate?: string;
   initialTime?: string;
+  initialCustomerId?: string;
+  initialVehicleId?: string;
 }
 
 export const ManualAppointmentModal: React.FC<ManualAppointmentModalProps> = ({
@@ -19,6 +21,8 @@ export const ManualAppointmentModal: React.FC<ManualAppointmentModalProps> = ({
   onAppointmentCreated,
   initialDate,
   initialTime,
+  initialCustomerId,
+  initialVehicleId,
 }) => {
   const [date, setDate] = useState(initialDate || new Date().toISOString().slice(0, 10));
   const [time, setTime] = useState(initialTime || '09:00');
@@ -26,13 +30,13 @@ export const ManualAppointmentModal: React.FC<ManualAppointmentModalProps> = ({
   const [serviceIntent, setServiceIntent] = useState('Revisión periódica y diagnosis');
   const [notes, setNotes] = useState('');
 
-  const [customerMode, setCustomerMode] = useState<'existing' | 'new'>('new');
-  const [selectedCustomerId, setSelectedCustomerId] = useState('');
+  const [customerMode, setCustomerMode] = useState<'existing' | 'new'>(initialCustomerId ? 'existing' : 'new');
+  const [selectedCustomerId, setSelectedCustomerId] = useState(initialCustomerId || '');
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
 
-  const [vehicleMode, setVehicleMode] = useState<'existing' | 'new'>('new');
-  const [selectedVehicleId, setSelectedVehicleId] = useState('');
+  const [vehicleMode, setVehicleMode] = useState<'existing' | 'new'>(initialVehicleId ? 'existing' : 'new');
+  const [selectedVehicleId, setSelectedVehicleId] = useState(initialVehicleId || '');
   const [vehiclePlate, setVehiclePlate] = useState('');
   const [vehicleMake, setVehicleMake] = useState('');
   const [vehicleModel, setVehicleModel] = useState('');
@@ -43,16 +47,26 @@ export const ManualAppointmentModal: React.FC<ManualAppointmentModalProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    if (isOpen && tenantId) {
-      Promise.all([
-        listWorkshopCustomers(tenantId),
-        listWorkshopVehicles(tenantId),
-      ]).then(([cRes, vRes]) => {
-        if (cRes.status === 'success' && cRes.data) setExistingCustomers(cRes.data);
-        if (vRes.status === 'success' && vRes.data) setExistingVehicles(vRes.data);
-      });
+    if (isOpen) {
+      if (initialCustomerId) {
+        setCustomerMode('existing');
+        setSelectedCustomerId(initialCustomerId);
+      }
+      if (initialVehicleId) {
+        setVehicleMode('existing');
+        setSelectedVehicleId(initialVehicleId);
+      }
+      if (tenantId) {
+        Promise.all([
+          listWorkshopCustomers(tenantId),
+          listWorkshopVehicles(tenantId),
+        ]).then(([cRes, vRes]) => {
+          if (cRes.status === 'success' && cRes.data) setExistingCustomers(cRes.data);
+          if (vRes.status === 'success' && vRes.data) setExistingVehicles(vRes.data);
+        });
+      }
     }
-  }, [isOpen, tenantId]);
+  }, [isOpen, tenantId, initialCustomerId, initialVehicleId]);
 
   if (!isOpen) return null;
 

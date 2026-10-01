@@ -38,7 +38,9 @@ const patchBody = z.object({
   expectedVersion: z.number().int().positive(), idempotencyKey: z.string().min(8).max(200).regex(/^[A-Za-z0-9._:-]+$/),
   status: z.enum(['technical_draft','pending_approval','sent','approved']).optional(),
   lines: z.array(lineChange).max(100).optional(), deleteLineIds: z.array(z.string().uuid()).max(100).optional(),
-}).strict().refine((value) => value.status !== undefined || (value.lines?.length ?? 0) > 0 || (value.deleteLineIds?.length ?? 0) > 0,
+  customerId: z.string().uuid().nullable().optional(),
+  vehicleId: z.string().uuid().nullable().optional(),
+}).strict().refine((value) => value.status !== undefined || (value.lines?.length ?? 0) > 0 || (value.deleteLineIds?.length ?? 0) > 0 || value.customerId !== undefined || value.vehicleId !== undefined,
   { message: 'at least one change is required' });
 
 const rkDraftBody = z.object({
@@ -181,7 +183,7 @@ async function authorize(pool: pg.Pool, principal: PrincipalContext,
 
 function editingError(error: unknown, reply: any, correlationId: string) {
   if (!(error instanceof EstimateDraftEditingError)) throw error;
-  const status = error.code === 'ESTIMATE_DRAFT_NOT_FOUND' ? 404
+  const status = error.code === 'ESTIMATE_DRAFT_NOT_FOUND' || error.code === 'CUSTOMER_NOT_FOUND' || error.code === 'VEHICLE_NOT_FOUND' ? 404
     : error.code === 'ESTIMATE_VERSION_CONFLICT' || error.code === 'ESTIMATE_MUTATION_CONFLICT' ||
       error.code === 'ESTIMATE_STATUS_TRANSITION_INVALID' || error.code === 'ESTIMATE_DRAFT_NOT_EDITABLE' ||
       error.code === 'RK_LINE_DELETE_FORBIDDEN' ? 409 : 400;

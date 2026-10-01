@@ -11,6 +11,7 @@ import { SeguimientosView } from './components/views/SeguimientosView';
 import { ProveedoresWorkshopView } from './components/views/ProveedoresWorkshopView';
 import { ImpactoView } from './components/views/ImpactoView';
 import { IntegracionesView } from './components/views/IntegracionesView';
+import { DirectorioView } from './components/views/DirectorioView';
 import { GlobalAssistantModal } from './components/ai/GlobalAssistantModal';
 import { AuthSessionGate } from './components/auth/AuthSessionGate';
 import { WorkshopAppointmentsProvider } from './context/WorkshopAppointmentsContext';
@@ -35,10 +36,11 @@ const MainContent: React.FC<{ tenantId: string }> = ({ tenantId }) => {
 
   // Synchronize currentPath with activeSection
   useEffect(() => {
-    let target: 'midia' | 'bandeja' | 'agenda' | 'presupuestos' | 'seguimientos' | 'proveedores' | 'impacto' | 'configuracion' = 'midia';
+    let target: 'midia' | 'bandeja' | 'agenda' | 'directorio' | 'presupuestos' | 'seguimientos' | 'proveedores' | 'impacto' | 'configuracion' = 'midia';
     if (currentPath === '/midia' || currentPath === '/') target = 'midia';
     else if (currentPath === '/bandeja') target = 'bandeja';
     else if (currentPath === '/agenda') target = 'agenda';
+    else if (currentPath.startsWith('/directorio')) target = 'directorio';
     else if (currentPath === '/presupuestos') target = 'presupuestos';
     else if (currentPath === '/seguimientos') target = 'seguimientos';
     else if (currentPath === '/proveedores') target = 'proveedores';
@@ -68,6 +70,9 @@ const MainContent: React.FC<{ tenantId: string }> = ({ tenantId }) => {
 
   const renderActiveView = () => {
     // Route matching with fallback to activeSection
+    if (currentPath.startsWith('/directorio') || activeSection === 'directorio') {
+      return <DirectorioView tenantId={tenantId} />;
+    }
     if (currentPath === '/proveedores' || activeSection === 'proveedores') {
       return <ProveedoresWorkshopView />;
     }

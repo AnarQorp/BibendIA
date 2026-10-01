@@ -6,9 +6,19 @@ import { inAuthorizedTenantTransaction } from '../auth/tenant-authorization.js';
 import { assertTenantOperation } from '../modules/tenant-control/tenant-control.js';
 import type { PiiProtection } from '../security/pii-protection.js';
 import { normalizeSpanishPlate } from '../security/pii-protection.js';
-import { insertProtectedCustomer, insertProtectedVehicle, revealCustomerRow, revealVehicleRow } from '../security/protected-records.js';
+import {
+  insertProtectedCustomer,
+  insertProtectedVehicle,
+  updateProtectedCustomer,
+  updateProtectedVehicle,
+  revealCustomerRow,
+  revealVehicleRow,
+  normalizeSpanishOrE164Phone,
+} from '../security/protected-records.js';
 
 const tenantParams = z.object({ tenantId: z.string().uuid() });
+const customerParams = z.object({ tenantId: z.string().uuid(), customerId: z.string().uuid() });
+const vehicleParams = z.object({ tenantId: z.string().uuid(), vehicleId: z.string().uuid() });
 
 const customerQuerySchema = z.object({
   search: z.string().trim().max(100).optional(),
@@ -21,8 +31,19 @@ const createCustomerSchema = z.object({
   phone: z.string().trim().max(50).optional(),
   email: z.string().trim().email().max(200).optional(),
   notes: z.string().trim().max(2000).optional(),
+  allowDuplicate: z.boolean().optional(),
   idempotencyKey: z.string().min(8).max(200).optional(),
 }).strict();
+
+const updateCustomerSchema = z.object({
+  name: z.string().trim().min(2).max(200).optional(),
+  phone: z.string().trim().max(50).nullable().optional(),
+  email: z.string().trim().email().max(200).nullable().optional(),
+  notes: z.string().trim().max(2000).nullable().optional(),
+  allowDuplicate: z.boolean().optional(),
+}).strict().refine((d) => d.name !== undefined || d.phone !== undefined || d.email !== undefined || d.notes !== undefined, {
+  message: 'Al menos un campo debe ser actualizado.',
+});
 
 const vehicleQuerySchema = z.object({
   search: z.string().trim().max(100).optional(),
@@ -50,6 +71,23 @@ const createVehicleSchema = z.object({
     });
   }
 });
+
+const updateVehicleSchema = z.object({
+  plate: z.string().trim().min(2).max(20).nullable().optional(),
+  make: z.string().trim().min(1).max(100).nullable().optional(),
+  model: z.string().trim().min(1).max(100).nullable().optional(),
+  year: z.number().int().min(1900).max(2100).nullable().optional(),
+  vin: z.string().trim().min(5).max(50).nullable().optional(),
+  customerId: z.string().uuid().nullable().optional(),
+}).strict().refine((d) => d.plate !== undefined || d.make !== undefined || d.model !== undefined || d.year !== undefined || d.vin !== undefined || d.customerId !== undefined, {
+  message: 'Al menos un campo debe ser actualizado.',
+});
+
+const associateRoleSchema = z.object({
+  customerId: z.string().uuid(),
+  vehicleId: z.string().uuid(),
+  role: z.string().trim().min(1).max(50).default('owner'),
+}).strict();
 
 const createManualAppointmentSchema = z.object({
   idempotencyKey: z.string().min(8).max(200).regex(/^[A-Za-z0-9._:-]+$/),
@@ -93,27 +131,136 @@ export function registerWorkshopOperationsRoutes(app: FastifyInstance, pool: pg.
       correlationId: request.id,
     }, async (client, context) => {
       await assertTenantOperation(client, context.tenantId, 'workshop_read');
-      const result = await client.query(`
-        SELECT id, tenant_id, display_name_ciphertext, display_name_nonce, display_name_auth_tag, display_name_key_id,
-               phone_ciphertext, phone_nonce, phone_auth_tag, phone_key_id,
-               email_ciphertext, email_nonce, email_auth_tag, email_key_id,
-               notes_ciphertext, notes_nonce, notes_auth_tag, notes_key_id
-        FROM customers
-        WHERE tenant_id = $1 AND pii_migration_state = 'protected'
-        ORDER BY id DESC
-        LIMIT 200
-      `, [context.tenantId]);
 
-      let revealed = result.rows.map((row) => revealCustomerRow(row, pii));
+      const exactIds: string[] = [];
       if (query.data.search) {
+        const term = query.data.search.trim();
+        const candidateDigests: string[] = [];
+        if (term.includes('@')) {
+          candidateDigests.push(...pii.lookupDigests(context.tenantId, 'customer.email', term.toLowerCase()).map((d) => d.digest));
+        }
+        if (/[\d]{6,}/.test(term.replace(/[\s().+-]/g, ''))) {
+          try {
+            const normPhone = normalizeSpanishOrE164Phone(term);
+            candidateDigests.push(...pii.lookupDigests(context.tenantId, 'customer.phone', normPhone).map((d) => d.digest));
+          } catch { /* ignore */ }
+        }
+        try {
+          const normPlate = normalizeSpanishPlate(term);
+          const plateDigests = pii.lookupDigests(context.tenantId, 'vehicle.plate', normPlate).map((d) => d.digest);
+          if (plateDigests.length > 0) {
+            const vRes = await client.query(`
+              SELECT r.customer_id
+              FROM customer_vehicle_roles r
+              JOIN vehicles v ON v.id = r.vehicle_id AND v.tenant_id = r.tenant_id
+              WHERE r.tenant_id = $1 AND v.plate_lookup_digest = ANY($2::text[])
+            `, [context.tenantId, plateDigests]);
+            if (vRes.rowCount) {
+              exactIds.push(...vRes.rows.map((r: any) => r.customer_id as string));
+            }
+          }
+        } catch { /* ignore */ }
+
+        if (candidateDigests.length > 0) {
+          const dRes = await client.query(`
+            SELECT id FROM customers
+            WHERE tenant_id = $1 AND (phone_lookup_digest = ANY($2::text[]) OR email_lookup_digest = ANY($2::text[]))
+          `, [context.tenantId, candidateDigests]);
+          if (dRes.rowCount) {
+            exactIds.push(...dRes.rows.map((r: any) => r.id as string));
+          }
+        }
+      }
+
+      const hasExactMatches = exactIds.length > 0;
+      const sql = hasExactMatches
+        ? `SELECT id, tenant_id, display_name_ciphertext, display_name_nonce, display_name_auth_tag, display_name_key_id,
+                  phone_ciphertext, phone_nonce, phone_auth_tag, phone_key_id,
+                  email_ciphertext, email_nonce, email_auth_tag, email_key_id,
+                  notes_ciphertext, notes_nonce, notes_auth_tag, notes_key_id
+           FROM customers
+           WHERE tenant_id = $1 AND pii_migration_state = 'protected' AND id = ANY($2::uuid[])
+           ORDER BY id DESC
+           LIMIT 100`
+        : `SELECT id, tenant_id, display_name_ciphertext, display_name_nonce, display_name_auth_tag, display_name_key_id,
+                  phone_ciphertext, phone_nonce, phone_auth_tag, phone_key_id,
+                  email_ciphertext, email_nonce, email_auth_tag, email_key_id,
+                  notes_ciphertext, notes_nonce, notes_auth_tag, notes_key_id
+           FROM customers
+           WHERE tenant_id = $1 AND pii_migration_state = 'protected'
+           ORDER BY id DESC
+           LIMIT 100`;
+
+      const result = await client.query(sql, exactIds && exactIds.length > 0 ? [context.tenantId, exactIds] : [context.tenantId]);
+      const revealed = result.rows.map((row) => revealCustomerRow(row, pii));
+
+      const customerIds = revealed.map((c) => c.id);
+      const customerVehicles: Record<string, any[]> = {};
+      const apptCounts: Record<string, { count: number; last?: string }> = {};
+      const draftCounts: Record<string, number> = {};
+
+      if (customerIds.length > 0) {
+        const vResult = await client.query(`
+          SELECT r.customer_id, v.id, v.tenant_id, v.make, v.model, v.year,
+                 v.plate_ciphertext, v.plate_nonce, v.plate_auth_tag, v.plate_key_id
+          FROM customer_vehicle_roles r
+          JOIN vehicles v ON v.id = r.vehicle_id AND v.tenant_id = r.tenant_id
+          WHERE r.tenant_id = $1 AND r.customer_id = ANY($2::uuid[])
+        `, [context.tenantId, customerIds]);
+
+        for (const row of vResult.rows) {
+          const v = revealVehicleRow(row, pii);
+          if (!customerVehicles[row.customer_id]) customerVehicles[row.customer_id] = [];
+          customerVehicles[row.customer_id].push(v);
+        }
+
+        const aResult = await client.query(`
+          SELECT a.customer_id, COUNT(*)::int AS cnt, MAX(a.start_at) AS last_appt
+          FROM appointments a
+          WHERE a.tenant_id = $1 AND a.customer_id = ANY($2::uuid[])
+          GROUP BY a.customer_id
+        `, [context.tenantId, customerIds]);
+        for (const row of aResult.rows) {
+          apptCounts[row.customer_id] = { count: row.cnt, last: row.last_appt ? new Date(row.last_appt).toISOString() : undefined };
+        }
+
+        const dResult = await client.query(`
+          SELECT d.customer_id, COUNT(*)::int AS cnt
+          FROM estimate_drafts d
+          WHERE d.tenant_id = $1 AND d.customer_id = ANY($2::uuid[]) AND d.status <> 'superseded'
+          GROUP BY d.customer_id
+        `, [context.tenantId, customerIds]);
+        for (const row of dResult.rows) {
+          draftCounts[row.customer_id] = row.cnt;
+        }
+      }
+
+      const enriched = revealed.map((c) => {
+        const vehicles = customerVehicles[c.id] || [];
+        const apptInfo = apptCounts[c.id] || { count: 0 };
+        const dCount = draftCounts[c.id] || 0;
+        return {
+          ...c,
+          vehicles,
+          activitySummary: {
+            appointmentsCount: apptInfo.count,
+            estimatesCount: dCount,
+            lastAppointmentAt: apptInfo.last,
+          },
+        };
+      });
+
+      if (query.data.search && !exactIds) {
         const searchLower = query.data.search.toLowerCase();
-        revealed = revealed.filter((c) =>
+        return enriched.filter((c) =>
           c.name.toLowerCase().includes(searchLower) ||
           (c.phone && c.phone.toLowerCase().includes(searchLower)) ||
-          (c.email && c.email.toLowerCase().includes(searchLower))
-        );
+          (c.email && c.email.toLowerCase().includes(searchLower)) ||
+          c.vehicles.some((v: any) => v.plate && v.plate.toLowerCase().includes(searchLower))
+        ).slice(query.data.offset, query.data.offset + query.data.limit);
       }
-      return revealed.slice(query.data.offset, query.data.offset + query.data.limit);
+
+      return enriched.slice(query.data.offset, query.data.offset + query.data.limit);
     });
 
     return { data: customers, correlationId: request.id };
@@ -128,35 +275,312 @@ export function registerWorkshopOperationsRoutes(app: FastifyInstance, pool: pg.
     }
     if (!request.principal) return reply.code(401).send({ error: 'AUTHENTICATION_REQUIRED' });
 
-    const customer = await inAuthorizedTenantTransaction(pool, {
-      principal: request.principal,
-      requestedTenantId: params.data.tenantId,
-      capability: 'workshop:customers:create',
-      correlationId: request.id,
-    }, async (client, context) => {
-      await assertTenantOperation(client, context.tenantId, 'domain_mutation');
-      const id = randomUUID();
-      await insertProtectedCustomer(client, pii, {
-        id,
-        tenantId: context.tenantId,
-        displayName: body.data.name,
-        phone: body.data.phone ?? null,
-        email: body.data.email ?? null,
-        notes: body.data.notes ?? null,
-      });
-      return {
-        id,
-        name: body.data.name,
-        phone: body.data.phone ?? null,
-        email: body.data.email ?? null,
-        notes: body.data.notes ?? null,
-      };
-    });
+    try {
+      const customer = await inAuthorizedTenantTransaction(pool, {
+        principal: request.principal,
+        requestedTenantId: params.data.tenantId,
+        capability: 'workshop:customers:create',
+        correlationId: request.id,
+      }, async (client, context) => {
+        await assertTenantOperation(client, context.tenantId, 'domain_mutation');
 
-    return reply.code(201).send({ data: customer, correlationId: request.id });
+        // Suggest/handle duplicate phone if provided
+        if (body.data.phone && !body.data.allowDuplicate) {
+          const normalizedPhone = normalizeSpanishOrE164Phone(body.data.phone);
+          const candidates = pii.lookupDigests(context.tenantId, 'customer.phone', normalizedPhone).map((i) => i.digest);
+          const existing = await client.query(`
+            SELECT id, tenant_id, display_name_ciphertext, display_name_nonce, display_name_auth_tag, display_name_key_id,
+                   phone_ciphertext, phone_nonce, phone_auth_tag, phone_key_id,
+                   email_ciphertext, email_nonce, email_auth_tag, email_key_id,
+                   notes_ciphertext, notes_nonce, notes_auth_tag, notes_key_id
+            FROM customers
+            WHERE tenant_id = $1 AND phone_lookup_digest = ANY($2::text[])
+            LIMIT 1
+          `, [context.tenantId, candidates]);
+          if (existing.rowCount) {
+            return {
+              duplicateSuggestion: true,
+              existingCustomer: revealCustomerRow(existing.rows[0], pii),
+            };
+          }
+        }
+
+        const id = randomUUID();
+        await insertProtectedCustomer(client, pii, {
+          id,
+          tenantId: context.tenantId,
+          displayName: body.data.name,
+          phone: body.data.phone ?? null,
+          email: body.data.email ?? null,
+          notes: body.data.notes ?? null,
+          allowDuplicatePhone: true,
+        });
+        return {
+          id,
+          name: body.data.name,
+          phone: body.data.phone ?? null,
+          email: body.data.email ?? null,
+          notes: body.data.notes ?? null,
+        };
+      });
+
+      if ('duplicateSuggestion' in customer) {
+        return reply.code(200).send({
+          status: 'duplicate_suggestion',
+          code: 'CUSTOMER_PHONE_EXISTS',
+          message: 'Ya existe un cliente registrado con este teléfono en el taller.',
+          existingCustomer: (customer as any).existingCustomer,
+          correlationId: request.id,
+        });
+      }
+
+      return reply.code(201).send({ data: customer, correlationId: request.id });
+    } catch (err: any) {
+      if (err.code === '23505' || err.message === 'PII_LOOKUP_CONFLICT' || err.code === 'CUSTOMER_PHONE_EXISTS') {
+        return reply.code(409).send({
+          error: 'CUSTOMER_PHONE_EXISTS',
+          code: 'CUSTOMER_PHONE_EXISTS',
+          message: 'Ya existe un cliente registrado con este teléfono en el taller (regla canónica estricta).',
+          correlationId: request.id,
+        });
+      }
+      throw err;
+    }
   });
 
-  // 3. Vehicles: List
+  // 3. Customers: Detail (Ficha)
+  app.get('/v1/workshop/tenants/:tenantId/customers/:customerId', auth, async (request, reply) => {
+    const params = customerParams.safeParse(request.params);
+    if (!params.success) return reply.code(400).send({ error: 'INVALID_CUSTOMER_ID', correlationId: request.id });
+    if (!request.principal) return reply.code(401).send({ error: 'AUTHENTICATION_REQUIRED' });
+
+    try {
+      const data = await inAuthorizedTenantTransaction(pool, {
+        principal: request.principal,
+        requestedTenantId: params.data.tenantId,
+        capability: 'workshop:customers:read',
+        correlationId: request.id,
+      }, async (client, context) => {
+        await assertTenantOperation(client, context.tenantId, 'workshop_read');
+
+        const cRes = await client.query(`
+          SELECT id, tenant_id, display_name_ciphertext, display_name_nonce, display_name_auth_tag, display_name_key_id,
+                 phone_ciphertext, phone_nonce, phone_auth_tag, phone_key_id,
+                 email_ciphertext, email_nonce, email_auth_tag, email_key_id,
+                 notes_ciphertext, notes_nonce, notes_auth_tag, notes_key_id
+          FROM customers
+          WHERE tenant_id = $1 AND id = $2 AND pii_migration_state = 'protected'
+        `, [context.tenantId, params.data.customerId]);
+        if (!cRes.rowCount) throw new Error('CUSTOMER_NOT_FOUND');
+
+        const customer = revealCustomerRow(cRes.rows[0], pii);
+
+        // Associated vehicles
+        const vRes = await client.query(`
+          SELECT v.id, v.tenant_id, v.make, v.model, v.year,
+                 v.plate_ciphertext, v.plate_nonce, v.plate_auth_tag, v.plate_key_id,
+                 v.vin_ciphertext, v.vin_nonce, v.vin_auth_tag, v.vin_key_id
+          FROM customer_vehicle_roles r
+          JOIN vehicles v ON v.id = r.vehicle_id AND v.tenant_id = r.tenant_id
+          WHERE r.tenant_id = $1 AND r.customer_id = $2
+          ORDER BY v.id DESC
+        `, [context.tenantId, params.data.customerId]);
+        const vehicles = vRes.rows.map((r) => revealVehicleRow(r, pii));
+
+        // Appointments
+        const aRes = await client.query(`
+          SELECT a.id, a.tenant_id, a.workshop_id, a.start_at, a.end_at, a.status, a.origin, a.service_request,
+                 a.vehicle_id,
+                 v.plate_ciphertext, v.plate_nonce, v.plate_auth_tag, v.plate_key_id,
+                 v.make AS vehicle_make, v.model AS vehicle_model
+          FROM appointments a
+          LEFT JOIN vehicles v ON v.id = a.vehicle_id AND v.tenant_id = a.tenant_id
+          WHERE a.tenant_id = $1 AND a.customer_id = $2
+          ORDER BY a.start_at DESC
+          LIMIT 50
+        `, [context.tenantId, params.data.customerId]);
+
+        const appointments = aRes.rows.map((row: any) => {
+          let vehiclePlate = row.vehicle_make || row.vehicle_model ? [row.vehicle_make, row.vehicle_model].filter(Boolean).join(' ') : null;
+          if (row.plate_ciphertext) {
+            try {
+              vehiclePlate = pii.reveal(row.tenant_id, 'vehicle.plate', {
+                ciphertext: row.plate_ciphertext,
+                nonce: row.plate_nonce,
+                authTag: row.plate_auth_tag,
+                keyId: row.plate_key_id,
+              });
+            } catch { /* ignore */ }
+          }
+          return {
+            id: row.id,
+            startAt: row.start_at,
+            endAt: row.end_at,
+            serviceIntent: row.service_request?.intent || 'Cita de taller',
+            status: row.status,
+            origin: row.origin,
+            vehicleId: row.vehicle_id,
+            vehiclePlate,
+            vehicleMake: row.vehicle_make,
+            vehicleModel: row.vehicle_model,
+          };
+        });
+
+        // Estimate Drafts
+        const dRes = await client.query(`
+          SELECT d.id, d.tenant_id, d.title, d.draft_type, d.status, d.created_at, d.updated_at, d.vehicle_id,
+                 (SELECT COALESCE(SUM(l.unit_price * COALESCE(l.quantity, 1)), 0)
+                  FROM estimate_draft_lines l
+                  WHERE l.draft_id = d.id AND l.selected = true AND l.unit_price IS NOT NULL) AS total_amount,
+                 (SELECT COUNT(*) FROM estimate_draft_lines l WHERE l.draft_id = d.id AND l.line_source = 'REPAIR_KNOWLEDGE') AS rk_lines_count,
+                 (SELECT COUNT(*) FROM estimate_draft_lines l WHERE l.draft_id = d.id AND l.line_source = 'MANUAL_WORKSHOP') AS manual_lines_count,
+                 v.plate_ciphertext, v.plate_nonce, v.plate_auth_tag, v.plate_key_id,
+                 v.make AS vehicle_make, v.model AS vehicle_model
+          FROM estimate_drafts d
+          LEFT JOIN vehicles v ON v.id = d.vehicle_id AND v.tenant_id = d.tenant_id
+          WHERE d.tenant_id = $1 AND d.customer_id = $2 AND d.status <> 'superseded'
+          ORDER BY d.updated_at DESC
+          LIMIT 50
+        `, [context.tenantId, params.data.customerId]);
+
+        const estimates = dRes.rows.map((row: any) => {
+          let vehiclePlate = row.vehicle_make || row.vehicle_model ? [row.vehicle_make, row.vehicle_model].filter(Boolean).join(' ') : null;
+          if (row.plate_ciphertext) {
+            try {
+              vehiclePlate = pii.reveal(row.tenant_id, 'vehicle.plate', {
+                ciphertext: row.plate_ciphertext,
+                nonce: row.plate_nonce,
+                authTag: row.plate_auth_tag,
+                keyId: row.plate_key_id,
+              });
+            } catch { /* ignore */ }
+          }
+          let provenance: 'manual' | 'rk' | 'mixed' = 'manual';
+          if (row.draft_type === 'REPAIR_KNOWLEDGE') {
+            provenance = Number(row.manual_lines_count) > 0 ? 'mixed' : 'rk';
+          } else {
+            provenance = 'manual';
+          }
+          return {
+            id: row.id,
+            title: row.title,
+            draftType: row.draft_type,
+            provenance,
+            status: row.status,
+            total: Math.round(Number(row.total_amount) * 100) / 100,
+            createdAt: row.created_at,
+            updatedAt: row.updated_at,
+            vehicleId: row.vehicle_id,
+            vehiclePlate,
+            vehicleMake: row.vehicle_make,
+            vehicleModel: row.vehicle_model,
+          };
+        });
+
+        return { customer, vehicles, activity: { appointments, estimates } };
+      });
+
+      return { data, correlationId: request.id };
+    } catch (err: any) {
+      if (err.message === 'CUSTOMER_NOT_FOUND') {
+        return reply.code(404).send({ error: 'CUSTOMER_NOT_FOUND', correlationId: request.id });
+      }
+      throw err;
+    }
+  });
+
+  // 4. Customers: Update (Ficha Edit)
+  app.patch('/v1/workshop/tenants/:tenantId/customers/:customerId', auth, async (request, reply) => {
+    const params = customerParams.safeParse(request.params);
+    const body = updateCustomerSchema.safeParse(request.body);
+    if (!params.success || !body.success) {
+      return reply.code(400).send({
+        error: 'INVALID_CUSTOMER_UPDATE_PAYLOAD',
+        message: body.success ? undefined : body.error.issues[0]?.message,
+        correlationId: request.id,
+      });
+    }
+    if (!request.principal) return reply.code(401).send({ error: 'AUTHENTICATION_REQUIRED' });
+
+    try {
+      const updated = await inAuthorizedTenantTransaction(pool, {
+        principal: request.principal,
+        requestedTenantId: params.data.tenantId,
+        capability: 'workshop:customers:update',
+        correlationId: request.id,
+      }, async (client, context) => {
+        await assertTenantOperation(client, context.tenantId, 'domain_mutation');
+
+        if (body.data.phone && !body.data.allowDuplicate) {
+          const normalizedPhone = normalizeSpanishOrE164Phone(body.data.phone);
+          const candidates = pii.lookupDigests(context.tenantId, 'customer.phone', normalizedPhone).map((i) => i.digest);
+          const conflict = await client.query(`
+            SELECT id, tenant_id, display_name_ciphertext, display_name_nonce, display_name_auth_tag, display_name_key_id,
+                   phone_ciphertext, phone_nonce, phone_auth_tag, phone_key_id,
+                   email_ciphertext, email_nonce, email_auth_tag, email_key_id,
+                   notes_ciphertext, notes_nonce, notes_auth_tag, notes_key_id
+            FROM customers
+            WHERE tenant_id = $1 AND phone_lookup_digest = ANY($2::text[]) AND id <> $3
+            LIMIT 1
+          `, [context.tenantId, candidates, params.data.customerId]);
+          if (conflict.rowCount) {
+            return {
+              duplicateSuggestion: true,
+              existingCustomer: revealCustomerRow(conflict.rows[0], pii),
+            };
+          }
+        }
+
+        await updateProtectedCustomer(client, pii, {
+          customerId: params.data.customerId,
+          tenantId: context.tenantId,
+          displayName: body.data.name,
+          phone: body.data.phone,
+          email: body.data.email,
+          notes: body.data.notes,
+          allowDuplicatePhone: true,
+        });
+
+        const fresh = await client.query(`
+          SELECT id, tenant_id, display_name_ciphertext, display_name_nonce, display_name_auth_tag, display_name_key_id,
+                 phone_ciphertext, phone_nonce, phone_auth_tag, phone_key_id,
+                 email_ciphertext, email_nonce, email_auth_tag, email_key_id,
+                 notes_ciphertext, notes_nonce, notes_auth_tag, notes_key_id
+          FROM customers
+          WHERE tenant_id = $1 AND id = $2
+        `, [context.tenantId, params.data.customerId]);
+
+        return revealCustomerRow(fresh.rows[0], pii);
+      });
+
+      if ('duplicateSuggestion' in updated) {
+        return reply.code(200).send({
+          status: 'duplicate_suggestion',
+          code: 'CUSTOMER_PHONE_EXISTS',
+          message: 'Ya existe un cliente con este teléfono en el taller.',
+          existingCustomer: (updated as any).existingCustomer,
+          correlationId: request.id,
+        });
+      }
+
+      return { data: updated, correlationId: request.id };
+    } catch (err: any) {
+      if (err.message === 'CUSTOMER_NOT_FOUND') {
+        return reply.code(404).send({ error: 'CUSTOMER_NOT_FOUND', correlationId: request.id });
+      }
+      if (err.code === '23505' || err.message === 'PII_LOOKUP_CONFLICT' || err.code === 'CUSTOMER_PHONE_EXISTS') {
+        return reply.code(409).send({
+          error: 'CUSTOMER_PHONE_EXISTS',
+          code: 'CUSTOMER_PHONE_EXISTS',
+          message: 'Ya existe un cliente con este teléfono en el taller.',
+          correlationId: request.id,
+        });
+      }
+      throw err;
+    }
+  });
+
+  // 5. Vehicles: List
   app.get('/v1/workshop/tenants/:tenantId/vehicles', auth, async (request, reply) => {
     const params = tenantParams.safeParse(request.params);
     const query = vehicleQuerySchema.safeParse(request.query);
@@ -172,35 +596,109 @@ export function registerWorkshopOperationsRoutes(app: FastifyInstance, pool: pg.
       correlationId: request.id,
     }, async (client, context) => {
       await assertTenantOperation(client, context.tenantId, 'workshop_read');
+
+      let exactVehicleIds: string[] | null = null;
+      if (query.data.search) {
+        const term = query.data.search.trim();
+        const candidateDigests: string[] = [];
+        try {
+          const normPlate = normalizeSpanishPlate(term);
+          candidateDigests.push(...pii.lookupDigests(context.tenantId, 'vehicle.plate', normPlate).map((d) => d.digest));
+        } catch { /* ignore */ }
+        if (term.length >= 5) {
+          candidateDigests.push(...pii.lookupDigests(context.tenantId, 'vehicle.vin', term.toUpperCase()).map((d) => d.digest));
+        }
+        if (candidateDigests.length > 0) {
+          const vRes = await client.query(`
+            SELECT id FROM vehicles
+            WHERE tenant_id = $1 AND (plate_lookup_digest = ANY($2::text[]) OR vin_lookup_digest = ANY($2::text[]))
+          `, [context.tenantId, candidateDigests]);
+          if (vRes.rowCount) {
+            exactVehicleIds = vRes.rows.map((r: any) => r.id);
+          }
+        }
+      }
+
       const sql = query.data.customerId
         ? `SELECT v.id, v.tenant_id, v.make, v.model, v.year,
                   v.plate_ciphertext, v.plate_nonce, v.plate_auth_tag, v.plate_key_id,
                   v.vin_ciphertext, v.vin_nonce, v.vin_auth_tag, v.vin_key_id,
-                  r.customer_id
+                  r.customer_id,
+                  c.display_name_ciphertext, c.display_name_nonce, c.display_name_auth_tag, c.display_name_key_id,
+                  c.phone_ciphertext, c.phone_nonce, c.phone_auth_tag, c.phone_key_id
            FROM vehicles v
            JOIN customer_vehicle_roles r ON r.vehicle_id = v.id AND r.tenant_id = v.tenant_id
+           LEFT JOIN customers c ON c.id = r.customer_id AND c.tenant_id = v.tenant_id
            WHERE v.tenant_id = $1 AND v.pii_migration_state = 'protected' AND r.customer_id = $2
            ORDER BY v.id DESC
-           LIMIT 200`
+           LIMIT 100`
+        : exactVehicleIds && exactVehicleIds.length > 0
+        ? `SELECT v.id, v.tenant_id, v.make, v.model, v.year,
+                  v.plate_ciphertext, v.plate_nonce, v.plate_auth_tag, v.plate_key_id,
+                  v.vin_ciphertext, v.vin_nonce, v.vin_auth_tag, v.vin_key_id,
+                  (SELECT r.customer_id FROM customer_vehicle_roles r WHERE r.vehicle_id = v.id AND r.tenant_id = v.tenant_id LIMIT 1) AS customer_id,
+                  (SELECT c.display_name_ciphertext FROM customer_vehicle_roles r JOIN customers c ON c.id = r.customer_id WHERE r.vehicle_id = v.id AND r.tenant_id = v.tenant_id LIMIT 1) AS display_name_ciphertext,
+                  (SELECT c.display_name_nonce FROM customer_vehicle_roles r JOIN customers c ON c.id = r.customer_id WHERE r.vehicle_id = v.id AND r.tenant_id = v.tenant_id LIMIT 1) AS display_name_nonce,
+                  (SELECT c.display_name_auth_tag FROM customer_vehicle_roles r JOIN customers c ON c.id = r.customer_id WHERE r.vehicle_id = v.id AND r.tenant_id = v.tenant_id LIMIT 1) AS display_name_auth_tag,
+                  (SELECT c.display_name_key_id FROM customer_vehicle_roles r JOIN customers c ON c.id = r.customer_id WHERE r.vehicle_id = v.id AND r.tenant_id = v.tenant_id LIMIT 1) AS display_name_key_id,
+                  (SELECT c.phone_ciphertext FROM customer_vehicle_roles r JOIN customers c ON c.id = r.customer_id WHERE r.vehicle_id = v.id AND r.tenant_id = v.tenant_id LIMIT 1) AS phone_ciphertext,
+                  (SELECT c.phone_nonce FROM customer_vehicle_roles r JOIN customers c ON c.id = r.customer_id WHERE r.vehicle_id = v.id AND r.tenant_id = v.tenant_id LIMIT 1) AS phone_nonce,
+                  (SELECT c.phone_auth_tag FROM customer_vehicle_roles r JOIN customers c ON c.id = r.customer_id WHERE r.vehicle_id = v.id AND r.tenant_id = v.tenant_id LIMIT 1) AS phone_auth_tag,
+                  (SELECT c.phone_key_id FROM customer_vehicle_roles r JOIN customers c ON c.id = r.customer_id WHERE r.vehicle_id = v.id AND r.tenant_id = v.tenant_id LIMIT 1) AS phone_key_id
+           FROM vehicles v
+           WHERE v.tenant_id = $1 AND v.pii_migration_state = 'protected' AND v.id = ANY($2::uuid[])
+           ORDER BY v.id DESC
+           LIMIT 100`
         : `SELECT v.id, v.tenant_id, v.make, v.model, v.year,
                   v.plate_ciphertext, v.plate_nonce, v.plate_auth_tag, v.plate_key_id,
                   v.vin_ciphertext, v.vin_nonce, v.vin_auth_tag, v.vin_key_id,
-                  (SELECT r.customer_id FROM customer_vehicle_roles r WHERE r.vehicle_id = v.id AND r.tenant_id = v.tenant_id LIMIT 1) AS customer_id
+                  (SELECT r.customer_id FROM customer_vehicle_roles r WHERE r.vehicle_id = v.id AND r.tenant_id = v.tenant_id LIMIT 1) AS customer_id,
+                  (SELECT c.display_name_ciphertext FROM customer_vehicle_roles r JOIN customers c ON c.id = r.customer_id WHERE r.vehicle_id = v.id AND r.tenant_id = v.tenant_id LIMIT 1) AS display_name_ciphertext,
+                  (SELECT c.display_name_nonce FROM customer_vehicle_roles r JOIN customers c ON c.id = r.customer_id WHERE r.vehicle_id = v.id AND r.tenant_id = v.tenant_id LIMIT 1) AS display_name_nonce,
+                  (SELECT c.display_name_auth_tag FROM customer_vehicle_roles r JOIN customers c ON c.id = r.customer_id WHERE r.vehicle_id = v.id AND r.tenant_id = v.tenant_id LIMIT 1) AS display_name_auth_tag,
+                  (SELECT c.display_name_key_id FROM customer_vehicle_roles r JOIN customers c ON c.id = r.customer_id WHERE r.vehicle_id = v.id AND r.tenant_id = v.tenant_id LIMIT 1) AS display_name_key_id,
+                  (SELECT c.phone_ciphertext FROM customer_vehicle_roles r JOIN customers c ON c.id = r.customer_id WHERE r.vehicle_id = v.id AND r.tenant_id = v.tenant_id LIMIT 1) AS phone_ciphertext,
+                  (SELECT c.phone_nonce FROM customer_vehicle_roles r JOIN customers c ON c.id = r.customer_id WHERE r.vehicle_id = v.id AND r.tenant_id = v.tenant_id LIMIT 1) AS phone_nonce,
+                  (SELECT c.phone_auth_tag FROM customer_vehicle_roles r JOIN customers c ON c.id = r.customer_id WHERE r.vehicle_id = v.id AND r.tenant_id = v.tenant_id LIMIT 1) AS phone_auth_tag,
+                  (SELECT c.phone_key_id FROM customer_vehicle_roles r JOIN customers c ON c.id = r.customer_id WHERE r.vehicle_id = v.id AND r.tenant_id = v.tenant_id LIMIT 1) AS phone_key_id
            FROM vehicles v
            WHERE v.tenant_id = $1 AND v.pii_migration_state = 'protected'
            ORDER BY v.id DESC
-           LIMIT 200`;
-      const queryArgs = query.data.customerId ? [context.tenantId, query.data.customerId] : [context.tenantId];
+           LIMIT 100`;
+
+      const queryArgs = query.data.customerId ? [context.tenantId, query.data.customerId] : exactVehicleIds && exactVehicleIds.length > 0 ? [context.tenantId, exactVehicleIds] : [context.tenantId];
       const result = await client.query(sql, queryArgs);
 
-      let revealed = result.rows.map((row) => revealVehicleRow(row, pii));
-      if (query.data.search) {
+      let revealed = result.rows.map((row) => {
+        const v = revealVehicleRow(row, pii);
+        let customer: { id: string; name: string; phone?: string | null } | null = null;
+        if (row.customer_id) {
+          const custRow = {
+            id: row.customer_id,
+            tenant_id: row.tenant_id,
+            display_name_ciphertext: row.display_name_ciphertext,
+            display_name_nonce: row.display_name_nonce,
+            display_name_auth_tag: row.display_name_auth_tag,
+            display_name_key_id: row.display_name_key_id,
+            phone_ciphertext: row.phone_ciphertext,
+            phone_nonce: row.phone_nonce,
+            phone_auth_tag: row.phone_auth_tag,
+            phone_key_id: row.phone_key_id,
+          };
+          const c = revealCustomerRow(custRow as any, pii);
+          customer = { id: c.id, name: c.name, phone: c.phone };
+        }
+        return { ...v, customer };
+      });
+
+      if (query.data.search && !exactVehicleIds) {
         const searchLower = query.data.search.toLowerCase();
         revealed = revealed.filter((v) =>
           (v.plate && v.plate.toLowerCase().includes(searchLower)) ||
           (v.make && v.make.toLowerCase().includes(searchLower)) ||
           (v.model && v.model.toLowerCase().includes(searchLower)) ||
-          (v.vin && v.vin.toLowerCase().includes(searchLower))
+          (v.vin && v.vin.toLowerCase().includes(searchLower)) ||
+          (v.customer && v.customer.name.toLowerCase().includes(searchLower))
         );
       }
       return revealed.slice(query.data.offset, query.data.offset + query.data.limit);
@@ -323,7 +821,313 @@ export function registerWorkshopOperationsRoutes(app: FastifyInstance, pool: pg.
     }
   });
 
-  // 5. Appointments: Create Manual
+  // 5. Vehicles: Detail (Ficha)
+  app.get('/v1/workshop/tenants/:tenantId/vehicles/:vehicleId', auth, async (request, reply) => {
+    const params = vehicleParams.safeParse(request.params);
+    if (!params.success) return reply.code(400).send({ error: 'INVALID_VEHICLE_ID', correlationId: request.id });
+    if (!request.principal) return reply.code(401).send({ error: 'AUTHENTICATION_REQUIRED' });
+
+    try {
+      const data = await inAuthorizedTenantTransaction(pool, {
+        principal: request.principal,
+        requestedTenantId: params.data.tenantId,
+        capability: 'workshop:vehicles:read',
+        correlationId: request.id,
+      }, async (client, context) => {
+        await assertTenantOperation(client, context.tenantId, 'workshop_read');
+
+        const vRes = await client.query(`
+          SELECT id, tenant_id, make, model, year,
+                 plate_ciphertext, plate_nonce, plate_auth_tag, plate_key_id,
+                 vin_ciphertext, vin_nonce, vin_auth_tag, vin_key_id
+          FROM vehicles
+          WHERE tenant_id = $1 AND id = $2 AND pii_migration_state = 'protected'
+        `, [context.tenantId, params.data.vehicleId]);
+        if (!vRes.rowCount) throw new Error('VEHICLE_NOT_FOUND');
+
+        const vehicle = revealVehicleRow(vRes.rows[0], pii);
+
+        // Associated customers
+        const cRes = await client.query(`
+          SELECT c.id, c.tenant_id,
+                 c.display_name_ciphertext, c.display_name_nonce, c.display_name_auth_tag, c.display_name_key_id,
+                 c.phone_ciphertext, c.phone_nonce, c.phone_auth_tag, c.phone_key_id,
+                 c.email_ciphertext, c.email_nonce, c.email_auth_tag, c.email_key_id
+          FROM customer_vehicle_roles r
+          JOIN customers c ON c.id = r.customer_id AND c.tenant_id = r.tenant_id
+          WHERE r.tenant_id = $1 AND r.vehicle_id = $2
+          ORDER BY c.id
+        `, [context.tenantId, params.data.vehicleId]);
+
+        const customers = cRes.rows.map((r) => revealCustomerRow(r, pii));
+        const customer = customers[0] ?? null;
+
+        // Appointments
+        const aRes = await client.query(`
+          SELECT a.id, a.tenant_id, a.workshop_id, a.start_at, a.end_at, a.status, a.origin, a.service_request,
+                 a.customer_id,
+                 c.display_name_ciphertext, c.display_name_nonce, c.display_name_auth_tag, c.display_name_key_id
+          FROM appointments a
+          LEFT JOIN customers c ON c.id = a.customer_id AND c.tenant_id = a.tenant_id
+          WHERE a.tenant_id = $1 AND a.vehicle_id = $2
+          ORDER BY a.start_at DESC
+          LIMIT 50
+        `, [context.tenantId, params.data.vehicleId]);
+
+        const appointments = aRes.rows.map((row: any) => {
+          let customerName = 'Cliente';
+          if (row.display_name_ciphertext) {
+            try {
+              customerName = pii.reveal(row.tenant_id, 'customer.display_name', {
+                ciphertext: row.display_name_ciphertext,
+                nonce: row.display_name_nonce,
+                authTag: row.display_name_auth_tag,
+                keyId: row.display_name_key_id,
+              });
+            } catch { /* ignore */ }
+          }
+          return {
+            id: row.id,
+            startAt: row.start_at,
+            endAt: row.end_at,
+            serviceIntent: row.service_request?.intent || 'Cita de taller',
+            status: row.status,
+            origin: row.origin,
+            customerId: row.customer_id,
+            customerName,
+          };
+        });
+
+        // Estimate Drafts
+        const dRes = await client.query(`
+          SELECT d.id, d.tenant_id, d.title, d.draft_type, d.status, d.created_at, d.updated_at, d.customer_id,
+                 (SELECT COALESCE(SUM(l.unit_price * COALESCE(l.quantity, 1)), 0)
+                  FROM estimate_draft_lines l
+                  WHERE l.draft_id = d.id AND l.selected = true AND l.unit_price IS NOT NULL) AS total_amount,
+                 (SELECT COUNT(*) FROM estimate_draft_lines l WHERE l.draft_id = d.id AND l.line_source = 'REPAIR_KNOWLEDGE') AS rk_lines_count,
+                 (SELECT COUNT(*) FROM estimate_draft_lines l WHERE l.draft_id = d.id AND l.line_source = 'MANUAL_WORKSHOP') AS manual_lines_count,
+                 c.display_name_ciphertext, c.display_name_nonce, c.display_name_auth_tag, c.display_name_key_id
+          FROM estimate_drafts d
+          LEFT JOIN customers c ON c.id = d.customer_id AND c.tenant_id = d.tenant_id
+          WHERE d.tenant_id = $1 AND d.vehicle_id = $2 AND d.status <> 'superseded'
+          ORDER BY d.updated_at DESC
+          LIMIT 50
+        `, [context.tenantId, params.data.vehicleId]);
+
+        const estimates = dRes.rows.map((row: any) => {
+          let customerName = 'Cliente';
+          if (row.display_name_ciphertext) {
+            try {
+              customerName = pii.reveal(row.tenant_id, 'customer.display_name', {
+                ciphertext: row.display_name_ciphertext,
+                nonce: row.display_name_nonce,
+                authTag: row.display_name_auth_tag,
+                keyId: row.display_name_key_id,
+              });
+            } catch { /* ignore */ }
+          }
+          let provenance: 'manual' | 'rk' | 'mixed' = 'manual';
+          if (row.draft_type === 'REPAIR_KNOWLEDGE') {
+            provenance = Number(row.manual_lines_count) > 0 ? 'mixed' : 'rk';
+          } else {
+            provenance = 'manual';
+          }
+          return {
+            id: row.id,
+            title: row.title,
+            draftType: row.draft_type,
+            provenance,
+            status: row.status,
+            total: Math.round(Number(row.total_amount) * 100) / 100,
+            createdAt: row.created_at,
+            updatedAt: row.updated_at,
+            customerId: row.customer_id,
+            customerName,
+          };
+        });
+
+        return { vehicle, customer, customers, activity: { appointments, estimates } };
+      });
+
+      return { data, correlationId: request.id };
+    } catch (err: any) {
+      if (err.message === 'VEHICLE_NOT_FOUND') {
+        return reply.code(404).send({ error: 'VEHICLE_NOT_FOUND', correlationId: request.id });
+      }
+      throw err;
+    }
+  });
+
+  // 6. Vehicles: Update (Ficha Edit)
+  app.patch('/v1/workshop/tenants/:tenantId/vehicles/:vehicleId', auth, async (request, reply) => {
+    const params = vehicleParams.safeParse(request.params);
+    const body = updateVehicleSchema.safeParse(request.body);
+    if (!params.success || !body.success) {
+      return reply.code(400).send({
+        error: 'INVALID_VEHICLE_UPDATE_PAYLOAD',
+        message: body.success ? undefined : body.error.issues[0]?.message,
+        correlationId: request.id,
+      });
+    }
+    if (!request.principal) return reply.code(401).send({ error: 'AUTHENTICATION_REQUIRED' });
+
+    try {
+      const updated = await inAuthorizedTenantTransaction(pool, {
+        principal: request.principal,
+        requestedTenantId: params.data.tenantId,
+        capability: 'workshop:vehicles:update',
+        correlationId: request.id,
+      }, async (client, context) => {
+        await assertTenantOperation(client, context.tenantId, 'domain_mutation');
+
+        // Check duplicate plate
+        if (body.data.plate) {
+          const normalizedPlate = normalizeSpanishPlate(body.data.plate);
+          const candidates = pii.lookupDigests(context.tenantId, 'vehicle.plate', normalizedPlate).map((i) => i.digest);
+          const conflict = await client.query(`
+            SELECT id, tenant_id, make, model, year,
+                   plate_ciphertext, plate_nonce, plate_auth_tag, plate_key_id,
+                   vin_ciphertext, vin_nonce, vin_auth_tag, vin_key_id
+            FROM vehicles
+            WHERE tenant_id = $1 AND plate_lookup_digest = ANY($2::text[]) AND id <> $3
+            LIMIT 1
+          `, [context.tenantId, candidates, params.data.vehicleId]);
+          if (conflict.rowCount) {
+            const conflictErr = new Error('VEHICLE_PLATE_EXISTS') as any;
+            conflictErr.existingVehicle = revealVehicleRow(conflict.rows[0], pii);
+            throw conflictErr;
+          }
+        }
+
+        // Check duplicate VIN
+        if (body.data.vin) {
+          const normalizedVin = body.data.vin.trim().toUpperCase();
+          const candidates = pii.lookupDigests(context.tenantId, 'vehicle.vin', normalizedVin).map((i) => i.digest);
+          const conflict = await client.query(`
+            SELECT id, tenant_id, make, model, year,
+                   plate_ciphertext, plate_nonce, plate_auth_tag, plate_key_id,
+                   vin_ciphertext, vin_nonce, vin_auth_tag, vin_key_id
+            FROM vehicles
+            WHERE tenant_id = $1 AND vin_lookup_digest = ANY($2::text[]) AND id <> $3
+            LIMIT 1
+          `, [context.tenantId, candidates, params.data.vehicleId]);
+          if (conflict.rowCount) {
+            const conflictErr = new Error('VEHICLE_VIN_EXISTS') as any;
+            conflictErr.existingVehicle = revealVehicleRow(conflict.rows[0], pii);
+            throw conflictErr;
+          }
+        }
+
+        await updateProtectedVehicle(client, pii, {
+          vehicleId: params.data.vehicleId,
+          tenantId: context.tenantId,
+          plate: body.data.plate,
+          make: body.data.make,
+          model: body.data.model,
+          year: body.data.year,
+          vin: body.data.vin,
+        });
+
+        if (body.data.customerId) {
+          const cCheck = await client.query('SELECT 1 FROM customers WHERE id = $1 AND tenant_id = $2', [body.data.customerId, context.tenantId]);
+          if (!cCheck.rowCount) throw new Error('CUSTOMER_NOT_FOUND');
+          await client.query(`
+            INSERT INTO customer_vehicle_roles (tenant_id, customer_id, vehicle_id, verification_status)
+            VALUES ($1, $2, $3, 'verified')
+            ON CONFLICT DO NOTHING
+          `, [context.tenantId, body.data.customerId, params.data.vehicleId]);
+        }
+
+        const fresh = await client.query(`
+          SELECT id, tenant_id, make, model, year,
+                 plate_ciphertext, plate_nonce, plate_auth_tag, plate_key_id,
+                 vin_ciphertext, vin_nonce, vin_auth_tag, vin_key_id,
+                 (SELECT r.customer_id FROM customer_vehicle_roles r WHERE r.vehicle_id = vehicles.id AND r.tenant_id = vehicles.tenant_id LIMIT 1) AS customer_id
+          FROM vehicles
+          WHERE tenant_id = $1 AND id = $2
+        `, [context.tenantId, params.data.vehicleId]);
+
+        return revealVehicleRow(fresh.rows[0], pii);
+      });
+
+      return { data: updated, correlationId: request.id };
+    } catch (err: any) {
+      if (err.message === 'VEHICLE_NOT_FOUND') {
+        return reply.code(404).send({ error: 'VEHICLE_NOT_FOUND', correlationId: request.id });
+      }
+      if (err.message === 'CUSTOMER_NOT_FOUND') {
+        return reply.code(404).send({ error: 'CUSTOMER_NOT_FOUND', correlationId: request.id });
+      }
+      if (err.message === 'VEHICLE_PLATE_EXISTS') {
+        return reply.code(409).send({
+          error: 'VEHICLE_PLATE_EXISTS',
+          code: 'VEHICLE_PLATE_EXISTS',
+          message: 'Ya existe un vehículo registrado con esta matrícula en el taller.',
+          existingVehicle: err.existingVehicle,
+          correlationId: request.id,
+        });
+      }
+      if (err.message === 'VEHICLE_VIN_EXISTS') {
+        return reply.code(409).send({
+          error: 'VEHICLE_VIN_EXISTS',
+          code: 'VEHICLE_VIN_EXISTS',
+          message: 'Ya existe un vehículo registrado con este VIN en el taller.',
+          existingVehicle: err.existingVehicle,
+          correlationId: request.id,
+        });
+      }
+      throw err;
+    }
+  });
+
+  // 7. Customer <-> Vehicle Association
+  app.post('/v1/workshop/tenants/:tenantId/customer-vehicle-roles', auth, async (request, reply) => {
+    const params = tenantParams.safeParse(request.params);
+    const body = associateRoleSchema.safeParse(request.body);
+    if (!params.success || !body.success) {
+      return reply.code(400).send({ error: 'INVALID_ASSOCIATION_PAYLOAD', correlationId: request.id });
+    }
+    if (!request.principal) return reply.code(401).send({ error: 'AUTHENTICATION_REQUIRED' });
+
+    try {
+      const data = await inAuthorizedTenantTransaction(pool, {
+        principal: request.principal,
+        requestedTenantId: params.data.tenantId,
+        capability: 'workshop:vehicles:update',
+        correlationId: request.id,
+      }, async (client, context) => {
+        await assertTenantOperation(client, context.tenantId, 'domain_mutation');
+
+        const cCheck = await client.query('SELECT 1 FROM customers WHERE id = $1 AND tenant_id = $2', [body.data.customerId, context.tenantId]);
+        if (!cCheck.rowCount) throw new Error('CUSTOMER_NOT_FOUND');
+
+        const vCheck = await client.query('SELECT 1 FROM vehicles WHERE id = $1 AND tenant_id = $2', [body.data.vehicleId, context.tenantId]);
+        if (!vCheck.rowCount) throw new Error('VEHICLE_NOT_FOUND');
+
+        await client.query(`
+          INSERT INTO customer_vehicle_roles (tenant_id, customer_id, vehicle_id, role, verification_status)
+          VALUES ($1, $2, $3, $4, 'verified')
+          ON CONFLICT (tenant_id, customer_id, vehicle_id)
+          DO UPDATE SET role = EXCLUDED.role, verification_status = 'verified'
+        `, [context.tenantId, body.data.customerId, body.data.vehicleId, body.data.role]);
+
+        return {
+          customerId: body.data.customerId,
+          vehicleId: body.data.vehicleId,
+          role: body.data.role,
+          verificationStatus: 'verified',
+        };
+      });
+
+      return reply.code(201).send({ data, correlationId: request.id });
+    } catch (err: any) {
+      if (err.message === 'CUSTOMER_NOT_FOUND') return reply.code(404).send({ error: 'CUSTOMER_NOT_FOUND', correlationId: request.id });
+      if (err.message === 'VEHICLE_NOT_FOUND') return reply.code(404).send({ error: 'VEHICLE_NOT_FOUND', correlationId: request.id });
+      throw err;
+    }
+  });
+
+  // 8. Appointments: Create Manual
   app.post('/v1/workshop/tenants/:tenantId/appointments', auth, async (request, reply) => {
     const params = tenantParams.safeParse(request.params);
     const body = createManualAppointmentSchema.safeParse(request.body);

@@ -196,6 +196,11 @@ export const PresupuestosView: React.FC = () => {
       });
       setIsManualModalOpen(true);
     }
+    const selected = searchParams.get('selected');
+    if (selected) {
+      setSelectedQuoteId(selected);
+      setMobileView('detail');
+    }
   }, [searchParams]);
   const [evidenceModalItem, setEvidenceModalItem] = useState<{
     title: string;
@@ -1686,7 +1691,33 @@ export const PresupuestosView: React.FC = () => {
         initialName={customerModalInitial.name || ''}
         initialPhone={customerModalInitial.phone || ''}
         initialEmail={customerModalInitial.email || ''}
-        onCustomerCreated={(newCust) => {
+        onCustomerCreated={async (newCust) => {
+          if (tenantId && activeQuote?.backendDraft?.id) {
+            try {
+              const res = await patchEstimateDraft(tenantId, activeQuote.backendDraft.id, {
+                expectedVersion: activeQuote.backendDraft.version,
+                idempotencyKey: crypto.randomUUID(),
+                customerId: newCust.id,
+              });
+              if (res.status === 'success' && res.data) {
+                const updatedDraft = res.data;
+                const updatedQuote = convertEstimateDraftToQuote(
+                  updatedDraft,
+                  newCust.name,
+                  updatedDraft.vehicleSnapshot?.plate || activeQuote.vehiclePlate || '—'
+                );
+                setPostgresQuotes(prev => prev.map(q => q.id === updatedQuote.id ? updatedQuote : q));
+                updateQuote(updatedQuote);
+                setFeedbackNotice({
+                  type: 'success',
+                  text: `Cliente ${newCust.name} consolidado y vinculado al presupuesto.`
+                });
+                return;
+              }
+            } catch (err) {
+              console.error(err);
+            }
+          }
           setFeedbackNotice({
             type: 'success',
             text: `Cliente ${newCust.name} guardado con éxito en el registro de taller.`
@@ -1708,7 +1739,33 @@ export const PresupuestosView: React.FC = () => {
         initialYear={vehicleModalInitial.year}
         initialVin={vehicleModalInitial.vin || ''}
         initialCustomerId={vehicleModalInitial.customerId}
-        onVehicleCreated={(newVeh) => {
+        onVehicleCreated={async (newVeh) => {
+          if (tenantId && activeQuote?.backendDraft?.id) {
+            try {
+              const res = await patchEstimateDraft(tenantId, activeQuote.backendDraft.id, {
+                expectedVersion: activeQuote.backendDraft.version,
+                idempotencyKey: crypto.randomUUID(),
+                vehicleId: newVeh.id,
+              });
+              if (res.status === 'success' && res.data) {
+                const updatedDraft = res.data;
+                const updatedQuote = convertEstimateDraftToQuote(
+                  updatedDraft,
+                  activeQuote.customerName || 'Cliente Taller',
+                  newVeh.plate || updatedDraft.vehicleSnapshot?.plate || '—'
+                );
+                setPostgresQuotes(prev => prev.map(q => q.id === updatedQuote.id ? updatedQuote : q));
+                updateQuote(updatedQuote);
+                setFeedbackNotice({
+                  type: 'success',
+                  text: `Vehículo ${newVeh.plate || 'registrado'} consolidado y vinculado al presupuesto.`
+                });
+                return;
+              }
+            } catch (err) {
+              console.error(err);
+            }
+          }
           setFeedbackNotice({
             type: 'success',
             text: `Vehículo ${newVeh.plate || newVeh.vin || `${newVeh.make || ''} ${newVeh.model || ''}`.trim()} registrado con éxito en taller.`

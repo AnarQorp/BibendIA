@@ -19,11 +19,14 @@ export type EditEstimateDraftCommand = {
   status?: EstimateDraftStatus;
   lines?: EstimateLineChange[];
   deleteLineIds?: string[];
+  customerId?: string | null;
+  vehicleId?: string | null;
 };
 
 export class EstimateDraftEditingError extends Error {
   constructor(readonly code: 'ESTIMATE_DRAFT_NOT_FOUND' | 'ESTIMATE_VERSION_CONFLICT' | 'ESTIMATE_MUTATION_CONFLICT' |
-    'ESTIMATE_DRAFT_NOT_EDITABLE' | 'ESTIMATE_STATUS_TRANSITION_INVALID' | 'ESTIMATE_LINE_NOT_FOUND' | 'RK_LINE_DELETE_FORBIDDEN') {
+    'ESTIMATE_DRAFT_NOT_EDITABLE' | 'ESTIMATE_STATUS_TRANSITION_INVALID' | 'ESTIMATE_LINE_NOT_FOUND' | 'RK_LINE_DELETE_FORBIDDEN' |
+    'CUSTOMER_NOT_FOUND' | 'VEHICLE_NOT_FOUND') {
     super(code); this.name = 'EstimateDraftEditingError';
   }
 }
@@ -143,9 +146,65 @@ export async function editEstimateDraft(
     if (removed.rowCount !== 1) throw new EstimateDraftEditingError('RK_LINE_DELETE_FORBIDDEN');
   }
 
+  if (command.customerId !== undefined && command.customerId !== null) {
+    const cCheck = await client.query('SELECT 1 FROM customers WHERE id = $1 AND tenant_id = $2', [command.customerId, tenantId]);
+    if (!cCheck.rowCount) throw new EstimateDraftEditingError('CUSTOMER_NOT_FOUND');
+  }
+
+  if (command.vehicleId !== undefined && command.vehicleId !== null) {
+    const vCheck = await client.query('SELECT 1 FROM vehicles WHERE id = $1 AND tenant_id = $2', [command.vehicleId, tenantId]);
+    if (!vCheck.rowCount) throw new EstimateDraftEditingError('VEHICLE_NOT_FOUND');
+  }
+
+  const effectiveCustomerId = command.customerId !== undefined ? command.customerId : null;
+  const effectiveVehicleId = command.vehicleId !== undefined ? command.vehicleId : null;
+
+  if (effectiveCustomerId && effectiveVehicleId) {
+    await client.query(`
+      INSERT INTO customer_vehicle_roles (tenant_id, customer_id, vehicle_id, verification_status)
+      VALUES ($1, $2, $3, 'verified')
+      ON CONFLICT DO NOTHING
+    `, [tenantId, effectiveCustomerId, effectiveVehicleId]);
+  } else if (effectiveCustomerId) {
+    const draftRow = await client.query<{ vehicle_id: string | null }>('SELECT vehicle_id FROM estimate_drafts WHERE id = $1', [id]);
+    const vId = draftRow.rows[0]?.vehicle_id;
+    if (vId) {
+      await client.query(`
+        INSERT INTO customer_vehicle_roles (tenant_id, customer_id, vehicle_id, verification_status)
+        VALUES ($1, $2, $3, 'verified')
+        ON CONFLICT DO NOTHING
+      `, [tenantId, effectiveCustomerId, vId]);
+    }
+  } else if (effectiveVehicleId) {
+    const draftRow = await client.query<{ customer_id: string | null }>('SELECT customer_id FROM estimate_drafts WHERE id = $1', [id]);
+    const cId = draftRow.rows[0]?.customer_id;
+    if (cId) {
+      await client.query(`
+        INSERT INTO customer_vehicle_roles (tenant_id, customer_id, vehicle_id, verification_status)
+        VALUES ($1, $2, $3, 'verified')
+        ON CONFLICT DO NOTHING
+      `, [tenantId, cId, effectiveVehicleId]);
+    }
+  }
+
   const nextVersion = current.version + 1;
-  await client.query('UPDATE estimate_drafts SET status=COALESCE($2,status),version=$3,updated_at=now() WHERE id=$1',
-    [id,command.status ?? null,nextVersion]);
+  await client.query(`
+    UPDATE estimate_drafts
+    SET status = COALESCE($2, status),
+        customer_id = CASE WHEN $4::boolean THEN $5 ELSE customer_id END,
+        vehicle_id = CASE WHEN $6::boolean THEN $7 ELSE vehicle_id END,
+        version = $3,
+        updated_at = now()
+    WHERE id = $1
+  `, [
+    id,
+    command.status ?? null,
+    nextVersion,
+    command.customerId !== undefined,
+    command.customerId ?? null,
+    command.vehicleId !== undefined,
+    command.vehicleId ?? null,
+  ]);
   await client.query(`INSERT INTO estimate_draft_mutations(tenant_id,draft_id,idempotency_key,request_hash,result_version)
     VALUES($1,$2,$3,$4,$5)`, [tenantId,id,command.idempotencyKey,hash,nextVersion]);
   return getEstimateDraft(client, id);

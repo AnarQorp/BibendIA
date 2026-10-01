@@ -28,6 +28,7 @@ export const ManualCustomerModal: React.FC<ManualCustomerModalProps> = ({
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [suggestedDuplicate, setSuggestedDuplicate] = useState<WorkshopCustomer | null>(null);
 
   React.useEffect(() => {
     if (isOpen) {
@@ -36,19 +37,20 @@ export const ManualCustomerModal: React.FC<ManualCustomerModalProps> = ({
       setEmail(initialEmail);
       setNotes('');
       setErrorMessage(null);
+      setSuggestedDuplicate(null);
       setIsSubmitting(false);
     }
   }, [isOpen, initialName, initialPhone, initialEmail]);
 
   if (!isOpen) return null;
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleCreateCustomer = async (allowDuplicate = false) => {
     if (!name.trim()) {
       setErrorMessage('El nombre del cliente es obligatorio.');
       return;
     }
     setErrorMessage(null);
+    setSuggestedDuplicate(null);
     setIsSubmitting(true);
 
     try {
@@ -57,9 +59,12 @@ export const ManualCustomerModal: React.FC<ManualCustomerModalProps> = ({
         phone: phone.trim() || undefined,
         email: email.trim() || undefined,
         notes: notes.trim() || undefined,
+        allowDuplicate,
       });
 
-      if (res.status === 'success' && res.data) {
+      if (res.status === 'duplicate_suggestion' && res.existingCustomer) {
+        setSuggestedDuplicate(res.existingCustomer);
+      } else if (res.status === 'success' && res.data) {
         onCustomerCreated(res.data);
         onClose();
       } else {
@@ -70,6 +75,11 @@ export const ManualCustomerModal: React.FC<ManualCustomerModalProps> = ({
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    handleCreateCustomer(false);
   };
 
   return (
@@ -95,6 +105,40 @@ export const ManualCustomerModal: React.FC<ManualCustomerModalProps> = ({
             <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{errorMessage}</span>
+            </div>
+          )}
+
+          {suggestedDuplicate && (
+            <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 flex flex-col gap-2.5">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold">Posible cliente existente encontrado:</span>
+                  <p className="text-2xs text-amber-800 mt-0.5">
+                    Ya existe un cliente con este teléfono: <strong className="text-slate-900">{suggestedDuplicate.name}</strong> ({suggestedDuplicate.phone || 'Sin teléfono'}).
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 pt-1 border-t border-amber-200/60">
+                <button
+                  type="button"
+                  onClick={() => {
+                    onCustomerCreated(suggestedDuplicate);
+                    onClose();
+                  }}
+                  className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-2xs transition"
+                >
+                  Usar cliente existente
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleCreateCustomer(true)}
+                  disabled={isSubmitting}
+                  className="px-3 py-1.5 bg-white border border-amber-300 hover:bg-amber-100 text-amber-900 rounded-lg font-bold text-2xs transition"
+                >
+                  Crear de todos modos
+                </button>
+              </div>
             </div>
           )}
 

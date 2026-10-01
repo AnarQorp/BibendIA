@@ -65,6 +65,9 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
   } = useDemo();
 
   const { searchParams, navigate } = useRouter();
+  const urlNew = searchParams.get('new');
+  const urlCustomerId = searchParams.get('customerId') || undefined;
+  const urlVehicleId = searchParams.get('vehicleId') || undefined;
 
   // Tenant Resolution (Prop -> Window/Env -> URL param -> LocalStorage)
   const [activeTenantId, setActiveTenantId] = useState<string | null>(() => {
@@ -110,6 +113,12 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
   const [isManualAppointmentModalOpen, setIsManualAppointmentModalOpen] = useState(false);
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
   const [isVehicleModalOpen, setIsVehicleModalOpen] = useState(false);
+
+  useEffect(() => {
+    if (urlNew === 'manual') {
+      setIsManualAppointmentModalOpen(true);
+    }
+  }, [urlNew]);
 
   // Real Backend Data State
   const [realState, setRealState] = useState<WorkshopAppointmentsState>({ status: 'idle' });
@@ -910,6 +919,8 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
           isOpen={isManualAppointmentModalOpen}
           onClose={() => setIsManualAppointmentModalOpen(false)}
           tenantId={activeTenantId}
+          initialCustomerId={urlCustomerId}
+          initialVehicleId={urlVehicleId}
           onAppointmentCreated={() => {
             loadRealAppointments(activeTenantId);
           }}

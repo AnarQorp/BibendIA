@@ -13,13 +13,13 @@ export function normalizeSpanishOrE164Phone(value: string): string {
 export async function insertProtectedCustomer(
   client: pg.PoolClient,
   pii: PiiProtection,
-  input: { id: string; tenantId: string; displayName: string; phone?: string | null; email?: string | null; notes?: string | null },
+  input: { id: string; tenantId: string; displayName: string; phone?: string | null; email?: string | null; notes?: string | null; allowDuplicatePhone?: boolean },
 ): Promise<void> {
   const protectedName = pii.protect(input.tenantId, 'customer.display_name', input.displayName.trim());
   const normalizedPhone = input.phone ? normalizeSpanishOrE164Phone(input.phone) : null;
   const protectedPhone = normalizedPhone ? pii.protect(input.tenantId, 'customer.phone', normalizedPhone) : null;
   const phoneLookup = normalizedPhone ? pii.activeLookupDigest(input.tenantId, 'customer.phone', normalizedPhone) : null;
-  if (normalizedPhone) {
+  if (normalizedPhone && !input.allowDuplicatePhone) {
     const candidates = pii.lookupDigests(input.tenantId, 'customer.phone', normalizedPhone).map((item) => item.digest);
     const existing = await client.query('SELECT 1 FROM customers WHERE tenant_id=$1 AND phone_lookup_digest=ANY($2::text[])', [input.tenantId, candidates]);
     if (existing.rowCount) throw new PiiProtectionError('PII_LOOKUP_CONFLICT');
@@ -93,6 +93,160 @@ export async function insertProtectedVehicle(
       protectedVin?.ciphertext ?? null, protectedVin?.nonce ?? null, protectedVin?.authTag ?? null,
       protectedVin?.keyId ?? null, vinLookup?.digest ?? null, vinLookup?.keyId ?? null],
   );
+}
+
+export async function updateProtectedCustomer(
+  client: pg.PoolClient,
+  pii: PiiProtection,
+  input: {
+    customerId: string;
+    tenantId: string;
+    displayName?: string;
+    phone?: string | null;
+    email?: string | null;
+    notes?: string | null;
+    allowDuplicatePhone?: boolean;
+  },
+): Promise<void> {
+  const existing = await client.query<{ id: string }>(
+    'SELECT id FROM customers WHERE id = $1 AND tenant_id = $2',
+    [input.customerId, input.tenantId]
+  );
+  if (!existing.rowCount) throw new Error('CUSTOMER_NOT_FOUND');
+
+  const updates: string[] = [];
+  const values: any[] = [input.customerId, input.tenantId];
+  let pIdx = 3;
+
+  if (input.displayName !== undefined) {
+    const trimmed = input.displayName.trim();
+    const protectedName = pii.protect(input.tenantId, 'customer.display_name', trimmed);
+    updates.push(`display_name_ciphertext = $${pIdx++}, display_name_nonce = $${pIdx++}, display_name_auth_tag = $${pIdx++}, display_name_key_id = $${pIdx++}`);
+    values.push(protectedName.ciphertext, protectedName.nonce, protectedName.authTag, protectedName.keyId);
+  }
+
+  if (input.phone !== undefined) {
+    if (input.phone && input.phone.trim()) {
+      const normalizedPhone = normalizeSpanishOrE164Phone(input.phone);
+      const candidates = pii.lookupDigests(input.tenantId, 'customer.phone', normalizedPhone).map((item) => item.digest);
+      if (!input.allowDuplicatePhone) {
+        const conflict = await client.query('SELECT id FROM customers WHERE tenant_id = $1 AND phone_lookup_digest = ANY($2::text[]) AND id <> $3', [input.tenantId, candidates, input.customerId]);
+        if (conflict.rowCount) throw new PiiProtectionError('PII_LOOKUP_CONFLICT');
+      }
+      const protectedPhone = pii.protect(input.tenantId, 'customer.phone', normalizedPhone);
+      const phoneLookup = pii.activeLookupDigest(input.tenantId, 'customer.phone', normalizedPhone);
+      updates.push(`phone_ciphertext = $${pIdx++}, phone_nonce = $${pIdx++}, phone_auth_tag = $${pIdx++}, phone_key_id = $${pIdx++}, phone_lookup_digest = $${pIdx++}, phone_lookup_key_id = $${pIdx++}`);
+      values.push(protectedPhone.ciphertext, protectedPhone.nonce, protectedPhone.authTag, protectedPhone.keyId, phoneLookup.digest, phoneLookup.keyId);
+    } else {
+      updates.push(`phone_ciphertext = NULL, phone_nonce = NULL, phone_auth_tag = NULL, phone_key_id = NULL, phone_lookup_digest = NULL, phone_lookup_key_id = NULL`);
+    }
+  }
+
+  if (input.email !== undefined) {
+    if (input.email && input.email.trim()) {
+      const cleanEmail = input.email.trim().toLowerCase();
+      const protectedEmail = pii.protect(input.tenantId, 'customer.email', cleanEmail);
+      const emailLookup = pii.activeLookupDigest(input.tenantId, 'customer.email', cleanEmail);
+      updates.push(`email_ciphertext = $${pIdx++}, email_nonce = $${pIdx++}, email_auth_tag = $${pIdx++}, email_key_id = $${pIdx++}, email_lookup_digest = $${pIdx++}, email_lookup_key_id = $${pIdx++}`);
+      values.push(protectedEmail.ciphertext, protectedEmail.nonce, protectedEmail.authTag, protectedEmail.keyId, emailLookup.digest, emailLookup.keyId);
+    } else {
+      updates.push(`email_ciphertext = NULL, email_nonce = NULL, email_auth_tag = NULL, email_key_id = NULL, email_lookup_digest = NULL, email_lookup_key_id = NULL`);
+    }
+  }
+
+  if (input.notes !== undefined) {
+    if (input.notes && input.notes.trim()) {
+      const cleanNotes = input.notes.trim();
+      const protectedNotes = pii.protect(input.tenantId, 'customer.notes', cleanNotes);
+      updates.push(`notes_ciphertext = $${pIdx++}, notes_nonce = $${pIdx++}, notes_auth_tag = $${pIdx++}, notes_key_id = $${pIdx++}`);
+      values.push(protectedNotes.ciphertext, protectedNotes.nonce, protectedNotes.authTag, protectedNotes.keyId);
+    } else {
+      updates.push(`notes_ciphertext = NULL, notes_nonce = NULL, notes_auth_tag = NULL, notes_key_id = NULL`);
+    }
+  }
+
+  if (updates.length > 0) {
+    await client.query(
+      `UPDATE customers SET ${updates.join(', ')} WHERE id = $1 AND tenant_id = $2`,
+      values,
+    );
+  }
+}
+
+export async function updateProtectedVehicle(
+  client: pg.PoolClient,
+  pii: PiiProtection,
+  input: {
+    vehicleId: string;
+    tenantId: string;
+    plate?: string | null;
+    make?: string | null;
+    model?: string | null;
+    year?: number | null;
+    vin?: string | null;
+  },
+): Promise<void> {
+  const existing = await client.query<{ id: string }>(
+    'SELECT id FROM vehicles WHERE id = $1 AND tenant_id = $2',
+    [input.vehicleId, input.tenantId]
+  );
+  if (!existing.rowCount) throw new Error('VEHICLE_NOT_FOUND');
+
+  const updates: string[] = [];
+  const values: any[] = [input.vehicleId, input.tenantId];
+  let pIdx = 3;
+
+  if (input.make !== undefined) {
+    updates.push(`make = $${pIdx++}`);
+    values.push(input.make?.trim() || null);
+  }
+
+  if (input.model !== undefined) {
+    updates.push(`model = $${pIdx++}`);
+    values.push(input.model?.trim() || null);
+  }
+
+  if (input.year !== undefined) {
+    updates.push(`year = $${pIdx++}`);
+    values.push(input.year ?? null);
+  }
+
+  if (input.plate !== undefined) {
+    if (input.plate && input.plate.trim()) {
+      const normalizedPlate = normalizeSpanishPlate(input.plate);
+      const candidates = pii.lookupDigests(input.tenantId, 'vehicle.plate', normalizedPlate).map((item) => item.digest);
+      const conflict = await client.query('SELECT id FROM vehicles WHERE tenant_id = $1 AND plate_lookup_digest = ANY($2::text[]) AND id <> $3', [input.tenantId, candidates, input.vehicleId]);
+      if (conflict.rowCount) throw new PiiProtectionError('PII_LOOKUP_CONFLICT');
+      const protectedPlate = pii.protect(input.tenantId, 'vehicle.plate', normalizedPlate);
+      const plateLookup = pii.activeLookupDigest(input.tenantId, 'vehicle.plate', normalizedPlate);
+      updates.push(`plate_ciphertext = $${pIdx++}, plate_nonce = $${pIdx++}, plate_auth_tag = $${pIdx++}, plate_key_id = $${pIdx++}, plate_lookup_digest = $${pIdx++}, plate_lookup_key_id = $${pIdx++}`);
+      values.push(protectedPlate.ciphertext, protectedPlate.nonce, protectedPlate.authTag, protectedPlate.keyId, plateLookup.digest, plateLookup.keyId);
+    } else {
+      updates.push(`plate_ciphertext = NULL, plate_nonce = NULL, plate_auth_tag = NULL, plate_key_id = NULL, plate_lookup_digest = NULL, plate_lookup_key_id = NULL`);
+    }
+  }
+
+  if (input.vin !== undefined) {
+    if (input.vin && input.vin.trim()) {
+      const normalizedVin = input.vin.trim().toUpperCase();
+      const candidates = pii.lookupDigests(input.tenantId, 'vehicle.vin', normalizedVin).map((item) => item.digest);
+      const conflict = await client.query('SELECT id FROM vehicles WHERE tenant_id = $1 AND vin_lookup_digest = ANY($2::text[]) AND id <> $3', [input.tenantId, candidates, input.vehicleId]);
+      if (conflict.rowCount) throw new PiiProtectionError('PII_LOOKUP_CONFLICT');
+      const protectedVin = pii.protect(input.tenantId, 'vehicle.vin', normalizedVin);
+      const vinLookup = pii.activeLookupDigest(input.tenantId, 'vehicle.vin', normalizedVin);
+      updates.push(`vin_ciphertext = $${pIdx++}, vin_nonce = $${pIdx++}, vin_auth_tag = $${pIdx++}, vin_key_id = $${pIdx++}, vin_lookup_digest = $${pIdx++}, vin_lookup_key_id = $${pIdx++}`);
+      values.push(protectedVin.ciphertext, protectedVin.nonce, protectedVin.authTag, protectedVin.keyId, vinLookup.digest, vinLookup.keyId);
+    } else {
+      updates.push(`vin_ciphertext = NULL, vin_nonce = NULL, vin_auth_tag = NULL, vin_key_id = NULL, vin_lookup_digest = NULL, vin_lookup_key_id = NULL`);
+    }
+  }
+
+  if (updates.length > 0) {
+    await client.query(
+      `UPDATE vehicles SET ${updates.join(', ')} WHERE id = $1 AND tenant_id = $2`,
+      values,
+    );
+  }
 }
 
 export function revealStored(
