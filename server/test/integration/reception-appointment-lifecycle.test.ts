@@ -4,6 +4,8 @@ import { buildApi } from '../../src/api/app.js';
 import { createPool, inTenantTransaction } from '../../src/persistence/pool.js';
 import { insertProtectedCustomer, insertProtectedVehicle } from '../../src/security/protected-records.js';
 import { testPiiProtection } from '../support/test-pii.js';
+import { resolveCanonicalReceptionContext } from '../../src/modules/agent-core/reception-lifecycle-tools.js';
+import { loadProviderCapability } from '../../src/modules/agent-core/provider-capabilities.js';
 
 const pool = createPool('migrator');
 const pii = testPiiProtection();
@@ -15,7 +17,9 @@ const auth = { authorization: `Bearer ${secret}` };
 const phone = '+34600111222';
 const openingHours = Object.fromEntries(Array.from({ length: 7 }, (_, index) => [String(index + 1), [{ start: '00:00', end: '23:59' }]]));
 const app = buildApi(pool, { piiProtection: pii, providerIngress: { publicApiBaseUrl: 'https://api.test',
-  elevenLabsTool: { servicePrincipalId: ids.principal, externalAccountId: agent, secret } } });
+  elevenLabsTool: { servicePrincipalId: ids.principal, externalAccountId: agent, secret } },
+  confirmationEvidenceVerifier: { async verify(input) { if (!input.evidenceRef.startsWith('provider-event-')) throw new Error('unverified'); return { verified: true as const,
+    occurredAt: new Date(Date.parse(input.preparedAt) + 1000).toISOString(), source: 'test-provider-fixture' }; } } });
 
 function desired(days = 7) {
   const date = new Date(Date.now() + days * 86_400_000);
@@ -79,6 +83,12 @@ describe('Reception Context & Appointment Lifecycle V2', () => {
         associatedCustomers: [{ id: ids.customer, verificationStatus: 'provisional' }] } },
       identitySufficientForMutation: true, callerAssurance: 'provider_supplied_not_kyc' });
     expect(context.receptionContextToken).toMatch(/^[0-9a-f-]{36}$/);
+    await expect(resolveCanonicalReceptionContext(pool, pii, { tenantId: ids.tenant, workshopId: randomUUID(),
+      correlationId: 'wrong-workshop', actor: { type: 'voice_agent', id: agent } } as never,
+    context.receptionContextToken, conversation)).rejects.toThrow('RECEPTION_CONTEXT_BINDING_MISMATCH');
+    await expect(resolveCanonicalReceptionContext(pool, pii, { tenantId: ids.tenant, workshopId: ids.workshop,
+      correlationId: 'wrong-principal', actor: { type: 'voice_agent', id: randomUUID() } } as never,
+    context.receptionContextToken, conversation)).rejects.toThrow('RECEPTION_CONTEXT_BINDING_MISMATCH');
     const declared = await app.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/resolve-reception-context', headers: auth,
       payload: { providerConversationId: `declared-${randomUUID()}`, requestId: `resolve-${randomUUID()}`,
         declaredPhone: phone, plate: '1234 ABC' } });
@@ -94,6 +104,21 @@ describe('Reception Context & Appointment Lifecycle V2', () => {
       [ids.tenant, ids.customer, newVehicleId]);
     expect(relation.rows[0].verification_status).toBe('provisional');
     expect(fresh.json().context.vehicle.value).toMatchObject({ make: null, model: null });
+
+    const capabilityConversation = `cap-${randomUUID()}`;
+    const found = await app.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/find-slots', headers: auth,
+      payload: { providerCallId: capabilityConversation, requestId: `find-${randomUUID()}`,
+        desiredStartAt: desired(5), searchHorizonMinutes: 240, serviceIntent: 'brakes_or_noise', symptoms: ['ruido'], limit: 1 } });
+    const stolen = await app.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/hold-slot', headers: auth,
+      payload: { providerCallId: `other-${randomUUID()}`, requestId: `hold-${randomUUID()}`,
+        candidateId: found.json().options[0].candidateId } });
+    expect(stolen.statusCode).toBe(409);
+    expect(stolen.json().code).toBe('CAPABILITY_BINDING_MISMATCH');
+    await expect(inTenantTransaction(pool, ids.tenant, (client) => loadProviderCapability(client,
+      { tenantId: ids.tenant, workshopId: ids.workshop, correlationId: 'wrong-principal',
+        actor: { type: 'voice_agent', id: randomUUID() } } as never,
+      found.json().options[0].candidateId, capabilityConversation, 'find-slots')))
+      .rejects.toThrow('CAPABILITY_BINDING_MISMATCH');
   });
 
   it('creates against canonical provisional entities without duplicating or promoting them', async () => {
@@ -119,12 +144,30 @@ describe('Reception Context & Appointment Lifecycle V2', () => {
         receptionContextToken: context.receptionContextToken } });
     expect(listed.json().appointments).toEqual(expect.arrayContaining([expect.objectContaining({ id: original.id })]));
     const held = await findHold(conversation, desired(8));
-    const prepared = await app.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/prepare-reschedule', headers: auth,
-      payload: { providerConversationId: conversation, requestId: `prepare-${randomUUID()}`,
+    const preparePayload = { providerConversationId: conversation, requestId: `prepare-${randomUUID()}`,
         receptionContextToken: context.receptionContextToken, appointmentId: original.id,
-        expectedVersion: original.version, slotToken: held.slotToken } });
+        expectedVersion: original.version, slotToken: held.slotToken };
+    const prepared = await app.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/prepare-reschedule', headers: auth,
+      payload: preparePayload });
     expect(prepared.statusCode).toBe(200);
     expect(prepared.json()).toMatchObject({ code: 'RESCHEDULE_CONFIRMATION_REQUIRED', original: { appointmentId: original.id } });
+    const preparedReplay = await app.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/prepare-reschedule', headers: auth,
+      payload: preparePayload });
+    expect(preparedReplay.statusCode).toBe(200);
+    expect(preparedReplay.json().rescheduleContextToken).toBe(prepared.json().rescheduleContextToken);
+    expect((await pool.query("SELECT count(*)::int count FROM action_intents WHERE tenant_id=$1 AND tool_name='reschedule_capability_v3' AND case_id=(SELECT case_id FROM appointments WHERE id=$2)",
+      [ids.tenant, original.id])).rows[0].count).toBe(1);
+
+    const freeConfirmation = await app.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/reschedule-appointment', headers: auth,
+      payload: { providerConversationId: conversation, requestId: `free-${randomUUID()}`,
+        rescheduleContextToken: prepared.json().rescheduleContextToken, origin: 'voice_phone',
+        confirmationTranscript: 'sí', idempotencyKey: `free-${randomUUID()}` } });
+    expect(freeConfirmation.statusCode).toBe(422);
+    const unverifiedConfirmation = await app.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/reschedule-appointment', headers: auth,
+      payload: { providerConversationId: conversation, requestId: `unverified-${randomUUID()}`,
+        rescheduleContextToken: prepared.json().rescheduleContextToken, origin: 'voice_phone',
+        confirmationEvidenceRef: 'free-text-confirmation', idempotencyKey: `unverified-${randomUUID()}` } });
+    expect(unverifiedConfirmation.statusCode).toBe(422);
 
     const forbiddenCancel = await app.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/cancel-appointment', headers: auth,
       payload: { providerConversationId: conversation, requestId: `cancel-${randomUUID()}`,
@@ -137,7 +180,7 @@ describe('Reception Context & Appointment Lifecycle V2', () => {
     const idempotencyKey = `reschedule-${randomUUID()}`;
     const payload = { providerConversationId: conversation, requestId: `reschedule-${randomUUID()}`,
       rescheduleContextToken: prepared.json().rescheduleContextToken, origin: 'voice_phone',
-      confirmationTranscript: 'Confirmo la nueva hora', idempotencyKey };
+      confirmationEvidenceRef: `provider-event-${randomUUID()}`, idempotencyKey };
     const moved = await app.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/reschedule-appointment', headers: auth, payload });
     expect(moved.statusCode).toBe(200);
     expect(moved.json().receipt.value).toMatchObject({ id: original.id, customerId: ids.customer,
@@ -146,12 +189,18 @@ describe('Reception Context & Appointment Lifecycle V2', () => {
       payload: { ...payload, requestId: `reschedule-${randomUUID()}` } });
     expect(replay.statusCode).toBe(200);
     expect(replay.json().replay).toBe(true);
+    const stolenReplay = await app.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/reschedule-appointment', headers: auth,
+      payload: { ...payload, providerConversationId: `other-${randomUUID()}`, requestId: `stolen-${randomUUID()}` } });
+    expect(stolenReplay.statusCode).toBe(403);
+    expect(stolenReplay.json().reason).toBe('RESCHEDULE_CONTEXT_CONVERSATION_MISMATCH');
     const state = await pool.query(`SELECT
       (SELECT count(*)::int FROM appointments WHERE tenant_id=$1 AND id=$2 AND status<>'cancelled') active,
       (SELECT count(*)::int FROM outbox_events WHERE tenant_id=$1 AND aggregate_id=$2 AND event_type='appointment.created') created_events,
       (SELECT count(*)::int FROM messages WHERE tenant_id=$1 AND content_metadata_jsonb->>'kind'='reschedule_confirmation') confirmations`,
     [ids.tenant, original.id]);
-    expect(state.rows[0]).toMatchObject({ active: 1, created_events: 1, confirmations: 1 });
+    expect(state.rows[0]).toMatchObject({ active: 1, created_events: 1, confirmations: 0 });
+    expect((await pool.query('SELECT confirmation_evidence_ref FROM appointments WHERE tenant_id=$1 AND id=$2',
+      [ids.tenant, original.id])).rows[0].confirmation_evidence_ref).toBe(payload.confirmationEvidenceRef);
   });
 
   it('rejects unprepared/stale reschedule and leaves original intact with sanitized errors', async () => {
@@ -161,7 +210,7 @@ describe('Reception Context & Appointment Lifecycle V2', () => {
     const before = await pool.query('SELECT start_at,end_at,status,version FROM appointments WHERE tenant_id=$1 AND id=$2', [ids.tenant, original.id]);
     const response = await app.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/reschedule-appointment', headers: auth,
       payload: { providerConversationId: conversation, requestId: `reschedule-${randomUUID()}`,
-        rescheduleContextToken: randomUUID(), origin: 'voice_phone', confirmationTranscript: 'Sí', idempotencyKey: `move-${randomUUID()}` } });
+        rescheduleContextToken: randomUUID(), origin: 'voice_phone', confirmationEvidenceRef: `provider-event-${randomUUID()}`, idempotencyKey: `move-${randomUUID()}` } });
     expect(response.statusCode).toBe(403);
     expect(response.json()).toEqual({ ok: false, code: 'HUMAN_ESCALATION_REQUIRED', reason: 'RESCHEDULE_CONTEXT_INVALID', originalAppointmentIntact: true });
     expect((await pool.query('SELECT start_at,end_at,status,version FROM appointments WHERE tenant_id=$1 AND id=$2', [ids.tenant, original.id])).rows[0]).toEqual(before.rows[0]);
@@ -186,5 +235,44 @@ describe('Reception Context & Appointment Lifecycle V2', () => {
       (SELECT count(*)::int FROM messages WHERE tenant_id=$1 AND content_metadata_jsonb->>'kind'='cancel_confirmation'
         AND content_metadata_jsonb->>'boundContextId'=$3) confirmations`, [ids.tenant, payload.idempotencyKey, appointment.id]);
     expect(evidence.rows[0]).toMatchObject({ intents: 1, confirmations: 1 });
+  });
+
+  it('rejects service-mismatched holds and lazily expires preparation without blocking cancel', async () => {
+    const mismatchConversation = `mismatch-${randomUUID()}`;
+    const mismatchContext = await resolve(mismatchConversation);
+    const mismatchOriginal = await createAppointment(mismatchConversation, mismatchContext.receptionContextToken,
+      await findHold(mismatchConversation, desired(11)));
+    const wrongHold = await findHold(mismatchConversation, desired(12));
+    await pool.query("UPDATE slot_holds SET service_intent='inspection' WHERE tenant_id=$1 AND slot_token=$2",
+      [ids.tenant, wrongHold.slotToken]);
+    const mismatch = await app.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/prepare-reschedule', headers: auth,
+      payload: { providerConversationId: mismatchConversation, requestId: `prepare-${randomUUID()}`,
+        receptionContextToken: mismatchContext.receptionContextToken, appointmentId: mismatchOriginal.id,
+        expectedVersion: mismatchOriginal.version, slotToken: wrongHold.slotToken } });
+    expect(mismatch.statusCode).toBe(422);
+    expect(mismatch.json().reason).toBe('RESCHEDULE_SERVICE_MISMATCH');
+
+    const conversation = `expired-${randomUUID()}`;
+    const context = await resolve(conversation);
+    const original = await createAppointment(conversation, context.receptionContextToken, await findHold(conversation, desired(13)));
+    const held = await findHold(conversation, desired(14));
+    const prepared = await app.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/prepare-reschedule', headers: auth,
+      payload: { providerConversationId: conversation, requestId: `prepare-${randomUUID()}`,
+        receptionContextToken: context.receptionContextToken, appointmentId: original.id,
+        expectedVersion: original.version, slotToken: held.slotToken } });
+    const token = prepared.json().rescheduleContextToken;
+    await pool.query(`UPDATE action_intents SET input_jsonb=jsonb_set(input_jsonb,'{expiresAt}',to_jsonb((now()-interval '1 second')::text))
+      WHERE tenant_id=$1 AND (idempotency_key=$2 OR input_jsonb->>'token'=$3)`,
+    [ids.tenant, `reschedule-context:${token}`, token]);
+    const expiredMove = await app.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/reschedule-appointment', headers: auth,
+      payload: { providerConversationId: conversation, requestId: `move-${randomUUID()}`, rescheduleContextToken: token,
+        origin: 'voice_phone', confirmationEvidenceRef: `provider-event-${randomUUID()}`, idempotencyKey: `move-${randomUUID()}` } });
+    expect(expiredMove.statusCode).toBe(422);
+    expect(expiredMove.json().reason).toBe('RESCHEDULE_CONTEXT_EXPIRED');
+    const cancelled = await app.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/cancel-appointment', headers: auth,
+      payload: { providerConversationId: conversation, requestId: `cancel-${randomUUID()}`,
+        receptionContextToken: context.receptionContextToken, appointmentId: original.id, expectedVersion: original.version,
+        reason: 'Cambio de planes', origin: 'voice_phone', confirmationTranscript: 'Sí, cancela', idempotencyKey: `cancel-${randomUUID()}` } });
+    expect(cancelled.statusCode).toBe(200);
   });
 });

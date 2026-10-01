@@ -168,7 +168,9 @@ describe('VS02.2 authenticated ElevenLabs scheduling tools', () => {
       payload: { providerCallId: expiringCall, requestId: `find-${randomUUID()}`, ...window(), durationMinutes: 60, limit: 1 } });
     const expiredCandidate = found.json().options[0].candidateId as string;
     await inTenantTransaction(pool, ids.tenant, (client) => client.query(
-      "UPDATE slot_candidates SET expires_at=now()-interval '1 second' WHERE candidate_token=$1", [expiredCandidate],
+      `UPDATE action_intents SET input_jsonb=jsonb_set(input_jsonb,'{expiresAt}',to_jsonb((now()-interval '1 second')::text))
+       WHERE tenant_id=$1 AND tool_name='provider_capability_v3' AND idempotency_key=$2`,
+      [ids.tenant, `provider-capability:${expiredCandidate}`],
     ));
     const expired = await app.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/hold-slot', headers: auth,
       payload: { providerCallId: expiringCall, requestId: `hold-${randomUUID()}`, candidateId: expiredCandidate } });

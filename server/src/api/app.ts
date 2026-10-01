@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import { createHash } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import secureJson from 'secure-json-parse';
@@ -30,7 +31,10 @@ import { resolveServiceDuration, ServiceDurationPolicyError, serviceIntentSchema
 import { registerRepairKnowledgeRoutes } from './repair-knowledge-routes.js';
 import { registerVehicleCatalogRoutes } from './vehicle-catalog-routes.js';
 import { registerWorkshopOperationsRoutes } from './workshop-operations-routes.js';
-import { registerReceptionLifecycleTools } from '../modules/agent-core/reception-lifecycle-tools.js';
+import { registerReceptionLifecycleTools, type ConfirmationEvidenceVerifier } from '../modules/agent-core/reception-lifecycle-tools.js';
+import { issueProviderCapability, loadProviderCapability,
+  ProviderCapabilityError } from '../modules/agent-core/provider-capabilities.js';
+import { inTenantTransaction } from '../persistence/pool.js';
 
 export type ApiSecurityOptions = {
   authentication?: AuthenticationAdapter;
@@ -42,7 +46,15 @@ export type ApiSecurityOptions = {
   publicLead?: { tenantId:string;retentionDays?:number;dedupeMinutes?:number;rateLimit?:number };
   trustProxy?: readonly string[];
   humanAuthentication?: OidcAuthenticationAdapter;
+  confirmationEvidenceVerifier?: ConfirmationEvidenceVerifier;
 };
+
+function deterministicCapabilityToken(seed: string) {
+  const hex = createHash('sha256').update(seed).digest('hex').slice(0, 32).split('');
+  hex[12] = '5';
+  hex[16] = ((Number.parseInt(hex[16], 16) & 0x3) | 0x8).toString(16);
+  return `${hex.slice(0, 8).join('')}-${hex.slice(8, 12).join('')}-${hex.slice(12, 16).join('')}-${hex.slice(16, 20).join('')}-${hex.slice(20).join('')}`;
+}
 
 export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
   const trustProxy = (options.trustProxy && options.trustProxy.length > 0)
@@ -65,7 +77,7 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
     : baseAuthentication;
   registerAuthenticationBoundary(app, authentication);
   registerVehicleCatalogRoutes(app, pool);
-  registerReceptionLifecycleTools(app, pool, pii);
+  registerReceptionLifecycleTools(app, pool, pii, options.confirmationEvidenceVerifier);
   if (options.humanAuthentication) registerHumanAuthRoutes(app, pool, options.humanAuthentication);
   app.setErrorHandler((error, request, reply) => {
     if ((error as { statusCode?: number }).statusCode === 413) {
@@ -350,9 +362,24 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
           capacityRequirements: [{ resourceType: 'mechanic', quantity: 1 }],
         },
       });
+      const capabilitySlots = slots.map((slot) => ({
+        slot,
+        capabilityToken: deterministicCapabilityToken([
+          authorized.context.tenantId, authorized.context.workshopId, authorized.context.actor.id,
+          input.providerCallId, input.requestId, slot.token,
+        ].join(':')),
+      }));
+      await inTenantTransaction(pool, authorized.context.tenantId, async (client) => {
+        for (const { slot, capabilityToken } of capabilitySlots) await issueProviderCapability(client, authorized.context, capabilityToken, {
+          providerConversationId: input.providerCallId, operation: 'find-slots',
+          serviceIntent: slot.serviceIntent, durationMinutes: slot.estimatedDurationMinutes,
+          capacityRequirements: slot.capacity, window: safeWindow, expiresAt: slot.expiresAt,
+          parentToken: slot.token,
+        });
+      });
       return { ok: true, code: slots.length ? 'SLOT_OPTIONS_FOUND' : 'NO_AVAILABILITY',
-        disposition: authorized.disposition, options: slots.map((slot) => ({
-        candidateId: slot.token, startAt: slot.startAt, endAt: slot.endAt,
+        disposition: authorized.disposition, options: capabilitySlots.map(({ slot, capabilityToken }) => ({
+        candidateId: capabilityToken, startAt: slot.startAt, endAt: slot.endAt,
         localStartAt: localIsoDateTime(slot.startAt, authorized.timezone),
         localEndAt: localIsoDateTime(slot.endAt, authorized.timezone),
         timezone: authorized.timezone, expiresAt: slot.expiresAt,
@@ -392,7 +419,18 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
       }) };
     });
     try {
-      const held = await holdSlot(pool, authorized.context, input.candidateId, 10 * 60);
+      const candidateCapability = await inTenantTransaction(pool, authorized.context.tenantId,
+        (client) => loadProviderCapability(client, authorized.context, input.candidateId, input.providerCallId, 'find-slots'));
+      if (!candidateCapability.value.parentToken) throw new ProviderCapabilityError('CAPABILITY_PARENT_INVALID');
+      const held = await holdSlot(pool, authorized.context, candidateCapability.value.parentToken, 10 * 60);
+      await inTenantTransaction(pool, authorized.context.tenantId, async (client) => {
+        await issueProviderCapability(client, authorized.context, held.token, {
+          providerConversationId: input.providerCallId, operation: 'hold-slot',
+          serviceIntent: held.serviceIntent, durationMinutes: held.estimatedDurationMinutes,
+          capacityRequirements: held.capacity, window: candidateCapability.value.window,
+          expiresAt: held.expiresAt, parentToken: input.candidateId,
+        });
+      });
       return { ok: true, disposition: authorized.disposition, slotToken: held.token, startAt: held.startAt, endAt: held.endAt,
         localStartAt: localIsoDateTime(held.startAt, authorized.timezone),
         localEndAt: localIsoDateTime(held.endAt, authorized.timezone),
@@ -401,8 +439,9 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
         durationPolicySource: held.durationPolicySource, correlationId };
     } catch (error) {
       if (error instanceof TenantControlError) throw error;
-      request.log.warn({ correlationId, code: 'SLOT_HOLD_REJECTED' }, 'provider slot hold rejected');
-      return reply.code(409).send({ ok: false, code: 'SLOT_HOLD_REJECTED', correlationId });
+      const code = error instanceof ProviderCapabilityError ? error.code : 'SLOT_HOLD_REJECTED';
+      request.log.warn({ correlationId, code }, 'provider slot hold rejected');
+      return reply.code(409).send({ ok: false, code, correlationId });
     }
   });
   return app;

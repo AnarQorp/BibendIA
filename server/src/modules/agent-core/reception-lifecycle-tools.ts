@@ -10,6 +10,8 @@ import { normalizeE164Phone, normalizeSpanishPlate, PiiProtectionError } from '.
 import { insertProtectedVehicle } from '../../security/protected-records.js';
 import { safeErrorAttributes } from '../../security/safe-logging.js';
 import { assertTenantOperation, TenantControlError } from '../tenant-control/tenant-control.js';
+import { loadProviderCapability, ProviderCapabilityError } from './provider-capabilities.js';
+import type { TenantContext } from '../../domain/ids.js';
 
 const base = z.object({
   providerConversationId: z.string().min(1).max(200),
@@ -43,16 +45,21 @@ export const prepareRescheduleSchema = base.extend({
 
 export const rescheduleAppointmentSchema = base.extend({
   rescheduleContextToken: z.string().uuid(), origin: z.literal('voice_phone'),
-  confirmationTranscript: z.string().trim().min(1).max(1000),
+  confirmationEvidenceRef: z.string().trim().min(8).max(500),
   idempotencyKey: z.string().min(8).max(200),
 }).strict();
 
 type Context = { tenantId: string; workshopId: string; actor: { type: string; id: string }; correlationId: string };
 type CanonicalContext = {
   token: string; caseId: string; conversationId: string; providerConversationId: string;
+  tenantId: string; workshopId: string; servicePrincipalId: string; provider: 'elevenlabs'; callerEvidenceFingerprint: string;
   customerId: string; vehicleId: string; relationshipVerification: 'verified' | 'provisional';
   callerAssurance: 'provider_supplied'; expiresAt: string;
 };
+
+export type ConfirmationEvidenceVerifier = { verify(input: { evidenceRef: string; tenantId: string; workshopId: string;
+  servicePrincipalId: string; provider: 'elevenlabs'; providerConversationId: string; preparationToken: string;
+  preparedAt: string }): Promise<{ verified: true; occurredAt: string; source: string }> };
 
 export class ReceptionLifecycleError extends Error {
   constructor(readonly code: string) { super(code); }
@@ -101,16 +108,19 @@ async function ensureCase(client: pg.PoolClient, context: Context, providerConve
 }
 
 async function loadCanonicalContext(client: pg.PoolClient, context: Context, token: string,
-  providerConversationId: string): Promise<CanonicalContext> {
+  providerConversationId: string, allowConsumedCancel = false): Promise<CanonicalContext> {
   const found = await client.query<{ case_id: string; input_jsonb: CanonicalContext; conversation_id: string }>(
     `SELECT ai.case_id,ai.input_jsonb,rc.conversation_id
      FROM action_intents ai JOIN reception_cases rc ON rc.tenant_id=ai.tenant_id AND rc.id=ai.case_id
-     WHERE ai.tenant_id=$1 AND ai.tool_name='reception_context_v2' AND ai.idempotency_key=$2 AND ai.status='ready'
+     WHERE ai.tenant_id=$1 AND ai.tool_name='reception_context_v2' AND ai.idempotency_key=$2
+       AND (ai.status='ready' OR ($3::boolean AND ai.status='consumed_cancel'))
      FOR UPDATE OF ai`,
-    [context.tenantId, `reception-context:${token}`],
+    [context.tenantId, `reception-context:${token}`, allowConsumedCancel],
   );
   if (found.rowCount !== 1) fail('RECEPTION_CONTEXT_INVALID');
   const value = found.rows[0].input_jsonb;
+  if (value.tenantId !== context.tenantId || value.workshopId !== context.workshopId
+    || value.servicePrincipalId !== context.actor.id || value.provider !== 'elevenlabs') fail('RECEPTION_CONTEXT_BINDING_MISMATCH');
   if (value.providerConversationId !== providerConversationId || value.conversationId !== found.rows[0].conversation_id) {
     fail('RECEPTION_CONTEXT_CONVERSATION_MISMATCH');
   }
@@ -167,6 +177,8 @@ async function resolveContext(pool: pg.Pool, pii: PiiProtection, context: Contex
       expiresAt = new Date(Date.now() + 30 * 60_000).toISOString();
       const value: CanonicalContext = {
         token: receptionContextToken, caseId, conversationId, providerConversationId: input.providerConversationId,
+        tenantId: context.tenantId, workshopId: context.workshopId, servicePrincipalId: context.actor.id, provider: 'elevenlabs',
+        callerEvidenceFingerprint: pii.lookupDigests(context.tenantId, 'customer.phone', normalizeE164Phone(input.providerCallerPhone!))[0].digest,
         customerId: customer.id as string, vehicleId: vehicle.id as string,
         relationshipVerification: matchingAssociation.verification_status,
         callerAssurance: 'provider_supplied', expiresAt,
@@ -226,6 +238,7 @@ async function cancel(pool: pg.Pool, pii: PiiProtection, context: Context,
   input: z.infer<typeof cancelAppointmentSchema>) {
   return inTenantTransaction(pool, context.tenantId, async (client) => {
     await assertTenantOperation(client, context.tenantId, 'domain_mutation', 'share');
+    const canonical = await loadCanonicalContext(client, context, input.receptionContextToken, input.providerConversationId, true);
     const replay = await client.query<{ input_jsonb: { appointmentId: string } }>(
       'SELECT input_jsonb FROM action_intents WHERE tenant_id=$1 AND idempotency_key=$2',
       [context.tenantId, input.idempotencyKey],
@@ -235,9 +248,12 @@ async function cancel(pool: pg.Pool, pii: PiiProtection, context: Context,
       return { replay: true, appointment: (await client.query<Record<string, unknown>>(
         'SELECT * FROM appointments WHERE tenant_id=$1 AND id=$2', [context.tenantId, input.appointmentId])).rows[0] };
     }
-    const canonical = await loadCanonicalContext(client, context, input.receptionContextToken, input.providerConversationId);
+    await client.query(`UPDATE action_intents SET status='expired' WHERE tenant_id=$1 AND case_id=$2
+      AND tool_name='prepare_reschedule_v3' AND status='ready' AND (input_jsonb->>'expiresAt')::timestamptz<=now()`,
+    [context.tenantId, canonical.caseId]);
     const activeReschedule = await client.query(`SELECT 1 FROM action_intents
-      WHERE tenant_id=$1 AND case_id=$2 AND tool_name='prepare_reschedule_v2' AND status='ready' LIMIT 1`,
+      WHERE tenant_id=$1 AND case_id=$2 AND tool_name='prepare_reschedule_v3' AND status='ready'
+        AND (input_jsonb->>'expiresAt')::timestamptz>now() LIMIT 1`,
     [context.tenantId, canonical.caseId]);
     if (activeReschedule.rowCount) fail('RESCHEDULE_IN_PROGRESS');
     const appointment = await client.query<Record<string, unknown>>(
@@ -273,6 +289,11 @@ async function prepareReschedule(pool: pg.Pool, context: Context, input: z.infer
   return inTenantTransaction(pool, context.tenantId, async (client) => {
     await assertTenantOperation(client, context.tenantId, 'domain_mutation', 'share');
     const canonical = await loadCanonicalContext(client, context, input.receptionContextToken, input.providerConversationId);
+    const replayKey = `prepare-reschedule:${context.actor.id}:${input.providerConversationId}:${input.requestId}`;
+    const replay = await client.query<{ input_jsonb: Record<string, unknown> }>(`SELECT input_jsonb FROM action_intents
+      WHERE tenant_id=$1 AND tool_name='prepare_reschedule_v3' AND idempotency_key=$2 FOR UPDATE`,
+    [context.tenantId, replayKey]);
+    if (replay.rowCount) return { token: replay.rows[0].input_jsonb.token as string, value: replay.rows[0].input_jsonb };
     const appointment = await client.query<Record<string, unknown>>(
       'SELECT * FROM appointments WHERE tenant_id=$1 AND workshop_id=$2 AND id=$3 FOR UPDATE',
       [context.tenantId, context.workshopId, input.appointmentId],
@@ -284,40 +305,69 @@ async function prepareReschedule(pool: pg.Pool, context: Context, input: z.infer
       WHERE tenant_id=$1 AND workshop_id=$2 AND slot_token=$3 AND expires_at>now() AND consumed_at IS NULL FOR UPDATE`,
     [context.tenantId, context.workshopId, input.slotToken]);
     if (!hold.rowCount) fail('SLOT_NOT_AVAILABLE');
+    let holdCapability;
+    try { holdCapability = await loadProviderCapability(client, context as unknown as TenantContext, input.slotToken, input.providerConversationId, 'hold-slot'); }
+    catch (error) { if (error instanceof ProviderCapabilityError) fail(error.code); throw error; }
+    const serviceRequest = appointment.rows[0].service_request as { intent?: string; estimatedDurationMinutes?: number; capacityRequirements?: unknown };
+    const appointmentDuration = (appointment.rows[0].estimated_duration_minutes as number)
+      ?? Math.round(((appointment.rows[0].end_at as Date).getTime() - (appointment.rows[0].start_at as Date).getTime()) / 60_000);
+    if (hold.rows[0].service_intent !== serviceRequest.intent || holdCapability.value.serviceIntent !== serviceRequest.intent
+      || hold.rows[0].duration_minutes !== appointmentDuration || holdCapability.value.durationMinutes !== appointmentDuration
+      || JSON.stringify(hold.rows[0].capacity_requirements) !== JSON.stringify(appointment.rows[0].capacity_requirements)) {
+      fail('RESCHEDULE_SERVICE_MISMATCH');
+    }
     const token = randomUUID();
-    const value = { appointmentId: input.appointmentId, expectedVersion: input.expectedVersion,
+    const value = { token, appointmentId: input.appointmentId, expectedVersion: input.expectedVersion,
       slotToken: input.slotToken, providerConversationId: input.providerConversationId,
+      tenantId: context.tenantId, workshopId: context.workshopId, servicePrincipalId: context.actor.id, provider: 'elevenlabs',
       receptionContextToken: input.receptionContextToken, oldStartAt: appointment.rows[0].start_at,
       oldEndAt: appointment.rows[0].end_at, newStartAt: hold.rows[0].start_at, newEndAt: hold.rows[0].end_at,
       preparedAt: new Date().toISOString(), expiresAt: hold.rows[0].expires_at };
     await client.query(`INSERT INTO action_intents
       (tenant_id,case_id,tool_name,input_jsonb,status,idempotency_key,requested_by_type)
-      VALUES($1,$2,'prepare_reschedule_v2',$3,'ready',$4,$5)`,
+      VALUES($1,$2,'prepare_reschedule_v3',$3,'ready',$4,$5)`,
+    [context.tenantId, canonical.caseId, JSON.stringify(value), replayKey, context.actor.type]);
+    await client.query(`INSERT INTO action_intents(tenant_id,case_id,tool_name,input_jsonb,status,idempotency_key,requested_by_type)
+      VALUES($1,$2,'reschedule_capability_v3',$3,'ready',$4,$5)`,
     [context.tenantId, canonical.caseId, JSON.stringify(value), `reschedule-context:${token}`, context.actor.type]);
     return { token, value };
   });
 }
 
 async function reschedule(pool: pg.Pool, pii: PiiProtection, context: Context,
-  input: z.infer<typeof rescheduleAppointmentSchema>) {
+  input: z.infer<typeof rescheduleAppointmentSchema>, confirmationVerifier?: ConfirmationEvidenceVerifier) {
   return inTenantTransaction(pool, context.tenantId, async (client) => {
     await assertTenantOperation(client, context.tenantId, 'domain_mutation', 'share');
     await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1::text,314159))", [context.workshopId]);
+    const prepared = await client.query<{ case_id: string; input_jsonb: Record<string, unknown> }>(`SELECT case_id,input_jsonb FROM action_intents
+      WHERE tenant_id=$1 AND tool_name='reschedule_capability_v3' AND idempotency_key=$2 FOR UPDATE`,
+    [context.tenantId, `reschedule-context:${input.rescheduleContextToken}`]);
+    if (prepared.rowCount !== 1) fail('RESCHEDULE_CONTEXT_INVALID');
+    const value = prepared.rows[0].input_jsonb;
+    if (value.tenantId !== context.tenantId || value.workshopId !== context.workshopId
+      || value.servicePrincipalId !== context.actor.id || value.provider !== 'elevenlabs') fail('RESCHEDULE_CONTEXT_BINDING_MISMATCH');
+    if (value.providerConversationId !== input.providerConversationId) fail('RESCHEDULE_CONTEXT_CONVERSATION_MISMATCH');
+    if (new Date(value.expiresAt as string) <= new Date()) {
+      await client.query("UPDATE action_intents SET status='expired' WHERE tenant_id=$1 AND idempotency_key=$2",
+        [context.tenantId, `reschedule-context:${input.rescheduleContextToken}`]);
+      fail('RESCHEDULE_CONTEXT_EXPIRED');
+    }
+    const canonical = await loadCanonicalContext(client, context, value.receptionContextToken as string, input.providerConversationId);
     const replay = await client.query<{ input_jsonb: { rescheduleContextToken: string; appointmentId: string } }>(
-      'SELECT input_jsonb FROM action_intents WHERE tenant_id=$1 AND idempotency_key=$2', [context.tenantId, input.idempotencyKey]);
+      "SELECT input_jsonb FROM action_intents WHERE tenant_id=$1 AND tool_name='reschedule_appointment' AND idempotency_key=$2",
+      [context.tenantId, input.idempotencyKey]);
     if (replay.rowCount) {
       if (replay.rows[0].input_jsonb.rescheduleContextToken !== input.rescheduleContextToken) fail('IDEMPOTENCY_CONFLICT');
       return { replay: true, appointment: (await client.query<Record<string, unknown>>(
         'SELECT * FROM appointments WHERE tenant_id=$1 AND id=$2', [context.tenantId, replay.rows[0].input_jsonb.appointmentId])).rows[0] };
     }
-    const prepared = await client.query<{ case_id: string; input_jsonb: Record<string, unknown> }>(`SELECT case_id,input_jsonb FROM action_intents
-      WHERE tenant_id=$1 AND tool_name='prepare_reschedule_v2' AND idempotency_key=$2 AND status='ready' FOR UPDATE`,
-    [context.tenantId, `reschedule-context:${input.rescheduleContextToken}`]);
-    if (prepared.rowCount !== 1) fail('RESCHEDULE_CONTEXT_INVALID');
-    const value = prepared.rows[0].input_jsonb;
-    if (value.providerConversationId !== input.providerConversationId) fail('RESCHEDULE_CONTEXT_CONVERSATION_MISMATCH');
-    if (new Date(value.expiresAt as string) <= new Date()) fail('SLOT_NOT_AVAILABLE');
-    const canonical = await loadCanonicalContext(client, context, value.receptionContextToken as string, input.providerConversationId);
+    if (!confirmationVerifier) fail('PROVIDER_CONFIRMATION_EVIDENCE_REQUIRED');
+    const verifier = confirmationVerifier as ConfirmationEvidenceVerifier;
+    const evidence = await verifier.verify({ evidenceRef: input.confirmationEvidenceRef,
+      tenantId: context.tenantId, workshopId: context.workshopId, servicePrincipalId: context.actor.id,
+      provider: 'elevenlabs', providerConversationId: input.providerConversationId,
+      preparationToken: input.rescheduleContextToken, preparedAt: value.preparedAt as string });
+    if (!evidence.verified || Date.parse(evidence.occurredAt) <= Date.parse(value.preparedAt as string)) fail('PROVIDER_CONFIRMATION_EVIDENCE_INVALID');
     const appointment = await client.query<Record<string, unknown>>(
       'SELECT * FROM appointments WHERE tenant_id=$1 AND workshop_id=$2 AND id=$3 FOR UPDATE',
       [context.tenantId, context.workshopId, value.appointmentId],
@@ -333,17 +383,16 @@ async function reschedule(pool: pg.Pool, pii: PiiProtection, context: Context,
       AND status<>'cancelled' AND start_at<$5 AND end_at>$4 LIMIT 1`,
     [context.tenantId, context.workshopId, value.appointmentId, hold.rows[0].start_at, hold.rows[0].end_at]);
     if (conflict.rowCount) fail('SLOT_NOT_AVAILABLE');
-    const confirmationId = await insertConfirmation(client, pii, context, canonical.conversationId,
-      input.confirmationTranscript, 'reschedule_confirmation', input.rescheduleContextToken);
     const intent = await client.query<{ id: string }>(`INSERT INTO action_intents
       (tenant_id,case_id,tool_name,input_jsonb,status,idempotency_key,requested_by_type)
       VALUES($1,$2,'reschedule_appointment',$3,'executing',$4,$5) RETURNING id`,
     [context.tenantId, prepared.rows[0].case_id, JSON.stringify({ appointmentId: value.appointmentId,
-      rescheduleContextToken: input.rescheduleContextToken, slotToken: value.slotToken, origin: input.origin }),
+      rescheduleContextToken: input.rescheduleContextToken, slotToken: value.slotToken, origin: input.origin,
+      confirmationEvidenceRef: input.confirmationEvidenceRef, confirmationSource: evidence.source }),
       input.idempotencyKey, context.actor.type]);
     const updated = await client.query<Record<string, unknown>>(`UPDATE appointments SET start_at=$4,end_at=$5,version=version+1,
       confirmation_evidence_ref=$6 WHERE tenant_id=$1 AND id=$2 AND version=$3 RETURNING *`,
-    [context.tenantId, value.appointmentId, value.expectedVersion, hold.rows[0].start_at, hold.rows[0].end_at, `message:${confirmationId}`]);
+    [context.tenantId, value.appointmentId, value.expectedVersion, hold.rows[0].start_at, hold.rows[0].end_at, input.confirmationEvidenceRef]);
     if (!updated.rowCount) fail('VERSION_CONFLICT');
     const consumed = await client.query('UPDATE slot_holds SET consumed_at=now(),consumed_by_appointment_id=$2 WHERE id=$1 AND consumed_at IS NULL',
       [hold.rows[0].id, value.appointmentId]);
@@ -351,9 +400,11 @@ async function reschedule(pool: pg.Pool, pii: PiiProtection, context: Context,
     await client.query("UPDATE action_intents SET status='succeeded' WHERE id=$1", [intent.rows[0].id]);
     await client.query("UPDATE action_intents SET status='consumed' WHERE tenant_id=$1 AND idempotency_key=$2",
       [context.tenantId, `reschedule-context:${input.rescheduleContextToken}`]);
+    await client.query("UPDATE action_intents SET status='consumed' WHERE tenant_id=$1 AND tool_name='prepare_reschedule_v3' AND input_jsonb->>'token'=$2",
+      [context.tenantId, input.rescheduleContextToken]);
     await client.query(`INSERT INTO audit_events(tenant_id,actor_type,actor_id,event_type,entity_type,entity_id,correlation_id,evidence_ref)
       VALUES($1,$2,$3,'appointment_rescheduled','appointment',$4,$5,$6)`,
-    [context.tenantId, context.actor.type, context.actor.id, value.appointmentId, context.correlationId, `message:${confirmationId}`]);
+    [context.tenantId, context.actor.type, context.actor.id, value.appointmentId, context.correlationId, input.confirmationEvidenceRef]);
     return { replay: false, actionIntentId: intent.rows[0].id, appointment: updated.rows[0] };
   });
 }
@@ -374,9 +425,12 @@ function safeAppointment(row: Record<string, unknown>) {
 
 const safeCodes = new Set([
   'RECEPTION_CONTEXT_INVALID','RECEPTION_CONTEXT_EXPIRED','RECEPTION_CONTEXT_CONVERSATION_MISMATCH',
-  'RESCHEDULE_CONTEXT_INVALID','RESCHEDULE_CONTEXT_CONVERSATION_MISMATCH','IDENTITY_INSUFFICIENT',
+  'RECEPTION_CONTEXT_BINDING_MISMATCH','RESCHEDULE_CONTEXT_INVALID','RESCHEDULE_CONTEXT_EXPIRED',
+  'RESCHEDULE_CONTEXT_CONVERSATION_MISMATCH','RESCHEDULE_CONTEXT_BINDING_MISMATCH','IDENTITY_INSUFFICIENT',
   'APPOINTMENT_NOT_FOUND','APPOINTMENT_NOT_ACTIVE','APPOINTMENT_ALREADY_CANCELLED','VERSION_CONFLICT',
   'IDEMPOTENCY_CONFLICT','SLOT_NOT_AVAILABLE','CUSTOMER_REQUIRED_FOR_VEHICLE_CREATE','RESCHEDULE_IN_PROGRESS',
+  'CAPABILITY_INVALID','CAPABILITY_EXPIRED','CAPABILITY_CONSUMED','CAPABILITY_BINDING_MISMATCH',
+  'RESCHEDULE_SERVICE_MISMATCH','PROVIDER_CONFIRMATION_EVIDENCE_REQUIRED','PROVIDER_CONFIRMATION_EVIDENCE_INVALID',
 ]);
 
 function lifecycleFailure(request: FastifyRequest, reply: FastifyReply, error: unknown, originalAppointmentIntact = true) {
@@ -392,7 +446,8 @@ function lifecycleFailure(request: FastifyRequest, reply: FastifyReply, error: u
     reason: internalCode, originalAppointmentIntact });
 }
 
-export function registerReceptionLifecycleTools(app: FastifyInstance, pool: pg.Pool, pii: PiiProtection) {
+export function registerReceptionLifecycleTools(app: FastifyInstance, pool: pg.Pool, pii: PiiProtection,
+  confirmationVerifier?: ConfirmationEvidenceVerifier) {
   const route = async (request: FastifyRequest, operation: string, execute: (context: Context) => Promise<unknown>) => {
     const principal = servicePrincipal(request.principal);
     const body = base.parse(request.body);
@@ -445,7 +500,7 @@ export function registerReceptionLifecycleTools(app: FastifyInstance, pool: pg.P
   app.post('/v1/providers/elevenlabs/tools/reschedule-appointment', { config }, async (request, reply) => {
     try {
       const input = rescheduleAppointmentSchema.parse(request.body);
-      const output = await route(request, 'reschedule-appointment', (context) => reschedule(pool, pii, context, input));
+      const output = await route(request, 'reschedule-appointment', (context) => reschedule(pool, pii, context, input, confirmationVerifier));
       const result = output.result as Awaited<ReturnType<typeof reschedule>>;
       return { ok: true, code: 'APPOINTMENT_RESCHEDULED', disposition: output.disposition, replay: result.replay,
         receipt: { outcome: 'succeeded', idempotencyKey: input.idempotencyKey,
