@@ -47,6 +47,17 @@ const authentication: AuthenticationAdapter = {
 };
 const app = buildApi(pool, { authentication, piiProtection: pii });
 
+async function canonicalContext(providerConversationId: string) {
+  const token = randomUUID();
+  await inTenantTransaction(pool, ids.tenantA, async (client) => {
+    const conversation = await client.query<{ id: string }>('INSERT INTO conversations(tenant_id,workshop_id) VALUES($1,$2) RETURNING id', [ids.tenantA, ids.workshopA]);
+    const receptionCase = await client.query<{ id: string }>("INSERT INTO reception_cases(tenant_id,conversation_id,customer_id,vehicle_id,intent,status) VALUES($1,$2,$3,$4,'oil_service','ready_to_decide') RETURNING id", [ids.tenantA, conversation.rows[0].id, ids.customer, ids.vehicle]);
+    await client.query("INSERT INTO calls(tenant_id,conversation_id,provider,provider_call_id,status) VALUES($1,$2,'elevenlabs',$3,'active')", [ids.tenantA, conversation.rows[0].id, providerConversationId]);
+    await client.query("INSERT INTO action_intents(tenant_id,case_id,tool_name,status,idempotency_key,input_jsonb,requested_by_type) VALUES($1,$2,'reception_context_v2','ready',$3,$4,'voice_agent')", [ids.tenantA, receptionCase.rows[0].id, `reception-context:${token}`, JSON.stringify({ token, caseId: receptionCase.rows[0].id, conversationId: conversation.rows[0].id, providerConversationId, customerId: ids.customer, vehicleId: ids.vehicle, relationshipVerification: 'verified', callerAssurance: 'provider_supplied', expiresAt: new Date(Date.now() + 900_000).toISOString() })]);
+  });
+  return token;
+}
+
 beforeAll(async () => {
   await pool.query("INSERT INTO tenants(id,name,lifecycle_status) VALUES($1,'Schedule A','pilot'),($2,'Schedule B','pilot')", [ids.tenantA, ids.tenantB]);
   await pool.query("INSERT INTO users(id,status) VALUES($1,'active')", [ids.user]);
@@ -116,13 +127,14 @@ describe('VS02.1 real scheduling acquisition', () => {
     const slots = await findSlots(pool, contextA, { serviceRequest, window: window(), limit: 1 });
     const held = await holdSlot(pool, contextA, slots[0].token, 600);
     const providerCallId = `vs02-${randomUUID()}`;
+    const receptionContextToken = await canonicalContext(providerCallId);
     await expect(executeAppointmentTool(pool, contextA, {
-      providerCallId: `tampered-${randomUUID()}`, customerName: 'Aitor Echeverria', plate: '1489 KMR', serviceIntent: 'oil_service',
+      providerConversationId: providerCallId, requestId: randomUUID(), receptionContextToken, idempotencyKey: randomUUID(), serviceIntent: 'oil_service',
       symptoms: ['maintenance due'], estimatedDurationMinutes: 60, slotToken: `${held.token}-tampered`,
       explicitConfirmation: true, confirmationTranscript: 'Sí, confirmo explícitamente la cita.',
     }, pii)).rejects.toThrow('SLOT_NOT_AVAILABLE');
     const result = await executeAppointmentTool(pool, contextA, {
-      providerCallId, customerName: 'Aitor Echeverria', plate: '1489 KMR', serviceIntent: 'oil_service',
+      providerConversationId: providerCallId, requestId: randomUUID(), receptionContextToken, idempotencyKey: providerCallId, serviceIntent: 'oil_service',
       symptoms: ['maintenance due'], estimatedDurationMinutes: 60, slotToken: held.token,
       explicitConfirmation: true, confirmationTranscript: 'Sí, confirmo explícitamente la cita.',
     }, pii);
@@ -131,7 +143,7 @@ describe('VS02.1 real scheduling acquisition', () => {
     expect(result.receipt.evidenceRef).toBe(`postgres:appointment:${result.receipt.value.id}`);
 
     const replay = await executeAppointmentTool(pool, contextA, {
-      providerCallId, customerName: 'Aitor Echeverria', plate: '1489 KMR', serviceIntent: 'oil_service',
+      providerConversationId: providerCallId, requestId: randomUUID(), receptionContextToken, idempotencyKey: providerCallId, serviceIntent: 'oil_service',
       symptoms: ['maintenance due'], estimatedDurationMinutes: 60, slotToken: held.token,
       explicitConfirmation: true, confirmationTranscript: 'Sí, confirmo explícitamente la cita.',
     }, pii);

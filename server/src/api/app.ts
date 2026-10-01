@@ -270,17 +270,22 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
   }, async (request, reply) => {
     const principal = servicePrincipal(request.principal);
     if (principal.serviceType !== 'voice_provider') return reply.code(403).send({ error: 'PRINCIPAL_NOT_ALLOWED' });
-    const unparsed = request.body as { providerCallId?: unknown };
-    if (typeof unparsed?.providerCallId !== 'string') return reply.code(400).send({ error: 'INVALID_PROVIDER_CALL_ID' });
+    const unparsed = request.body as { providerConversationId?: unknown };
+    if (typeof unparsed?.providerConversationId !== 'string') return reply.code(400).send({ error: 'INVALID_PROVIDER_CONVERSATION_ID' });
     const parsed = appointmentToolInput.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: 'INVALID_PROVIDER_PAYLOAD' });
     const input = parsed.data;
-    const correlationId = `elevenlabs:${input.providerCallId}`;
+    const correlationId = `elevenlabs:${input.providerConversationId}:create-appointment`;
     const authorized = await inAuthorizedProviderTransaction(pool, {
       principal, provider: 'elevenlabs', correlationId,
     }, async (client, tenantContext) => {
+      const disposition = await claimInboxEvent(client, {
+        context: tenantContext, principal, provider: 'elevenlabs',
+        externalEventId: `tool:create-appointment:${input.providerConversationId}:${input.requestId}`,
+        rawBody: canonicalJson(request.body),
+      });
       const control = await readTenantControl(client, tenantContext.tenantId);
-      return { context: tenantContext, decision: operationDecision(control, 'domain_mutation') };
+      return { context: tenantContext, disposition, decision: operationDecision(control, 'domain_mutation') };
     });
     if (!authorized.decision.allowed) return reply.code(423).send({
       ok: false, code: authorized.decision.code, fallbackRequired: true,
@@ -289,14 +294,7 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
     try {
       const result = await executeAppointmentTool(pool, authorized.context, input, pii);
       if (!result.ok) return result;
-      const disposition = await inAuthorizedProviderTransaction(pool, {
-        principal, provider: 'elevenlabs', correlationId,
-      }, (client, tenantContext) => claimInboxEvent(client, {
-        context: tenantContext, principal, provider: 'elevenlabs',
-        externalEventId: `tool:create-appointment:${input.providerCallId}`,
-        rawBody: canonicalJson(request.body),
-      }));
-      return { ...result, disposition };
+      return { ...result, disposition: authorized.disposition };
     }
     catch (error) {
       if (error instanceof ProviderAuthorizationError) throw error;

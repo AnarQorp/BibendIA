@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { appointmentToolInput } from '../../src/modules/agent-core/appointment-tool.js';
 
 const valid = {
-  providerCallId: 'conv_test', customerName: 'Aketza', plate: '1234 ABC',
+  providerConversationId: 'conv_test', requestId: 'request-test',
+  receptionContextToken: '11111111-1111-4111-8111-111111111111', idempotencyKey: 'create-test',
   serviceIntent: 'inspection', symptoms: ['revisión'], estimatedDurationMinutes: 60,
   slotToken: 'slot-test', explicitConfirmation: true, confirmationTranscript: 'Sí',
 };

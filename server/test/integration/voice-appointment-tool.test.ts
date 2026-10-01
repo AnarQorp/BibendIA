@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { executeAppointmentTool, resolveVerifiedIdentityForProtectedAccess } from '../../src/modules/agent-core/appointment-tool.js';
+import { executeAppointmentTool } from '../../src/modules/agent-core/appointment-tool.js';
 import { createPool, inTenantTransaction } from '../../src/persistence/pool.js';
 import type { TenantContext } from '../../src/domain/ids.js';
 import { insertProtectedCustomer, insertProtectedVehicle } from '../../src/security/protected-records.js';
@@ -8,138 +8,51 @@ import { testPiiProtection } from '../support/test-pii.js';
 
 const pool = createPool();
 const pii = testPiiProtection();
-const ids = {
-  tenant: randomUUID(), workshop: randomUUID(), customer: randomUUID(), vehicle: randomUUID(),
-  ambiguousVehicle: randomUUID(), ambiguousCustomerA: randomUUID(), ambiguousCustomerB: randomUUID(),
-};
+const ids = { tenant: randomUUID(), workshop: randomUUID(), customer: randomUUID(), vehicle: randomUUID() };
 const accountId = `agent-${randomUUID()}`;
-const slotToken = `slot-${randomUUID()}`;
-const baseInput = {
-  customerName: 'Aitor Echeverría', plate: '1489 KMR',
-  serviceIntent: 'oil_service' as const, symptoms: ['cambio de aceite'], estimatedDurationMinutes: 60, slotToken,
-  explicitConfirmation: true as const, confirmationTranscript: 'Sí',
-};
-const context: TenantContext = {
-  tenantId: ids.tenant as TenantContext['tenantId'], workshopId: ids.workshop as TenantContext['workshopId'],
-  correlationId: 'voice-test', actor: { type: 'voice_agent', id: accountId },
-};
+const context: TenantContext = { tenantId: ids.tenant as TenantContext['tenantId'], workshopId: ids.workshop as TenantContext['workshopId'], correlationId: 'voice-v2', actor: { type: 'voice_agent', id: accountId } };
 
-let holdOffset = 3;
-async function createHold(): Promise<string> {
-  const token = `slot-${randomUUID()}`;
-  const offset = holdOffset++;
-  await inTenantTransaction(pool, ids.tenant, (client) => client.query(
-    `INSERT INTO slot_holds (tenant_id,workshop_id,slot_token,start_at,end_at,capacity_requirements,expires_at)
-     VALUES ($1,$2,$3,now()+($4::int * interval '1 day'),now()+($4::int * interval '1 day')+interval '1 hour',
-       '[{"resourceType":"mechanic","quantity":1}]',now()+interval '1 day')`,
-    [ids.tenant, ids.workshop, token, offset],
-  ));
-  return token;
+async function prepare() {
+  const providerConversationId = `call-${randomUUID()}`;
+  const token = randomUUID();
+  const slotToken = `slot-${randomUUID()}`;
+  await inTenantTransaction(pool, ids.tenant, async (client) => {
+    const conversation = await client.query<{ id: string }>('INSERT INTO conversations(tenant_id,workshop_id) VALUES($1,$2) RETURNING id', [ids.tenant, ids.workshop]);
+    const receptionCase = await client.query<{ id: string }>("INSERT INTO reception_cases(tenant_id,conversation_id,customer_id,vehicle_id,intent,status) VALUES($1,$2,$3,$4,'oil_service','ready_to_decide') RETURNING id", [ids.tenant, conversation.rows[0].id, ids.customer, ids.vehicle]);
+    await client.query("INSERT INTO calls(tenant_id,conversation_id,provider,provider_call_id,status) VALUES($1,$2,'elevenlabs',$3,'active')", [ids.tenant, conversation.rows[0].id, providerConversationId]);
+    await client.query("INSERT INTO action_intents(tenant_id,case_id,tool_name,status,idempotency_key,input_jsonb,requested_by_type) VALUES($1,$2,'reception_context_v2','ready',$3,$4,'voice_agent')", [ids.tenant, receptionCase.rows[0].id, `reception-context:${token}`, JSON.stringify({ token, caseId: receptionCase.rows[0].id, conversationId: conversation.rows[0].id, providerConversationId, customerId: ids.customer, vehicleId: ids.vehicle, relationshipVerification: 'provisional', callerAssurance: 'provider_supplied', expiresAt: new Date(Date.now() + 900_000).toISOString() })]);
+    await client.query("INSERT INTO slot_holds(tenant_id,workshop_id,slot_token,start_at,end_at,capacity_requirements,expires_at) VALUES($1,$2,$3,now()+interval '2 days',now()+interval '2 days 1 hour','[{\"resourceType\":\"mechanic\",\"quantity\":1}]',now()+interval '1 day')", [ids.tenant, ids.workshop, slotToken]);
+  });
+  return { providerConversationId, token, slotToken };
 }
 
 beforeAll(async () => {
-  await pool.query("INSERT INTO tenants (id,name,operating_mode,lifecycle_status) VALUES ($1,'Voice tool tenant','pilot_supervised','pilot')", [ids.tenant]);
+  await pool.query("INSERT INTO tenants(id,name,operating_mode,lifecycle_status) VALUES($1,'Voice V2','pilot_supervised','pilot')", [ids.tenant]);
   await inTenantTransaction(pool, ids.tenant, async (client) => {
-    await client.query("INSERT INTO workshops (id,tenant_id,name) VALUES ($1,$2,'Voice workshop')", [ids.workshop, ids.tenant]);
-    await client.query("INSERT INTO channel_endpoints (tenant_id,workshop_id,provider,external_account_id,called_endpoint) VALUES ($1,$2,'elevenlabs',$3,'web-gate')", [ids.tenant, ids.workshop, accountId]);
+    await client.query("INSERT INTO workshops(id,tenant_id,name) VALUES($1,$2,'Voice workshop')", [ids.workshop, ids.tenant]);
+    await client.query("INSERT INTO channel_endpoints(tenant_id,workshop_id,provider,external_account_id,called_endpoint) VALUES($1,$2,'elevenlabs',$3,'web-gate')", [ids.tenant, ids.workshop, accountId]);
     await insertProtectedCustomer(client, pii, { id: ids.customer, tenantId: ids.tenant, displayName: 'Aitor Etxeberria' });
     await insertProtectedVehicle(client, pii, { id: ids.vehicle, tenantId: ids.tenant, plate: '1489 KMR' });
-    await client.query('INSERT INTO customer_vehicle_roles (tenant_id,customer_id,vehicle_id) VALUES ($1,$2,$3)', [ids.tenant, ids.customer, ids.vehicle]);
-    await insertProtectedCustomer(client, pii, { id: ids.ambiguousCustomerA, tenantId: ids.tenant, displayName: 'Registro Uno' });
-    await insertProtectedCustomer(client, pii, { id: ids.ambiguousCustomerB, tenantId: ids.tenant, displayName: 'Registro Dos' });
-    await insertProtectedVehicle(client, pii, { id: ids.ambiguousVehicle, tenantId: ids.tenant, plate: '7777 AMB' });
-    await client.query(
-      `INSERT INTO customer_vehicle_roles (tenant_id,customer_id,vehicle_id) VALUES ($1,$2,$3),($1,$4,$3)`,
-      [ids.tenant, ids.ambiguousCustomerA, ids.ambiguousVehicle, ids.ambiguousCustomerB],
-    );
-    await client.query("INSERT INTO slot_holds (tenant_id,workshop_id,slot_token,start_at,end_at,capacity_requirements,expires_at) VALUES ($1,$2,$3,now()+interval '2 days',now()+interval '2 days 1 hour','[{\"resourceType\":\"mechanic\",\"quantity\":1}]',now()+interval '1 day')", [ids.tenant, ids.workshop, slotToken]);
+    await client.query("INSERT INTO customer_vehicle_roles(tenant_id,customer_id,vehicle_id,verification_status) VALUES($1,$2,$3,'provisional')", [ids.tenant, ids.customer, ids.vehicle]);
   });
 });
-
 afterAll(async () => { await pool.end(); });
 
-describe('voice appointment tool identity and replay safety', () => {
-  it('uses a strong plate match despite a name variant and replays to the same appointment', async () => {
-    const providerCallId = `call-${randomUUID()}`;
-    const first = await executeAppointmentTool(pool, context, { ...baseInput, providerCallId }, pii);
-    const replay = await executeAppointmentTool(pool, context, { ...baseInput, providerCallId }, pii);
-    expect(first.ok).toBe(true);
-    expect(replay.ok).toBe(true);
-    if (!first.ok || !replay.ok || !first.receipt || !replay.receipt) throw new Error('Expected succeeded receipts');
-    expect(replay.receipt.value?.id).toBe(first.receipt.value?.id);
-    expect(first.receipt.value?.customerId).toBe(ids.customer);
-    expect(first.receipt.value?.vehicleId).toBe(ids.vehicle);
-
-    const counts = await inTenantTransaction(pool, ids.tenant, async (client) => Promise.all([
-      client.query('SELECT count(*)::int count FROM appointments WHERE idempotency_key=$1', [`voice-appointment:elevenlabs:${providerCallId}`]),
-      client.query('SELECT count(*)::int count FROM action_intents WHERE idempotency_key=$1', [`voice-appointment:elevenlabs:${providerCallId}`]),
-    ]));
-    expect(counts.map((result) => result.rows[0].count)).toEqual([1, 1]);
-
-    const minimized = await inTenantTransaction(pool, ids.tenant, async (client) => ({
-      messages: (await client.query('SELECT content_legacy_jsonb,content_metadata_jsonb,content_ciphertext FROM messages')).rows,
-      intents: (await client.query('SELECT input_jsonb FROM action_intents WHERE idempotency_key=$1', [`voice-appointment:elevenlabs:${providerCallId}`])).rows,
-    }));
-    const serialized = JSON.stringify(minimized);
-    expect(serialized).not.toContain(baseInput.confirmationTranscript);
-    expect(serialized).not.toContain(baseInput.symptoms[0]);
-    expect(minimized.messages[0]).toMatchObject({ content_legacy_jsonb: null, content_metadata_jsonb: { kind: 'explicit_confirmation', explicitConfirmation: true } });
+describe('voice appointment tool canonical context', () => {
+  it('preserves canonical provisional identities and replays without duplication', async () => {
+    const prepared = await prepare();
+    const idempotencyKey = `create-${randomUUID()}`;
+    const input = { providerConversationId: prepared.providerConversationId, requestId: `req-${randomUUID()}`, receptionContextToken: prepared.token, idempotencyKey, serviceIntent: 'oil_service' as const, symptoms: ['maintenance due'], estimatedDurationMinutes: 60, slotToken: prepared.slotToken, explicitConfirmation: true as const, confirmationTranscript: 'Sí, confirmo' };
+    const first = await executeAppointmentTool(pool, context, input, pii);
+    const replay = await executeAppointmentTool(pool, context, { ...input, requestId: `req-${randomUUID()}` }, pii);
+    expect(first).toMatchObject({ ok: true, receipt: { value: { customerId: ids.customer, vehicleId: ids.vehicle } } });
+    expect(replay.receipt?.value?.id).toBe(first.receipt?.value?.id);
+    const state = await pool.query('SELECT a.customer_id,a.vehicle_id,r.verification_status FROM appointments a JOIN customer_vehicle_roles r ON r.tenant_id=a.tenant_id AND r.customer_id=a.customer_id AND r.vehicle_id=a.vehicle_id WHERE a.id=$1', [first.receipt?.value?.id]);
+    expect(state.rows[0]).toMatchObject({ customer_id: ids.customer, vehicle_id: ids.vehicle, verification_status: 'provisional' });
   });
 
-  it('provisions a new identity as provisional and creates the appointment atomically', async () => {
-    const providerCallId = `new-${randomUUID()}`;
-    const result = await executeAppointmentTool(pool, context, {
-      ...baseInput, providerCallId, slotToken: await createHold(), customerName: 'Marta Etxebarria', plate: '8421 LMK',
-    }, pii);
-    expect(result).toMatchObject({ ok: true, code: 'APPOINTMENT_CREATED', receipt: { value: { identityResolution: 'provisional_new' } } });
-    const persisted = await inTenantTransaction(pool, ids.tenant, async (client) => client.query(
-      `SELECT a.customer_id,a.vehicle_id,r.verification_status
-       FROM appointments a JOIN customer_vehicle_roles r
-         ON r.tenant_id=a.tenant_id AND r.customer_id=a.customer_id AND r.vehicle_id=a.vehicle_id
-       WHERE a.id=$1`,
-      [result.receipt?.value?.id],
-    ));
-    expect(persisted.rows[0]).toMatchObject({ verification_status: 'provisional' });
-    const minimized = await pool.query(
-      `SELECT a.input_jsonb,o.payload_jsonb,e.evidence_ref
-       FROM action_intents a
-       JOIN appointments p ON p.tenant_id=a.tenant_id AND p.idempotency_key=a.idempotency_key
-       JOIN outbox_events o ON o.tenant_id=p.tenant_id AND o.aggregate_id=p.id
-       JOIN audit_events e ON e.tenant_id=p.tenant_id AND e.entity_id=p.id::text
-       WHERE p.id=$1`,
-      [result.receipt?.value?.id],
-    );
-    expect(JSON.stringify(minimized.rows)).not.toContain('Marta Etxebarria');
-    expect(JSON.stringify(minimized.rows)).not.toContain('8421LMK');
-  });
-
-  it('creates an appointment for an ambiguous identity without associating existing protected records', async () => {
-    const customerCountBefore = await pool.query('SELECT count(*)::int count FROM customers WHERE tenant_id=$1', [ids.tenant]);
-    const result = await executeAppointmentTool(pool, context, {
-      ...baseInput, providerCallId: `ambiguous-${randomUUID()}`, slotToken: await createHold(),
-      customerName: 'Marta Etxebarria', plate: '7777 AMB',
-    }, pii);
-    expect(result).toMatchObject({
-      ok: true, code: 'APPOINTMENT_CREATED',
-      receipt: { value: { customerId: null, vehicleId: null, identityResolution: 'provisional_ambiguous' } },
-    });
-    const customerCountAfter = await pool.query('SELECT count(*)::int count FROM customers WHERE tenant_id=$1', [ids.tenant]);
-    expect(customerCountAfter.rows[0].count).toBe(customerCountBefore.rows[0].count);
-    const receptionCase = await pool.query(
-      'SELECT customer_id,vehicle_id FROM reception_cases WHERE id=$1', [result.caseId],
-    );
-    expect(receptionCase.rows[0]).toEqual({ customer_id: null, vehicle_id: null });
-    const appointment = await pool.query('SELECT * FROM appointments WHERE id=$1', [result.receipt?.value?.id]);
-    expect(JSON.stringify(appointment.rows[0])).not.toContain('Marta Etxebarria');
-    expect(JSON.stringify(appointment.rows[0])).not.toContain('7777AMB');
-  });
-
-  it('blocks protected-data identity access when the match is ambiguous or provisional', async () => {
-    await expect(inTenantTransaction(pool, ids.tenant, (client) => resolveVerifiedIdentityForProtectedAccess(
-      client, pii, ids.tenant, 'Marta Etxebarria', '7777 AMB',
-    ))).rejects.toThrow('IDENTITY_AMBIGUOUS');
-    await expect(inTenantTransaction(pool, ids.tenant, (client) => resolveVerifiedIdentityForProtectedAccess(
-      client, pii, ids.tenant, 'Marta Etxebarria', '8421 LMK',
-    ))).rejects.toThrow('IDENTITY_AMBIGUOUS');
+  it('rejects an invented or conversation-mismatched context token', async () => {
+    const prepared = await prepare();
+    await expect(executeAppointmentTool(pool, context, { providerConversationId: prepared.providerConversationId, requestId: randomUUID(), receptionContextToken: randomUUID(), idempotencyKey: randomUUID(), serviceIntent: 'oil_service', symptoms: ['maintenance due'], estimatedDurationMinutes: 60, slotToken: prepared.slotToken, explicitConfirmation: true, confirmationTranscript: 'Sí' }, pii)).rejects.toThrow('RECEPTION_CONTEXT_INVALID');
   });
 });

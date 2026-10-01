@@ -42,7 +42,7 @@ describe('API private route policy', () => {
       headers: { authorization: 'Bearer provider' },
     });
     expect(response.statusCode).toBe(400);
-    expect(response.json()).toEqual({ error: 'INVALID_PROVIDER_CALL_ID' });
+    expect(response.json()).toEqual({ error: 'INVALID_PROVIDER_CONVERSATION_ID' });
   });
 
   it('emits CORS permission only for an explicitly allowed origin', async () => {

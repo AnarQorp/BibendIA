@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type pg from 'pg';
 import { inTenantTransaction } from '../../persistence/pool.js';
@@ -8,6 +7,7 @@ import type { TenantContext } from '../../domain/ids.js';
 import { assertTenantMutationAtPool, assertTenantOperation } from '../tenant-control/tenant-control.js';
 import type { PiiProtection } from '../../security/pii-protection.js';
 import { normalizeSpanishPlate } from '../../security/pii-protection.js';
+import { resolveCanonicalReceptionContext } from './reception-lifecycle-tools.js';
 
 type VerifiedIdentity = {
   resolution: 'verified'; vehicleId: string; customerId: string;
@@ -18,15 +18,15 @@ type AppointmentIdentityResolution = VerifiedIdentity | {
 };
 
 export const appointmentToolInput = z.object({
-  providerCallId: z.string().min(1),
-  customerName: z.string().min(2).max(200), plate: z.string().min(4).max(20), serviceIntent: z.enum(['inspection','oil_service','brakes_or_noise','generic_fault']),
+  providerConversationId: z.string().min(1).max(200), requestId: z.string().min(8).max(200),
+  receptionContextToken: z.string().uuid(), idempotencyKey: z.string().min(8).max(200),
+  serviceIntent: z.enum(['inspection','oil_service','brakes_or_noise','generic_fault']),
   symptoms: z.array(z.string().min(1).max(500)).min(1).max(10), notes: z.string().max(2000).optional(),
   estimatedDurationMinutes: z.number().int().min(15).max(480).optional(),
   slotToken: z.string().min(1).max(200), explicitConfirmation: z.literal(true),
   confirmationTranscript: z.string().max(1000).refine((value) => value.trim().length > 0),
 });
 export type AppointmentToolInput = z.infer<typeof appointmentToolInput>;
-const normalizeName = (value: string) => value.normalize('NFD').replace(/\p{Diacritic}/gu, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 const tenantPolicySchema = z.object({
   operating_mode: z.enum(['standard', 'pilot_supervised']),
   policy_version: z.string().min(1).max(200),
@@ -89,10 +89,12 @@ export async function resolveVerifiedIdentityForProtectedAccess(
 export async function executeAppointmentTool(pool: pg.Pool, context: TenantContext, raw: unknown, pii: PiiProtection) {
   const input = appointmentToolInput.parse(raw);
   const tenantId = context.tenantId;
-  const workshopId = context.workshopId;
   const provider = 'elevenlabs';
-  const correlationId = `voice:${input.providerCallId}`;
+  const correlationId = `voice:${input.providerConversationId}:create-appointment`;
   await assertTenantMutationAtPool(pool, context);
+  const canonicalIdentity = await resolveCanonicalReceptionContext(
+    pool, pii, context, input.receptionContextToken, input.providerConversationId,
+  );
   const chain = await inTenantTransaction(pool, tenantId, async (client) => {
     await assertTenantOperation(client, tenantId, 'conversation_start', 'share');
     const policySettings = await client.query<{ operating_mode: string; policy_version: string }>(
@@ -100,33 +102,14 @@ export async function executeAppointmentTool(pool: pg.Pool, context: TenantConte
     );
     if (policySettings.rowCount !== 1) throw new Error('TENANT_POLICY_UNAVAILABLE');
     const effectivePolicy = tenantPolicySchema.parse(policySettings.rows[0]);
-    let call = await client.query<{id:string;conversation_id:string}>('SELECT id,conversation_id FROM calls WHERE tenant_id=$1 AND provider=$2 AND provider_call_id=$3',[tenantId,provider,input.providerCallId]);
-    if (!call.rowCount) {
-      const conversationId=randomUUID(); const callId=randomUUID();
-      await client.query('INSERT INTO conversations(id,tenant_id,workshop_id) VALUES($1,$2,$3)',[conversationId,tenantId,workshopId]);
-      await client.query("INSERT INTO calls(id,tenant_id,conversation_id,provider,provider_call_id,status) VALUES($1,$2,$3,$4,$5,'active')",[callId,tenantId,conversationId,provider,input.providerCallId]);
-      call={rows:[{id:callId,conversation_id:conversationId}],rowCount:1,command:'',oid:0,fields:[]};
-    }
+    const call = await client.query<{id:string;conversation_id:string}>('SELECT id,conversation_id FROM calls WHERE tenant_id=$1 AND provider=$2 AND provider_call_id=$3',[tenantId,provider,input.providerConversationId]);
+    if (!call.rowCount || call.rows[0].conversation_id !== canonicalIdentity.conversationId) throw new Error('RECEPTION_CONTEXT_CONVERSATION_MISMATCH');
     const callRow=call.rows[0];
     let caseRow=await client.query<{id:string;risk_level:string}>('SELECT id,risk_level FROM reception_cases WHERE tenant_id=$1 AND conversation_id=$2',[tenantId,callRow.conversation_id]);
     if(!caseRow.rowCount){ caseRow=await client.query("INSERT INTO reception_cases(tenant_id,conversation_id,intent,status) VALUES($1,$2,$3,'ready_to_decide') RETURNING id,risk_level",[tenantId,callRow.conversation_id,input.serviceIntent]); }
-    const identity = await classifyAppointmentIdentity(client, pii, tenantId, input.customerName, input.plate);
-    if (identity.resolution === 'verified') {
-      const storedName = pii.reveal(tenantId, 'customer.display_name', {
-        ciphertext: identity.displayNameCiphertext, nonce: identity.displayNameNonce,
-        authTag: identity.displayNameAuthTag, keyId: identity.displayNameKeyId,
-      });
-      await client.query(
-        "UPDATE reception_cases SET customer_id=$1,vehicle_id=$2,status='executing' WHERE id=$3",
-        [identity.customerId, identity.vehicleId, caseRow.rows[0].id],
-      );
-      if(normalizeName(storedName)!==normalizeName(input.customerName)) await client.query("INSERT INTO audit_events(tenant_id,actor_type,actor_id,event_type,entity_type,entity_id,correlation_id,evidence_ref) VALUES($1,'voice_agent',$2,'identity_name_variant_observed','customer',$3,$4,$5)",[tenantId,context.actor.id,identity.customerId,correlationId,`vehicle:${identity.vehicleId}`]);
-    } else {
-      await client.query(
-        "UPDATE reception_cases SET customer_id=NULL,vehicle_id=NULL,status='executing' WHERE id=$1",
-        [caseRow.rows[0].id],
-      );
-    }
+    if (caseRow.rows[0].id !== canonicalIdentity.caseId) throw new Error('RECEPTION_CONTEXT_CASE_MISMATCH');
+    await client.query("UPDATE reception_cases SET customer_id=$1,vehicle_id=$2,status='executing' WHERE id=$3",
+      [canonicalIdentity.customerId, canonicalIdentity.vehicleId, caseRow.rows[0].id]);
     const protectedMessage = pii.protect(tenantId, 'message.content', JSON.stringify({ text: input.confirmationTranscript }));
     await client.query(`INSERT INTO messages
       (tenant_id,conversation_id,direction,role,content_legacy_jsonb,content_metadata_jsonb,
@@ -137,12 +120,13 @@ export async function executeAppointmentTool(pool: pg.Pool, context: TenantConte
     await client.query(
       `INSERT INTO audit_events(tenant_id,actor_type,actor_id,event_type,entity_type,entity_id,correlation_id,evidence_ref)
        VALUES($1,'voice_agent',$2,'identity_resolution_classified','reception_case',$3,$4,$5)`,
-      [tenantId, context.actor.id, caseRow.rows[0].id, correlationId, `identity:${identity.resolution}`],
+      [tenantId, context.actor.id, caseRow.rows[0].id, correlationId,
+        `identity:canonical:${canonicalIdentity.relationshipVerification}`],
     );
     const policy=evaluatePolicy(
       { operatingMode: effectivePolicy.operating_mode, policyVersion: effectivePolicy.policy_version },
       { requestedLevel:'customer_confirmed',customerConfirmationRecorded:input.explicitConfirmation,
-        requiredFactsVerified:true,requiresVerifiedIdentity:false,identityVerified:identity.resolution==='verified',
+        requiredFactsVerified:true,requiresVerifiedIdentity:false,identityVerified:true,
         risk:caseRiskSchema.parse(caseRow.rows[0].risk_level) },
     );
     await client.query(
@@ -150,13 +134,11 @@ export async function executeAppointmentTool(pool: pg.Pool, context: TenantConte
        VALUES($1,'voice_agent',$2,'policy_evaluated','reception_case',$3,$4,$5)`,
       [tenantId,context.actor.id,caseRow.rows[0].id,correlationId,`policy:${policy.policyVersion}:${policy.effect}`],
     );
-    return { callId:callRow.id,conversationId:callRow.conversation_id,caseId:caseRow.rows[0].id,identity,policy };
+    return { callId:callRow.id,conversationId:callRow.conversation_id,caseId:caseRow.rows[0].id,policy };
   });
   if(chain.policy.effect!=='allow') return {ok:false,code:'POLICY_BLOCKED',safeMessage:'Necesito revisión humana antes de crear la cita.'};
   const actionContext:TenantContext={...context,correlationId};
-  const identity = chain.identity.resolution === 'verified'
-    ? { resolution: 'verified' as const, customerId: chain.identity.customerId, vehicleId: chain.identity.vehicleId }
-    : { resolution: chain.identity.resolution, customerName: chain.identity.customerName, plate: chain.identity.plate };
-  const receipt=await createAppointmentTransactional(pool,actionContext,{slotToken:input.slotToken,caseId:chain.caseId,identity,serviceRequest:{intent:input.serviceIntent,symptoms:input.symptoms,notes:input.notes,estimatedDurationMinutes:input.estimatedDurationMinutes,capacityRequirements:[{resourceType:'mechanic',quantity:1}]},confirmationEvidenceRef:`voice:${chain.callId}:explicit-confirmation`,idempotencyKey:`voice-appointment:${provider}:${input.providerCallId}`},pii);
+  const identity = { resolution: 'verified' as const, customerId: canonicalIdentity.customerId, vehicleId: canonicalIdentity.vehicleId };
+  const receipt=await createAppointmentTransactional(pool,actionContext,{slotToken:input.slotToken,caseId:chain.caseId,identity,serviceRequest:{intent:input.serviceIntent,symptoms:input.symptoms,notes:input.notes,estimatedDurationMinutes:input.estimatedDurationMinutes,capacityRequirements:[{resourceType:'mechanic',quantity:1}]},confirmationEvidenceRef:`voice:${chain.callId}:explicit-confirmation`,idempotencyKey:input.idempotencyKey},pii);
   return {ok:receipt.outcome==='succeeded'&&Boolean(receipt.evidenceRef),code:'APPOINTMENT_CREATED',safeMessage:'La cita ha quedado confirmada.',receipt,callId:chain.callId,conversationId:chain.conversationId,caseId:chain.caseId};
 }

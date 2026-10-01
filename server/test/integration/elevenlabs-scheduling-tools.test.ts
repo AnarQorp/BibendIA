@@ -11,6 +11,7 @@ const ids = { tenant: randomUUID(), workshop: randomUUID(), endpoint: randomUUID
 const agent = `agent-${randomUUID()}`;
 const secret = `secret-${randomUUID()}`;
 const auth = { authorization: `Bearer ${secret}` };
+const phone = '+34600123456';
 const app = buildApi(pool, { piiProtection: pii, providerIngress: {
   publicApiBaseUrl: 'https://api.bibendia.test',
   elevenLabsTool: { servicePrincipalId: ids.principal, externalAccountId: agent, secret },
@@ -29,7 +30,7 @@ beforeAll(async () => {
   await inTenantTransaction(pool, ids.tenant, async (client) => {
     await client.query("INSERT INTO workshops(id,tenant_id,name,timezone,opening_hours,service_duration_policy) VALUES($1,$2,'VS02.2 workshop','Europe/Madrid',$3,$4)", [ids.workshop, ids.tenant, JSON.stringify(openingHours), JSON.stringify(durationPolicy)]);
     await client.query("INSERT INTO channel_endpoints(id,tenant_id,workshop_id,provider,external_account_id,called_endpoint) VALUES($1,$2,$3,'elevenlabs',$4,'agent-binding')", [ids.endpoint, ids.tenant, ids.workshop, agent]);
-    await insertProtectedCustomer(client, pii, { id: ids.customer, tenantId: ids.tenant, displayName: 'Aitor Etxeberria' });
+    await insertProtectedCustomer(client, pii, { id: ids.customer, tenantId: ids.tenant, displayName: 'Aitor Etxeberria', phone });
     await insertProtectedVehicle(client, pii, { id: ids.vehicle, tenantId: ids.tenant, plate: '1489 KMR' });
     await client.query('INSERT INTO customer_vehicle_roles(tenant_id,customer_id,vehicle_id) VALUES($1,$2,$3)', [ids.tenant, ids.customer, ids.vehicle]);
   });
@@ -72,14 +73,19 @@ describe('VS02.2 authenticated ElevenLabs scheduling tools', () => {
     expect(replay.json().slotToken).toBe(slotToken);
     expect((await pool.query('SELECT count(*)::int count FROM appointments WHERE tenant_id=$1', [ids.tenant])).rows[0].count).toBe(0);
 
-    const base = { providerCallId, customerName: 'Aitor Etxeberria', plate: '1489 KMR',
+    const resolved = await app.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/resolve-reception-context', headers: auth,
+      payload: { providerConversationId: providerCallId, requestId: `resolve-${randomUUID()}`, providerCallerPhone: phone, plate: '1489 KMR' } });
+    expect(resolved.statusCode).toBe(200);
+    const createRequestId = `create-${randomUUID()}`;
+    const base = { providerConversationId: providerCallId, requestId: createRequestId,
+      receptionContextToken: resolved.json().context.receptionContextToken, idempotencyKey: `create-${randomUUID()}`,
       serviceIntent: 'oil_service', symptoms: ['maintenance due'], estimatedDurationMinutes: 60, slotToken,
       confirmationTranscript: 'Sí' };
     expect((await app.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/create-appointment', headers: auth,
       payload: { ...base, explicitConfirmation: false } })).statusCode).toBe(400);
     expect((await pool.query(
       "SELECT count(*)::int count FROM inbox_events WHERE tenant_id=$1 AND external_event_id=$2",
-      [ids.tenant, `tool:create-appointment:${providerCallId}`],
+      [ids.tenant, `tool:create-appointment:${providerCallId}:${createRequestId}`],
     )).rows[0].count).toBe(0);
     const created = await app.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/create-appointment', headers: auth,
       payload: { ...base, explicitConfirmation: true } });
@@ -124,7 +130,7 @@ describe('VS02.2 authenticated ElevenLabs scheduling tools', () => {
     ));
   });
 
-  it('completes find -> hold -> create for a new provisional identity without a preseeded customer', async () => {
+  it('does not authorize creation from a verbally declared phone', async () => {
     const providerCallId = `new-customer-${randomUUID()}`;
     const found = await app.inject({
       method: 'POST', url: '/v1/providers/elevenlabs/tools/find-slots', headers: auth,
@@ -136,28 +142,19 @@ describe('VS02.2 authenticated ElevenLabs scheduling tools', () => {
       payload: { providerCallId, requestId: `hold-${randomUUID()}`, candidateId: found.json().options[0].candidateId },
     });
     expect(held.statusCode).toBe(200);
+    const resolved = await app.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/resolve-reception-context', headers: auth,
+      payload: { providerConversationId: providerCallId, requestId: randomUUID(), declaredPhone: phone, plate: '1489 KMR' } });
+    expect(resolved.json().context.receptionContextToken).toBeNull();
     const payload = {
-      providerCallId, customerName: 'Marta Etxebarria', plate: '8421 LMK', serviceIntent: 'inspection',
+      providerConversationId: providerCallId, requestId: randomUUID(), receptionContextToken: randomUUID(), idempotencyKey: randomUUID(), serviceIntent: 'inspection',
       symptoms: ['revisión inicial'], estimatedDurationMinutes: 60, slotToken: held.json().slotToken,
       explicitConfirmation: true, confirmationTranscript: 'Sí, confirmo la cita.',
     };
     const created = await app.inject({
       method: 'POST', url: '/v1/providers/elevenlabs/tools/create-appointment', headers: auth, payload,
     });
-    expect(created.statusCode).toBe(200);
-    expect(created.json()).toMatchObject({
-      ok: true, code: 'APPOINTMENT_CREATED', receipt: { value: { identityResolution: 'provisional_new' } },
-    });
-    const replay = await app.inject({
-      method: 'POST', url: '/v1/providers/elevenlabs/tools/create-appointment', headers: auth, payload,
-    });
-    expect(replay.statusCode).toBe(200);
-    expect(replay.json().receipt.value.id).toBe(created.json().receipt.value.id);
-    const count = await pool.query(
-      'SELECT count(*)::int count FROM appointments WHERE tenant_id=$1 AND idempotency_key=$2',
-      [ids.tenant, `voice-appointment:elevenlabs:${providerCallId}`],
-    );
-    expect(count.rows[0].count).toBe(1);
+    expect(created.statusCode).toBe(400);
+    expect(created.json()).toMatchObject({ ok: false, code: 'VALIDATION' });
   });
 
   it('fails closed for manipulated candidates and lifecycle controls', async () => {
@@ -220,7 +217,7 @@ describe('VS02.2 authenticated ElevenLabs scheduling tools', () => {
     await inTenantTransaction(pool, b.tenant, async (client) => {
       await client.query("INSERT INTO workshops(id,tenant_id,name,timezone,opening_hours,service_duration_policy) VALUES($1,$2,'B','UTC',$3,$4)", [b.workshop, b.tenant, JSON.stringify(openingHours), JSON.stringify({ version: 'tenant-b-v1', rules: { inspection: 90 }, fallbackMinutes: null })]);
       await client.query("INSERT INTO channel_endpoints(id,tenant_id,workshop_id,provider,external_account_id,called_endpoint) VALUES($1,$2,$3,'elevenlabs',$4,'b-binding')", [b.endpoint, b.tenant, b.workshop, agentB]);
-      await insertProtectedCustomer(client, pii, { id: b.customer, tenantId: b.tenant, displayName: 'Bea Bilbao' });
+      await insertProtectedCustomer(client, pii, { id: b.customer, tenantId: b.tenant, displayName: 'Bea Bilbao', phone: '+34600999888' });
       await insertProtectedVehicle(client, pii, { id: b.vehicle, tenantId: b.tenant, plate: '1234 BBB' });
       await client.query('INSERT INTO customer_vehicle_roles(tenant_id,customer_id,vehicle_id) VALUES($1,$2,$3)', [b.tenant, b.customer, b.vehicle]);
     });
@@ -242,8 +239,12 @@ describe('VS02.2 authenticated ElevenLabs scheduling tools', () => {
       const heldB = await appB.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/hold-slot',
         headers: { authorization: `Bearer ${secretB}` }, payload: { providerCallId, requestId: `hold-${randomUUID()}`, candidateId } });
       expect(heldB.statusCode).toBe(200);
+      const resolvedB = await appB.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/resolve-reception-context',
+        headers: { authorization: `Bearer ${secretB}` }, payload: { providerConversationId: providerCallId,
+          requestId: randomUUID(), providerCallerPhone: '+34600999888', plate: '1234 BBB' } });
       const createdB = await appB.inject({ method: 'POST', url: '/v1/providers/elevenlabs/tools/create-appointment',
-        headers: { authorization: `Bearer ${secretB}` }, payload: { providerCallId, customerName: 'Bea Bilbao', plate: '1234 BBB',
+        headers: { authorization: `Bearer ${secretB}` }, payload: { providerConversationId: providerCallId, requestId: randomUUID(),
+          receptionContextToken: resolvedB.json().context.receptionContextToken, idempotencyKey: randomUUID(),
           serviceIntent: 'inspection', symptoms: ['revision'], estimatedDurationMinutes: 60, slotToken: heldB.json().slotToken,
           explicitConfirmation: true, confirmationTranscript: 'Confirmo la cita.' } });
       expect(createdB.statusCode).toBe(200);
