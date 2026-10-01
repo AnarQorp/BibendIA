@@ -40,9 +40,7 @@ export class ProviderAuthenticationAdapter implements AuthenticationAdapter {
     if (request.path === '/v1/providers/elevenlabs/conversations/events') {
       return this.authenticateElevenLabsWebhook(request);
     }
-    if (request.path === '/v1/providers/elevenlabs/tools/create-appointment'
-      || request.path === '/v1/providers/elevenlabs/tools/find-slots'
-      || request.path === '/v1/providers/elevenlabs/tools/hold-slot') {
+    if (request.path.startsWith('/v1/providers/elevenlabs/tools/')) {
       return this.authenticateElevenLabsTool(request);
     }
     return null;

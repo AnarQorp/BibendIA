@@ -30,6 +30,7 @@ import { resolveServiceDuration, ServiceDurationPolicyError, serviceIntentSchema
 import { registerRepairKnowledgeRoutes } from './repair-knowledge-routes.js';
 import { registerVehicleCatalogRoutes } from './vehicle-catalog-routes.js';
 import { registerWorkshopOperationsRoutes } from './workshop-operations-routes.js';
+import { registerReceptionLifecycleTools } from '../modules/agent-core/reception-lifecycle-tools.js';
 
 export type ApiSecurityOptions = {
   authentication?: AuthenticationAdapter;
@@ -64,6 +65,7 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
     : baseAuthentication;
   registerAuthenticationBoundary(app, authentication);
   registerVehicleCatalogRoutes(app, pool);
+  registerReceptionLifecycleTools(app, pool, pii);
   if (options.humanAuthentication) registerHumanAuthRoutes(app, pool, options.humanAuthentication);
   app.setErrorHandler((error, request, reply) => {
     if ((error as { statusCode?: number }).statusCode === 413) {
@@ -340,8 +342,9 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
         serviceIntent: input.serviceIntent,
         legacyDurationMinutes: input.durationMinutes,
       });
+      const safeWindow = providerSlotWindow(input, duration.estimatedDurationMinutes);
       const slots = await findSlots(pool, authorized.context, {
-        window: { from: input.windowFrom, to: input.windowTo }, limit: input.limit,
+        window: safeWindow, limit: input.limit,
         serviceIntent: input.serviceIntent,
         durationPolicySource: duration.source,
         serviceRequest: {
@@ -349,7 +352,8 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
           capacityRequirements: [{ resourceType: 'mechanic', quantity: 1 }],
         },
       });
-      return { ok: true, disposition: authorized.disposition, options: slots.map((slot) => ({
+      return { ok: true, code: slots.length ? 'SLOT_OPTIONS_FOUND' : 'NO_AVAILABILITY',
+        disposition: authorized.disposition, options: slots.map((slot) => ({
         candidateId: slot.token, startAt: slot.startAt, endAt: slot.endAt,
         localStartAt: localIsoDateTime(slot.startAt, authorized.timezone),
         localEndAt: localIsoDateTime(slot.endAt, authorized.timezone),
@@ -362,8 +366,9 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
         return reply.code(422).send({ ok: false, code: error.code, correlationId });
       }
       if (error instanceof TenantControlError) throw error;
-      request.log.warn({ correlationId, code: 'SLOT_QUERY_REJECTED' }, 'provider slot query rejected');
-      return reply.code(400).send({ ok: false, code: 'SLOT_QUERY_REJECTED', correlationId });
+      const code = error instanceof Error ? error.message : 'SLOT_QUERY_REJECTED';
+      request.log.warn({ correlationId, code }, 'provider slot query rejected');
+      return reply.code(422).send({ ok: false, code, correlationId });
     }
   });
   app.post('/v1/providers/elevenlabs/tools/hold-slot', {
@@ -456,8 +461,10 @@ const providerFindSlotsSchema = z.object({
   serviceIntent: serviceIntentSchema.optional(),
   symptoms: z.array(z.string().trim().min(1).max(500)).min(1).max(10).optional(),
   durationMinutes: z.number().int().min(15).max(480).optional(),
-  windowFrom: z.string().datetime({ offset: true }),
-  windowTo: z.string().datetime({ offset: true }),
+  windowFrom: z.string().datetime({ offset: true }).optional(),
+  windowTo: z.string().datetime({ offset: true }).optional(),
+  desiredStartAt: z.string().datetime({ offset: true }).optional(),
+  searchHorizonMinutes: z.number().int().min(60).max(31 * 24 * 60).default(240),
   limit: z.number().int().min(1).max(5).default(3),
 }).strict().superRefine((value, context) => {
   if (!value.serviceIntent && value.durationMinutes === undefined) {
@@ -466,6 +473,9 @@ const providerFindSlotsSchema = z.object({
   if (value.serviceIntent && !value.symptoms) {
     context.addIssue({ code: 'custom', message: 'symptoms are required with serviceIntent' });
   }
+  if (!value.desiredStartAt && (!value.windowFrom || !value.windowTo)) {
+    context.addIssue({ code: 'custom', message: 'desiredStartAt or windowFrom/windowTo is required' });
+  }
 });
 
 const providerHoldSlotSchema = z.object({
@@ -473,6 +483,25 @@ const providerHoldSlotSchema = z.object({
   requestId: z.string().min(8).max(200),
   candidateId: z.string().uuid(),
 }).strict();
+
+function providerSlotWindow(input: z.infer<typeof providerFindSlotsSchema>, durationMinutes: number) {
+  const now = Date.now();
+  const requestedFrom = new Date(input.desiredStartAt ?? input.windowFrom!);
+  const graceMs = 5 * 60_000;
+  if (requestedFrom.getTime() < now - graceMs) throw new Error('WINDOW_IN_PAST');
+  const floor = Math.max(requestedFrom.getTime(), now + 30_000);
+  const increment = 15 * 60_000;
+  const from = new Date(Math.ceil(floor / increment) * increment);
+  const requestedTo = input.windowTo ? new Date(input.windowTo) : null;
+  if (!input.desiredStartAt && requestedTo!.getTime() - requestedFrom.getTime() < durationMinutes * 60_000) {
+    throw new Error('WINDOW_TOO_SHORT');
+  }
+  let to = input.desiredStartAt
+    ? new Date(from.getTime() + Math.max(durationMinutes, input.searchHorizonMinutes) * 60_000)
+    : requestedTo!;
+  if (to.getTime() - from.getTime() < durationMinutes * 60_000) to = new Date(from.getTime() + durationMinutes * 60_000);
+  return { from: from.toISOString(), to: to.toISOString() };
+}
 
 const controlCommandSchema = z.object({
   reason: z.string().trim().min(3).max(500), idempotencyKey: z.string().min(8).max(200), expectedVersion: z.number().int().positive(),
