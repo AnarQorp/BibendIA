@@ -59,17 +59,25 @@ describe('P0.7 Worker / Outbox reliability', () => {
   });
 
   it('leaves historical and unregistered backlog untouched while processing an eligible safe event once', async () => {
-    const historical = await enqueue(tenantA, { occurredAt: '2026-09-28T09:08:05Z', validUntil: '2026-10-28T09:08:05Z' });
+    const now = Date.now();
+    const cutoff = new Date(now - 24 * 60 * 60_000);
+    const historical = await enqueue(tenantA, {
+      occurredAt: new Date(now - 48 * 60 * 60_000).toISOString(),
+      validUntil: new Date(now + 24 * 60 * 60_000).toISOString(),
+    });
     await pool.query("UPDATE outbox_events SET event_type='public_lead.notification_requested' WHERE id=$1", [historical]);
     const unsupported = await inTenantTransaction(pool, tenantA, async (client) => (await client.query<{id:number}>(
       `INSERT INTO outbox_events(tenant_id,aggregate_type,aggregate_id,event_type,payload_jsonb,effect_valid_until,external_idempotency_key,correlation_id)
        VALUES($1,'integration',$2,'integration.create','{}',now()+interval '7 days',$3,$4) RETURNING id`,
       [tenantA, randomUUID(), `integration:${randomUUID()}`, `test:${randomUUID()}`],
     )).rows[0].id);
-    const eligible = await enqueue(tenantA, { occurredAt: '2026-10-01T00:00:01Z', validUntil: '2026-10-02T00:00:01Z' });
+    const eligible = await enqueue(tenantA, {
+      occurredAt: new Date(now - 60 * 60_000).toISOString(),
+      validUntil: new Date(now + 24 * 60 * 60_000).toISOString(),
+    });
     await pool.query("UPDATE outbox_events SET event_type='public_lead.notification_requested' WHERE id=$1", [eligible]);
     const claimed = await claimOutboxBatch(pool, tenantA, 20, 'controlled-worker', {
-      eventTypes: ['public_lead.notification_requested'], occurredNotBefore: new Date('2026-10-01T00:00:00Z'),
+      eventTypes: ['public_lead.notification_requested'], occurredNotBefore: cutoff,
     });
     expect(claimed.map((event) => event.id)).toEqual([eligible]);
     let effects = 0;
@@ -77,7 +85,7 @@ describe('P0.7 Worker / Outbox reliability', () => {
       async execute() { effects += 1; return { outcome: 'succeeded', receiptRef: 'test:controlled-receipt' }; },
     })).toBe('succeeded');
     expect(await claimOutboxBatch(pool, tenantA, 20, 'controlled-worker', {
-      eventTypes: ['public_lead.notification_requested'], occurredNotBefore: new Date('2026-10-01T00:00:00Z'),
+      eventTypes: ['public_lead.notification_requested'], occurredNotBefore: cutoff,
     })).toHaveLength(0);
     expect(effects).toBe(1);
     expect(await row(tenantA, eligible)).toMatchObject({ delivery_state: 'succeeded', attempts: 1, receipt_ref: 'test:controlled-receipt' });
