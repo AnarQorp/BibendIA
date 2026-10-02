@@ -152,6 +152,7 @@ export const BandejaView: React.FC<BandejaViewProps> = ({ tenantId: propTenantId
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [caseHistory, setCaseHistory] = useState<ReceptionCaseAuditEvent[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
 
   // Entities lookup caches for clean display
   const [customersMap, setCustomersMap] = useState<Record<string, WorkshopCustomer>>({});
@@ -248,10 +249,31 @@ export const BandejaView: React.FC<BandejaViewProps> = ({ tenantId: propTenantId
     }
   }, [cases, selectedCaseId, filteredCases]);
 
+  // Fail-closed audit history loader: distinguishes loading, empty, and error
+  const loadCaseHistory = useCallback(async (tenantId: string, caseId: string) => {
+    setHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      const res = await getReceptionCaseHistory(tenantId, caseId);
+      if (res.status === 'success' && res.data) {
+        setCaseHistory(res.data);
+      } else {
+        setCaseHistory([]);
+        setHistoryError(res.message || 'Error al obtener historial de auditoría.');
+      }
+    } catch (err: any) {
+      setCaseHistory([]);
+      setHistoryError(err?.message || 'Error de conexión al obtener historial.');
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
+
   // When selectedCaseId changes, load case detail & real audit history
   useEffect(() => {
     if (!selectedCaseId || !activeTenantId) {
       setCaseHistory([]);
+      setHistoryError(null);
       return;
     }
     let isMounted = true;
@@ -266,24 +288,10 @@ export const BandejaView: React.FC<BandejaViewProps> = ({ tenantId: propTenantId
       if (isMounted) setIsDetailLoading(false);
     });
 
-    setHistoryLoading(true);
-    getReceptionCaseHistory(activeTenantId, selectedCaseId).then(res => {
-      if (!isMounted) return;
-      if (res.status === 'success' && res.data) {
-        setCaseHistory(res.data);
-      } else {
-        setCaseHistory([]);
-      }
-      setHistoryLoading(false);
-    }).catch(() => {
-      if (isMounted) {
-        setCaseHistory([]);
-        setHistoryLoading(false);
-      }
-    });
+    loadCaseHistory(activeTenantId, selectedCaseId);
 
     return () => { isMounted = false; };
-  }, [selectedCaseId, activeTenantId]);
+  }, [selectedCaseId, activeTenantId, loadCaseHistory]);
 
   // Select case handler
   const handleSelectCase = (caseItem: ReceptionCase) => {
@@ -309,9 +317,7 @@ export const BandejaView: React.FC<BandejaViewProps> = ({ tenantId: propTenantId
         setCases(prev => prev.map(c => c.id === updated.id ? updated : c));
         setMutationFeedback({ type: 'success', text: `Estado actualizado a ${STATUS_LABELS[newStatus].label}.` });
         // Reload audit history
-        getReceptionCaseHistory(activeTenantId, selectedCaseId).then(h => {
-          if (h.status === 'success' && h.data) setCaseHistory(h.data);
-        }).catch(() => {});
+        loadCaseHistory(activeTenantId, selectedCaseId);
       } else {
         setMutationFeedback({ type: 'error', text: res.message || 'Error al actualizar estado.' });
       }
@@ -332,9 +338,7 @@ export const BandejaView: React.FC<BandejaViewProps> = ({ tenantId: propTenantId
         setCases(prev => prev.map(c => c.id === updated.id ? updated : c));
         setMutationFeedback({ type: 'success', text: `Prioridad cambiada a ${PRIORITY_BADGES[newPriority].label}.` });
         // Reload audit history
-        getReceptionCaseHistory(activeTenantId, selectedCaseId).then(h => {
-          if (h.status === 'success' && h.data) setCaseHistory(h.data);
-        }).catch(() => {});
+        loadCaseHistory(activeTenantId, selectedCaseId);
       } else {
         setMutationFeedback({ type: 'error', text: res.message || 'Error al actualizar prioridad.' });
       }
@@ -1003,15 +1007,28 @@ export const BandejaView: React.FC<BandejaViewProps> = ({ tenantId: propTenantId
                 </h4>
 
                 {historyLoading ? (
-                  <div className="p-4 text-center text-xs text-slate-400">
+                  <div className="p-4 text-center text-xs text-slate-400" data-testid="history-loading">
                     Consultando registro de auditoría...
                   </div>
+                ) : historyError ? (
+                  <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 flex items-center justify-between gap-2" data-testid="history-error">
+                    <div className="flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                      <span>{historyError}</span>
+                    </div>
+                    <button
+                      onClick={() => loadCaseHistory(activeTenantId, selectedCaseDetail.id)}
+                      className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold transition shrink-0"
+                    >
+                      Reintentar
+                    </button>
+                  </div>
                 ) : caseHistory.length === 0 ? (
-                  <div className="p-3 bg-slate-50 rounded-xl text-xs text-slate-500">
-                    Caso creado el {new Date(selectedCaseDetail.createdAt).toLocaleString('es-ES')} (versión {selectedCaseDetail.version}).
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-500" data-testid="history-empty">
+                    Sin eventos de auditoría disponibles
                   </div>
                 ) : (
-                  <div className="space-y-2">
+                  <div className="space-y-2" data-testid="history-list">
                     {caseHistory.map((ev, idx) => (
                       <div key={ev.id || idx} className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">

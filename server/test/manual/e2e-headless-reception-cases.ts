@@ -252,7 +252,7 @@ async function run() {
 
   try {
     // -------------------------------------------------------------------------
-    // STEP 1: Voice-created ReceptionCase visible on /bandeja
+    // STEP 1: Voice-origin ReceptionCase visible on /bandeja
     // -------------------------------------------------------------------------
     try {
       await page.goto('/bandeja');
@@ -263,9 +263,9 @@ async function run() {
       const hasPlate = await voiceCaseCard.locator('text=6270VQX').isVisible();
       const hasCallbackBadge = await voiceCaseCard.locator('text=Callback').isVisible();
 
-      record('Gate 1: Voice-created ReceptionCase visible tras carga', hasVoiceCase && hasPlate && hasCallbackBadge, 'Caso de voz visible con matrícula 6270VQX y badge Callback');
+      record('Gate 1: Voice-origin ReceptionCase visible tras carga', hasVoiceCase && hasPlate && hasCallbackBadge, 'Caso de voz visible con matrícula 6270VQX y badge Callback');
     } catch (err: any) {
-      record('Gate 1: Voice-created ReceptionCase visible tras carga', false, undefined, err.message);
+      record('Gate 1: Voice-origin ReceptionCase visible tras carga', false, undefined, err.message);
     }
 
     // -------------------------------------------------------------------------
@@ -326,7 +326,7 @@ async function run() {
     }
 
     // -------------------------------------------------------------------------
-    // STEP 5: Priority Mutation & Real Audit Trail
+    // STEP 5: Priority Mutation & Real Audit Trail (Fail-closed audit history)
     // -------------------------------------------------------------------------
     try {
       // Change priority to URGENT in detail panel
@@ -338,10 +338,33 @@ async function run() {
       await page.waitForSelector('text=Historial Real de Cambios', { timeout: 5000 });
       const hasCreatedEvent = await page.locator('text=Asunto creado').first().isVisible();
       const hasUpdatedEvent = await page.locator('text=Actualización de estado o prioridad').first().isVisible();
+      const hasHistoryList = await page.locator('[data-testid="history-list"]').isVisible();
 
-      record('Gate 5: Cambio de prioridad persistente e historial de auditoría real', hasCreatedEvent && hasUpdatedEvent, 'Audit events verificados (reception_case.created y reception_case.updated)');
+      // Test fail-closed on history endpoint failure
+      await page.route('**/v1/workshop/tenants/*/reception-cases/*/history', route => {
+        route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'HISTORY_FETCH_FAILED' }) });
+      });
+
+      // Trigger history reload via priority change to HIGH
+      await page.locator('[data-testid="detail-priority-select"]').selectOption('HIGH');
+      await page.waitForSelector('[data-testid="history-error"]', { timeout: 5000 });
+
+      const hasHistoryError = await page.locator('[data-testid="history-error"]').isVisible();
+      const hasFakeInference = await page.locator('text=Caso creado el').isVisible(); // Must NOT infer fake activity
+
+      // Unroute history
+      await page.unroute('**/v1/workshop/tenants/*/reception-cases/*/history');
+
+      // Click "Reintentar" in history error banner
+      await page.locator('[data-testid="history-error"] button:has-text("Reintentar")').click();
+      await page.waitForSelector('[data-testid="history-list"]', { timeout: 5000 });
+      const historyRecovered = await page.locator('[data-testid="history-list"]').isVisible();
+
+      record('Gate 5: Cambio de prioridad persistente e historial de auditoría real (fail-closed verificado)',
+        hasCreatedEvent && hasUpdatedEvent && hasHistoryList && hasHistoryError && !hasFakeInference && historyRecovered,
+        'Audit events reales comprobados; error en history muestra banner con reintento sin inferir falsas actividades');
     } catch (err: any) {
-      record('Gate 5: Cambio de prioridad persistente e historial de auditoría real', false, undefined, err.message);
+      record('Gate 5: Cambio de prioridad persistente e historial de auditoría real (fail-closed verificado)', false, undefined, err.message);
     }
 
     // -------------------------------------------------------------------------
