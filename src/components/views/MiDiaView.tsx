@@ -16,7 +16,8 @@ import {
   Sparkles,
   Lock,
   Clock,
-  RotateCcw
+  RotateCcw,
+  Inbox
 } from 'lucide-react';
 import { formatAppointmentTime } from '../../services/workshopAppointments';
 
@@ -40,6 +41,8 @@ export const MiDiaView: React.FC = () => {
     appointments: realAppointments,
     todayAppointments: realTodayAppointments,
     provisionalAppointments: realProvisionalAppointments,
+    pendingReceptionCases,
+    pendingCasesCount,
     state: appointmentState,
     refresh: refreshRealAppointments
   } = useWorkshopAppointments();
@@ -341,8 +344,68 @@ export const MiDiaView: React.FC = () => {
 
           </div>
 
-          {/* Right 1 Column: Fronteras de Producto no implementadas en Backend */}
+          {/* Right 1 Column: Pendientes de Recepción + Fronteras */}
           <div className="space-y-6">
+            {/* WIDGET: Pendientes de Recepción */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-3.5">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center font-bold">
+                    <Inbox className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-extrabold text-slate-900 tracking-tight">Pendientes de Recepción</h3>
+                    <p className="text-[11px] text-slate-500">Asuntos que requieren atención del taller</p>
+                  </div>
+                </div>
+                {pendingCasesCount > 0 && (
+                  <span className="text-xs font-black px-2 py-0.5 rounded-full bg-amber-500 text-slate-950 font-mono">
+                    {pendingCasesCount}
+                  </span>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                {pendingReceptionCases.length > 0 ? (
+                  pendingReceptionCases.slice(0, 3).map(c => (
+                    <div
+                      key={c.id}
+                      onClick={() => goTo('bandeja', `/bandeja?case=${c.id}`)}
+                      className="p-3 bg-slate-50 hover:bg-blue-50/60 border border-slate-200 rounded-xl transition cursor-pointer space-y-1"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-slate-800 truncate">
+                          {c.category === 'callback_request' ? '📞 Callback' : c.callerType === 'SUPPLIER' ? '🚚 Proveedor' : '👤 Cliente'}
+                        </span>
+                        <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded border ${
+                          c.priority === 'URGENT' ? 'bg-rose-100 text-rose-800 border-rose-200' :
+                          c.priority === 'HIGH' ? 'bg-amber-100 text-amber-800 border-amber-200' :
+                          'bg-white text-slate-600 border-slate-200'
+                        }`}>
+                          {c.priority}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-700 font-medium line-clamp-1">“{c.summary}”</p>
+                    </div>
+                  ))
+                ) : (
+                  <div className="p-4 bg-slate-50 border border-slate-200/60 rounded-xl text-center text-xs text-slate-500">
+                    Bandeja al día. No hay asuntos pendientes de atención.
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-1">
+                <button
+                  onClick={() => goTo('bandeja', '/bandeja')}
+                  className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-2xs"
+                >
+                  <span>Ir a Bandeja Inteligente</span>
+                  <ArrowRight className="w-3.5 h-3.5 text-blue-400" />
+                </button>
+              </div>
+            </div>
+
             <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
               <h3 className="text-base font-extrabold text-slate-900 border-b border-slate-100 pb-3 flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-blue-600" />

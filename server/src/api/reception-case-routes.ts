@@ -9,7 +9,7 @@ import { inTenantTransaction } from '../persistence/pool.js';
 import { assertTenantOperation } from '../modules/tenant-control/tenant-control.js';
 import { resolveCanonicalReceptionContext } from '../modules/agent-core/reception-lifecycle-tools.js';
 import { createCaseSchema,voiceCaseSchema,requestHumanContactSchema,createReceptionCase,getReceptionCase,listReceptionCases,updateReceptionCase,
-  ReceptionCaseError,statuses,priorities,categories,channels } from '../modules/reception-cases/reception-cases.js';
+  getReceptionCaseHistory,ReceptionCaseError,statuses,priorities,categories,channels } from '../modules/reception-cases/reception-cases.js';
 import type { PiiProtection } from '../security/pii-protection.js';
 
 const tenantParams=z.object({tenantId:z.string().uuid()});
@@ -26,7 +26,10 @@ function principal(request:FastifyRequest):ServicePrincipal{
   return request.principal;
 }
 function fail(reply:FastifyReply,error:unknown,correlationId:string){
-  if(error instanceof ReceptionCaseError){ const status=error.code==='CASE_NOT_FOUND'?404:409; return reply.code(status).send({ok:false,error:error.code,correlationId}); }
+  if(error instanceof ReceptionCaseError){
+    const status=error.code==='CASE_NOT_FOUND'?404:(error.code==='WORKSHOP_CONTEXT_AMBIGUOUS'?409:409);
+    return reply.code(status).send({ok:false,error:error.code,correlationId});
+  }
   throw error;
 }
 
@@ -39,8 +42,15 @@ export function registerReceptionCaseRoutes(app:FastifyInstance,pool:pg.Pool,pii
     try{const result=await inAuthorizedTenantTransaction(pool,{principal:request.principal,requestedTenantId:p.data.tenantId,
       capability:'workshop:cases:create',correlationId:request.id},async(client,context)=>{
         await assertTenantOperation(client,context.tenantId,'domain_mutation');
+        let workshopId = body.data.workshopId;
+        if (!workshopId) {
+          const wsRows = await client.query<{ id: string }>('SELECT id FROM workshops WHERE tenant_id=$1', [context.tenantId]);
+          if (wsRows.rowCount === 0) throw new ReceptionCaseError('CASE_LINK_INVALID');
+          if (wsRows.rowCount! > 1) throw new ReceptionCaseError('WORKSHOP_CONTEXT_AMBIGUOUS');
+          workshopId = wsRows.rows[0].id;
+        }
         return createReceptionCase(client,pii,context.tenantId,{type:context.principal.kind,id:(context.principal as {userId:string}).userId},request.id,
-          {...body.data,channel:'MANUAL',provenance:{...body.data.provenance,source:'workshop_manual'}});
+          {...body.data,workshopId,channel:'MANUAL',provenance:{...body.data.provenance,source:'workshop_manual'}});
       }); return reply.code(result.replay?200:201).send({data:result.case,replay:result.replay,correlationId:request.id});
     }catch(error){return fail(reply,error,request.id);}
   });
@@ -58,6 +68,14 @@ export function registerReceptionCaseRoutes(app:FastifyInstance,pool:pg.Pool,pii
     try{const data=await inAuthorizedTenantTransaction(pool,{principal:request.principal,requestedTenantId:p.data.tenantId,
       capability:'workshop:cases:read',correlationId:request.id},async(client,context)=>{await assertTenantOperation(client,context.tenantId,'workshop_read');
       return getReceptionCase(client,pii,context.tenantId,p.data.caseId);}); return {data,correlationId:request.id};
+    }catch(error){return fail(reply,error,request.id);}
+  });
+  app.get('/v1/workshop/tenants/:tenantId/reception-cases/:caseId/history',human,async(request,reply)=>{
+    const p=caseParams.safeParse(request.params); if(!p.success)return reply.code(400).send({error:'INVALID_RECEPTION_CASE_SELECTOR'});
+    if(!request.principal)return reply.code(401).send({error:'AUTHENTICATION_REQUIRED'});
+    try{const data=await inAuthorizedTenantTransaction(pool,{principal:request.principal,requestedTenantId:p.data.tenantId,
+      capability:'workshop:cases:read',correlationId:request.id},async(client,context)=>{await assertTenantOperation(client,context.tenantId,'workshop_read');
+      return getReceptionCaseHistory(client,context.tenantId,p.data.caseId);}); return {data,correlationId:request.id};
     }catch(error){return fail(reply,error,request.id);}
   });
   app.patch('/v1/workshop/tenants/:tenantId/reception-cases/:caseId',human,async(request,reply)=>{

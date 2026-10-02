@@ -207,6 +207,17 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
     });
   }, [demoModeActive, realState, demoAppointments, demoCustomers, demoVehicles]);
 
+  // Support direct deep-link navigation from Reception Cases
+  const urlAppointmentId = searchParams.get('appointment');
+  useEffect(() => {
+    if (urlAppointmentId && allAppointments.length > 0) {
+      const found = allAppointments.find(a => a.id === urlAppointmentId);
+      if (found) {
+        setSelectedAppointment(found);
+      }
+    }
+  }, [urlAppointmentId, allAppointments]);
+
   // Calendar calculations
   // Get start of week (Monday)
   const weekStart = useMemo(() => {

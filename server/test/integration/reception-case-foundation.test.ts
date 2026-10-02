@@ -87,4 +87,54 @@ describe('Reception Case Foundation',()=>{
   it('bounds listing and validates filters',async()=>{const app=buildApi(pool,{authentication,piiProtection:pii});
     const bounded=await app.inject({method:'GET',url:`/v1/workshop/tenants/${ids.tenant}/reception-cases?limit=101`,headers:{authorization:'Bearer owner'}});
     expect(bounded.statusCode).toBe(400);await app.close();});
+
+  it('resolves workshopId unambiguously when omitted and fails closed if ambiguous',async()=>{
+    const app=buildApi(pool,{authentication,piiProtection:pii});
+    // 1. Unambiguous resolution (ids.tenant has exactly 1 workshop: ids.workshop)
+    const resUnambiguous=await app.inject({
+      method:'POST',url:`/v1/workshop/tenants/${ids.tenant}/reception-cases`,headers:{authorization:'Bearer owner'},
+      payload:{callerType:'CUSTOMER',category:'other',summary:'Asunto sin workshopId explícito',idempotencyKey:`auto-ws-${randomUUID()}`}
+    });
+    expect(resUnambiguous.statusCode).toBe(201);
+    expect(resUnambiguous.json().data.workshopId).toBe(ids.workshop);
+
+    // 2. Ambiguous resolution: add a second workshop to ids.tenant
+    const secondWs=randomUUID();
+    await pool.query("INSERT INTO workshops(id,tenant_id,name) VALUES($1,$2,'Branch 2')",[secondWs,ids.tenant]);
+    try {
+      const resAmbiguous=await app.inject({
+        method:'POST',url:`/v1/workshop/tenants/${ids.tenant}/reception-cases`,headers:{authorization:'Bearer owner'},
+        payload:{callerType:'CUSTOMER',category:'other',summary:'Asunto con workshop ambiguo',idempotencyKey:`ambig-ws-${randomUUID()}`}
+      });
+      expect(resAmbiguous.statusCode).toBe(409);
+      expect(resAmbiguous.json().error).toBe('WORKSHOP_CONTEXT_AMBIGUOUS');
+    } finally {
+      await pool.query('DELETE FROM workshops WHERE id=$1',[secondWs]);
+    }
+    await app.close();
+  });
+
+  it('exposes real audit history through the history endpoint without inferring state',async()=>{
+    const app=buildApi(pool,{authentication,piiProtection:pii});
+    const created=await inTenantTransaction(pool,ids.tenant,(client)=>createReceptionCase(client,pii,ids.tenant,{type:'workshop_user',id:ids.user},'audit-history-test',{
+      workshopId:ids.workshop,channel:'MANUAL',callerType:'CUSTOMER',category:'callback_request',summary:'Revisión auditoría',
+      idempotencyKey:`history-${randomUUID()}`,provenance:{source:'workshop_manual'}}));
+
+    // Update status to generate a second audit event
+    await app.inject({method:'PATCH',url:`/v1/workshop/tenants/${ids.tenant}/reception-cases/${created.case.id}`,
+      headers:{authorization:'Bearer owner'},payload:{status:'IN_PROGRESS'}});
+
+    const histRes=await app.inject({
+      method:'GET',url:`/v1/workshop/tenants/${ids.tenant}/reception-cases/${created.case.id}/history`,
+      headers:{authorization:'Bearer owner'}
+    });
+    expect(histRes.statusCode).toBe(200);
+    const events=histRes.json().data;
+    expect(events.length).toBe(2);
+    expect(events[0]).toMatchObject({eventType:'reception_case.created',actorType:'workshop_user',actorId:ids.user});
+    expect(events[1]).toMatchObject({eventType:'reception_case.updated',actorType:'workshop_user',actorId:ids.user});
+    expect(new Date(events[0].occurredAt).getTime()).toBeLessThanOrEqual(new Date(events[1].occurredAt).getTime());
+    await app.close();
+  });
 });
+

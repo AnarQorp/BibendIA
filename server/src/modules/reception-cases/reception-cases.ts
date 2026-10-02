@@ -12,7 +12,7 @@ export const priorities = ['LOW','NORMAL','HIGH','URGENT'] as const;
 export const statuses = ['OPEN','IN_PROGRESS','WAITING_CUSTOMER','WAITING_WORKSHOP','RESOLVED','CLOSED'] as const;
 
 export const createCaseSchema = z.object({
-  workshopId: z.string().uuid(), channel: z.enum(channels), callerType: z.enum(callerTypes),
+  workshopId: z.string().uuid().optional(), channel: z.enum(channels).default('MANUAL'), callerType: z.enum(callerTypes),
   category: z.enum(categories), summary: z.string().trim().min(1).max(500), detail: z.string().trim().max(4000).optional(),
   priority: z.enum(priorities).default('NORMAL'), customerId: z.string().uuid().nullable().optional(),
   vehicleId: z.string().uuid().nullable().optional(), appointmentId: z.string().uuid().nullable().optional(),
@@ -29,10 +29,14 @@ export const voiceCaseSchema = z.object({
 export const requestHumanContactSchema = voiceCaseSchema.omit({category:true});
 
 export class ReceptionCaseError extends Error {
-  constructor(readonly code: 'CASE_NOT_FOUND'|'CASE_IDEMPOTENCY_CONFLICT'|'CASE_LINK_INVALID'|'CASE_STATUS_INVALID') { super(code); }
+  constructor(readonly code: 'CASE_NOT_FOUND'|'CASE_IDEMPOTENCY_CONFLICT'|'CASE_LINK_INVALID'|'CASE_STATUS_INVALID'|'WORKSHOP_CONTEXT_AMBIGUOUS') { super(code); }
 }
 
-type CreateCase = z.infer<typeof createCaseSchema> & { conversationId?: string | null; providerConversationId?: string | null };
+type CreateCase = Omit<z.input<typeof createCaseSchema>, 'workshopId'> & {
+  workshopId: string;
+  conversationId?: string | null;
+  providerConversationId?: string | null;
+};
 
 const canonical = (value: unknown): string => {
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
@@ -78,7 +82,7 @@ export async function createReceptionCase(client: pg.PoolClient, pii: PiiProtect
      contact_context_ciphertext,contact_context_nonce,contact_context_auth_tag,contact_context_key_id)
     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'OPEN',$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)`,
     [id,tenantId,command.workshopId,command.conversationId??null,command.customerId??null,command.vehicleId??null,
-      command.appointmentId??null,command.estimateId??null,command.channel,command.callerType,command.category,command.priority,
+      command.appointmentId??null,command.estimateId??null,command.channel??'MANUAL',command.callerType,command.category,command.priority??'NORMAL',
       command.providerConversationId??null,JSON.stringify(provenance),command.idempotencyKey,
       ...protectedColumns(summary),...protectedColumns(detail),...protectedColumns(contact)]);
   await client.query(`INSERT INTO audit_events(tenant_id,actor_type,actor_id,event_type,entity_type,entity_id,correlation_id,evidence_ref)
@@ -139,3 +143,33 @@ export async function updateReceptionCase(client:pg.PoolClient,pii:PiiProtection
     VALUES($1,$2,$3,$4,'reception_case',$5,$6,$7)`,[tenantId,actor.type,actor.id,terminal?'reception_case.completed':'reception_case.updated',id,correlationId,`postgres:reception_case:${id}`]);
   return getReceptionCase(client,pii,tenantId,id);
 }
+
+export async function getReceptionCaseHistory(client: pg.PoolClient, tenantId: string, id: string) {
+  const caseExists = await client.query('SELECT 1 FROM reception_cases WHERE tenant_id=$1 AND id=$2', [tenantId, id]);
+  if (caseExists.rowCount !== 1) throw new ReceptionCaseError('CASE_NOT_FOUND');
+  const result = await client.query<{
+    id: string;
+    event_type: string;
+    actor_type: string;
+    actor_id: string;
+    correlation_id: string;
+    evidence_ref: string;
+    occurred_at: Date;
+  }>(
+    `SELECT id, event_type, actor_type, actor_id, correlation_id, evidence_ref, occurred_at
+     FROM audit_events
+     WHERE tenant_id=$1 AND entity_type='reception_case' AND entity_id=$2
+     ORDER BY id ASC`,
+    [tenantId, id]
+  );
+  return result.rows.map(r => ({
+    id: r.id,
+    eventType: r.event_type,
+    actorType: r.actor_type,
+    actorId: r.actor_id,
+    correlationId: r.correlation_id,
+    evidenceRef: r.evidence_ref,
+    occurredAt: r.occurred_at.toISOString(),
+  }));
+}
+

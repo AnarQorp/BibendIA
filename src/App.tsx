@@ -80,7 +80,7 @@ const MainContent: React.FC<{ tenantId: string }> = ({ tenantId }) => {
       return <AgendaView tenantId={tenantId} />;
     }
     if (currentPath === '/bandeja' || activeSection === 'bandeja') {
-      return <BandejaView />;
+      return <BandejaView tenantId={tenantId} />;
     }
     if (currentPath === '/presupuestos' || activeSection === 'presupuestos') {
       return <PresupuestosView />;

@@ -7,6 +7,7 @@ import {
   isProvisionalIdentity,
   type WorkshopAppointmentsState,
 } from '../services/workshopAppointments';
+import { listReceptionCases, type ReceptionCase } from '../services/receptionCases';
 import { useDemo } from './DemoContext';
 
 export interface WorkshopAppointmentsContextType {
@@ -15,6 +16,9 @@ export interface WorkshopAppointmentsContextType {
   appointments: WorkshopAppointmentResponse[];
   todayAppointments: WorkshopAppointmentResponse[];
   provisionalAppointments: WorkshopAppointmentResponse[];
+  receptionCases: ReceptionCase[];
+  pendingReceptionCases: ReceptionCase[];
+  pendingCasesCount: number;
   refresh: () => Promise<void>;
 }
 
@@ -43,18 +47,29 @@ export const WorkshopAppointmentsProvider: React.FC<{ tenantId?: string | null; 
     return () => window.removeEventListener('popstate', handleLocationChange);
   }, [propTenantId]);
 
+  const [receptionCases, setReceptionCases] = useState<ReceptionCase[]>([]);
+
   const load = useCallback(async () => {
     const currentTenant = propTenantId ?? getWorkshopTenantId();
     setTenantId(currentTenant);
 
     if (!currentTenant) {
       setState({ status: 'awaiting_tenant' });
+      setReceptionCases([]);
       return;
     }
 
     setState({ status: 'loading' });
-    const res = await fetchWorkshopAppointments({ tenantId: currentTenant });
-    setState(res);
+    const [appRes, casesRes] = await Promise.all([
+      fetchWorkshopAppointments({ tenantId: currentTenant }),
+      listReceptionCases(currentTenant, { limit: 100 }),
+    ]);
+    setState(appRes);
+    if (casesRes.status === 'success' && casesRes.data) {
+      setReceptionCases(casesRes.data);
+    } else {
+      setReceptionCases([]);
+    }
   }, [propTenantId]);
 
   useEffect(() => {
@@ -66,6 +81,10 @@ export const WorkshopAppointmentsProvider: React.FC<{ tenantId?: string | null; 
   const appointments = state.status === 'success' ? state.data : [];
   const todayAppointments = appointments.filter(a => isAppointmentToday(a.start_at));
   const provisionalAppointments = appointments.filter(isProvisionalIdentity);
+  const pendingReceptionCases = receptionCases.filter(c =>
+    ['OPEN', 'IN_PROGRESS', 'WAITING_WORKSHOP', 'WAITING_CUSTOMER'].includes(c.status)
+  );
+  const pendingCasesCount = pendingReceptionCases.length;
 
   return (
     <WorkshopAppointmentsContext.Provider
@@ -75,6 +94,9 @@ export const WorkshopAppointmentsProvider: React.FC<{ tenantId?: string | null; 
         appointments,
         todayAppointments,
         provisionalAppointments,
+        receptionCases,
+        pendingReceptionCases,
+        pendingCasesCount,
         refresh: load,
       }}
     >

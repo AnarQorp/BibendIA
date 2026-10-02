@@ -1,6 +1,7 @@
 import React from 'react';
 import { useDemo } from '../../context/DemoContext';
 import { useRouter } from '../../router/RouterContext';
+import { useWorkshopAppointments } from '../../context/WorkshopAppointmentsContext';
 import { NavSection } from '../../types';
 import {
   Home,
@@ -32,15 +33,17 @@ export const Sidebar: React.FC = () => {
     setMobileSidebarOpen
   } = useDemo();
 
+  const { pendingCasesCount } = useWorkshopAppointments();
   const { currentPath, navigate } = useRouter();
 
   const unreadMessagesCount = conversations.filter(c => c.unread).length;
+  const bandejaBadge = demoModeActive ? unreadMessagesCount : pendingCasesCount;
   const pendingQuotesCount = quotes.filter(q => q.status === 'pending_approval').length;
   const pendingFollowupsCount = followups.filter(f => f.status === 'pending').length;
 
   const mainNavItems: { id: NavSection; path: string; label: string; icon: React.ReactNode; badge?: number }[] = [
     { id: 'midia', path: '/midia', label: 'Mi Día', icon: <Home className="w-4 h-4" /> },
-    { id: 'bandeja', path: '/bandeja', label: 'Bandeja', icon: <Inbox className="w-4 h-4" />, badge: unreadMessagesCount },
+    { id: 'bandeja', path: '/bandeja', label: 'Bandeja', icon: <Inbox className="w-4 h-4" />, badge: bandejaBadge },
     { id: 'agenda', path: '/agenda', label: 'Agenda', icon: <Calendar className="w-4 h-4" /> },
     { id: 'directorio', path: '/directorio', label: 'Clientes y vehículos', icon: <Users className="w-4 h-4" /> },
     { id: 'presupuestos', path: '/presupuestos', label: 'Presupuestos', icon: <FileText className="w-4 h-4" />, badge: pendingQuotesCount },
