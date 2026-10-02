@@ -11,6 +11,8 @@ export type Capability =
   | 'workshop:vehicles:create'
   | 'workshop:vehicles:update'
   | 'workshop:cases:read'
+  | 'workshop:cases:create'
+  | 'workshop:cases:update'
   | 'workshop:repair-knowledge:read'
   | 'workshop:estimate-drafts:read'
   | 'workshop:estimate-drafts:create'
@@ -35,7 +37,7 @@ const workshopCapabilities: Record<WorkshopRole, readonly Capability[]> = {
     'workshop:appointments:read', 'workshop:appointments:create',
     'workshop:customers:read', 'workshop:customers:create', 'workshop:customers:update',
     'workshop:vehicles:read', 'workshop:vehicles:create', 'workshop:vehicles:update',
-    'workshop:cases:read', 'workshop:repair-knowledge:read',
+    'workshop:cases:read', 'workshop:cases:create', 'workshop:cases:update', 'workshop:repair-knowledge:read',
     'workshop:estimate-drafts:read', 'workshop:estimate-drafts:create', 'workshop:estimate-drafts:update',
     'workshop:configuration:read', 'workshop:configuration:update', 'workshop:memberships:manage'
   ],
@@ -43,7 +45,7 @@ const workshopCapabilities: Record<WorkshopRole, readonly Capability[]> = {
     'workshop:appointments:read', 'workshop:appointments:create',
     'workshop:customers:read', 'workshop:customers:create', 'workshop:customers:update',
     'workshop:vehicles:read', 'workshop:vehicles:create', 'workshop:vehicles:update',
-    'workshop:cases:read', 'workshop:repair-knowledge:read',
+    'workshop:cases:read', 'workshop:cases:create', 'workshop:cases:update', 'workshop:repair-knowledge:read',
     'workshop:estimate-drafts:read', 'workshop:estimate-drafts:create', 'workshop:estimate-drafts:update',
     'workshop:configuration:read', 'workshop:configuration:update'
   ],
@@ -51,7 +53,7 @@ const workshopCapabilities: Record<WorkshopRole, readonly Capability[]> = {
     'workshop:appointments:read', 'workshop:appointments:create',
     'workshop:customers:read', 'workshop:customers:create', 'workshop:customers:update',
     'workshop:vehicles:read', 'workshop:vehicles:create', 'workshop:vehicles:update',
-    'workshop:cases:read', 'workshop:repair-knowledge:read',
+    'workshop:cases:read', 'workshop:cases:create', 'workshop:cases:update', 'workshop:repair-knowledge:read',
     'workshop:estimate-drafts:read', 'workshop:estimate-drafts:create', 'workshop:estimate-drafts:update'
   ],
   VIEWER: [

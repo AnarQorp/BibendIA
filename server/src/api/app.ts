@@ -31,6 +31,7 @@ import { resolveServiceDuration, ServiceDurationPolicyError, serviceIntentSchema
 import { registerRepairKnowledgeRoutes } from './repair-knowledge-routes.js';
 import { registerVehicleCatalogRoutes } from './vehicle-catalog-routes.js';
 import { registerWorkshopOperationsRoutes } from './workshop-operations-routes.js';
+import { registerReceptionCaseRoutes } from './reception-case-routes.js';
 import { registerReceptionLifecycleTools, type ConfirmationEvidenceVerifier } from '../modules/agent-core/reception-lifecycle-tools.js';
 import { issueProviderCapability, loadProviderCapability,
   ProviderCapabilityError } from '../modules/agent-core/provider-capabilities.js';
@@ -233,6 +234,7 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
   registerPlatformAdminRoutes(app,pool);
   registerRepairKnowledgeRoutes(app,pool,pii);
   registerWorkshopOperationsRoutes(app,pool,pii);
+  registerReceptionCaseRoutes(app,pool,pii);
   registerPublicLeadRoute(app,pool,pii,options.publicLead);
   app.post('/v1/providers/twilio/voice/events', {
     config: { rawBody: true, auth: { mode: 'authenticated', audience: 'provider', principalKinds: ['service'] } },
