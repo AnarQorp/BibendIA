@@ -16,7 +16,7 @@
     "start:migrator": "node server/dist/src/persistence/migrate.js",
     "test:server": "vitest run --config server/vitest.config.ts",
     "test:integration": "vitest run --config server/vitest.integration.config.ts",
-    "test:bootstrap": "npm run build:server && sh server/test/bootstrap/clean-postgres-gate.sh",
+    "test:bootstrap": "npm run build:server && sh server/test/bootstrap/clean-postgres-gate.sh && sh server/test/bootstrap/upgrade-025-to-026-gate.sh",
     "test": "npm run typecheck:server && npm run test:server",
     "db:migrate": "tsx server/src/persistence/migrate.ts",
     "provision:pilot-human-access": "tsx server/src/provisioning/pilot-human-access.ts",
