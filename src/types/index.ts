@@ -330,7 +330,7 @@ export interface WorkshopCapacityPolicy {
   concurrentTechnicians: number;
   maxVehiclesOnSite: number;
   maxVehicleIntakesPerHour: number;
-  resourceRequirements: {
+  resourceRequirements?: {
     rules: {
       inspection?: WorkshopResourceRule;
       oil_service?: WorkshopResourceRule;
@@ -338,7 +338,7 @@ export interface WorkshopCapacityPolicy {
       generic_fault?: WorkshopResourceRule;
     };
     fallback: WorkshopResourceRule | null;
-  };
+  } | null;
 }
 
 export interface WorkshopCapacityData {
@@ -686,12 +686,14 @@ export interface VehicleDetailResponse {
   };
 }
 
+export type CanonicalServiceIntent = 'inspection' | 'oil_service' | 'brakes_or_noise' | 'generic_fault';
+
 export interface CreateWorkshopAppointmentCommand {
   idempotencyKey: string;
   startAt: string;
   endAt?: string;
-  durationMinutes: number;
-  serviceIntent: string;
+  durationMinutes?: number;
+  serviceIntent: CanonicalServiceIntent | string;
   customerWaitMode?: 'DROP_OFF' | 'WAIT_ON_SITE';
   notes?: string;
   customerId?: string | null;
