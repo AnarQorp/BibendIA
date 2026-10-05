@@ -46,6 +46,7 @@ import {
   formatAppointmentSource,
   formatAppointmentStatus,
   formatCustomerWaitMode,
+  formatServiceIntent,
   type CanonicalAppointmentOrigin,
   type CanonicalAppointmentStatus,
   type CustomerWaitMode
@@ -71,6 +72,7 @@ export interface NormalizedAppointment {
   vehicleId?: string | null;
   serviceTitle: string;
   symptoms: string[];
+  notes?: string | null;
   durationMinutes: number;
   status: CanonicalAppointmentStatus | string;
   customerWaitMode?: 'DROP_OFF' | 'WAIT_ON_SITE';
@@ -146,6 +148,12 @@ export function formatAppointmentForPresentation(
   const status: CanonicalAppointmentStatus | string = app.status || 'confirmed';
   const customerWaitMode: 'DROP_OFF' | 'WAIT_ON_SITE' = app.customer_wait_mode || (app as any).customerWaitMode || 'DROP_OFF';
 
+  const rawIntent = app.service_request?.intent;
+  const humanTitle = rawIntent
+    ? formatServiceIntent(rawIntent)
+    : (app.service_request?.symptoms?.[0] ? `Revisión: ${app.service_request.symptoms[0]}` : 'Intervención de Taller');
+  const appointmentNotes = (app as any).notes || app.service_request?.notes || (app as any).raw?.notes || null;
+
   return {
     id: app.id,
     dateStr,
@@ -157,8 +165,9 @@ export function formatAppointmentForPresentation(
     vehiclePlate: app.vehicle_plate || cachedVehicle?.plate || '—',
     vehicleInfo: vehicleInfo || null,
     vehicleId: app.vehicle_id || null,
-    serviceTitle: app.service_request?.intent || (app.service_request?.symptoms?.[0] ? `Revisión: ${app.service_request.symptoms[0]}` : 'Intervención de Taller'),
+    serviceTitle: humanTitle,
     symptoms: app.service_request?.symptoms || [],
+    notes: appointmentNotes,
     durationMinutes: app.service_request?.estimated_duration_minutes || duration,
     status,
     customerWaitMode,
@@ -415,6 +424,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
         vehicleId: app.vehicleId,
         serviceTitle: app.serviceName,
         symptoms: [],
+        notes: null,
         durationMinutes: app.estimatedDurationMinutes,
         status: app.status,
         customerWaitMode: 'DROP_OFF',
@@ -475,10 +485,10 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
     return new Date(d.setDate(diff));
   }, [currentDate]);
 
-  // 6 Days of week: Lunes to Sábado
+  // 7 Days of week: Lunes to Domingo
   const weekDays = useMemo(() => {
     const days = [];
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 7; i++) {
       const d = new Date(weekStart);
       d.setDate(weekStart.getDate() + i);
       const yyyy = d.getFullYear();
@@ -530,7 +540,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
   const headerDateTitle = useMemo(() => {
     if (viewMode === 'week') {
       const startDay = weekDays[0].date;
-      const endDay = weekDays[5].date;
+      const endDay = weekDays[weekDays.length - 1].date;
       return `Semana del ${startDay.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })} al ${endDay.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })}`;
     }
     const dayName = currentDate.toLocaleDateString('es-ES', { weekday: 'long' });
@@ -932,6 +942,13 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
                               {app.serviceTitle}
                             </div>
 
+                            {/* Detailed notes / context if present */}
+                            {app.notes && (
+                              <div className="text-[11px] text-slate-500 italic truncate">
+                                {app.notes}
+                              </div>
+                            )}
+
                             {/* Symptoms tags if any */}
                             {app.symptoms.length > 0 && (
                               <div className="flex flex-wrap gap-1 pt-0.5">
@@ -974,10 +991,10 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
           {viewMode === 'week' && (
             <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
               <div className="overflow-x-auto">
-                <div className="min-w-[700px]">
+                <div className="min-w-[800px]">
                   
-                  {/* Weekday Column Headers */}
-                  <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50">
+                  {/* Weekday Column Headers (Hour + 7 Days) */}
+                  <div className="grid grid-cols-8 border-b border-slate-200 bg-slate-50">
                     <div className="p-3 text-center border-r border-slate-200 text-xs font-bold text-slate-400 flex items-center justify-center font-mono">
                       Hora
                     </div>
@@ -1013,19 +1030,19 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
                     })}
                   </div>
 
-                  {/* Hourly Grid Rows */}
+                  {/* Hourly Grid Rows (Hour + 7 Days) */}
                   <div className="divide-y divide-slate-100">
                     {hours.map(hour => {
                       const hourInt = parseInt(hour.split(':')[0], 10);
 
                       return (
-                        <div key={hour} className="grid grid-cols-7 min-h-[75px]">
+                        <div key={hour} className="grid grid-cols-8 min-h-[75px]">
                           {/* Hour Column */}
                           <div className="p-2 border-r border-slate-200 text-center text-xs font-mono font-bold text-slate-400 bg-slate-50/40 flex items-start justify-center pt-2">
                             {hour}
                           </div>
 
-                          {/* 6 Day Columns for this hour */}
+                          {/* 7 Day Columns for this hour */}
                           {weekDays.map(day => {
                             const cellApps = allAppointments.filter(a => {
                               if (a.dateStr !== day.dateStr) return false;
@@ -1057,6 +1074,11 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
                                       <p className="text-xs font-bold text-slate-900 truncate leading-tight">
                                         {app.serviceTitle}
                                       </p>
+                                      {app.notes && (
+                                        <p className="text-[10px] text-slate-500 truncate italic">
+                                          {app.notes}
+                                        </p>
+                                      )}
                                       <div className="flex items-center justify-between text-[10px] text-slate-600">
                                         <span className="truncate max-w-[90px]">{app.customerName}</span>
                                         <div className="flex items-center gap-1">
@@ -1142,6 +1164,11 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
                 <h3 className="text-base sm:text-lg font-extrabold text-slate-900">
                   {selectedAppointment.serviceTitle}
                 </h3>
+                {selectedAppointment.notes && (
+                  <p className="text-xs text-slate-600 font-normal italic mt-0.5">
+                    {selectedAppointment.notes}
+                  </p>
+                )}
               </div>
               <button
                 type="button"
@@ -1279,10 +1306,10 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
               )}
 
               {/* Observaciones o Notas de Recepción */}
-              {selectedAppointment.raw?.service_request?.notes && (
+              {(selectedAppointment.notes || selectedAppointment.raw?.service_request?.notes) && (
                 <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
-                  <span className="text-[11px] text-slate-500 font-bold uppercase block">Notas de Recepción</span>
-                  <p className="text-slate-700 italic">{String(selectedAppointment.raw.service_request.notes)}</p>
+                  <span className="text-[11px] text-slate-500 font-bold uppercase block">Notas y Observaciones</span>
+                  <p className="text-slate-700 italic">{selectedAppointment.notes || String(selectedAppointment.raw?.service_request?.notes)}</p>
                 </div>
               )}
             </div>

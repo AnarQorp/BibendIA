@@ -427,4 +427,26 @@ export function formatCustomerWaitMode(mode?: 'DROP_OFF' | 'WAIT_ON_SITE' | stri
   };
 }
 
+/**
+ * Translates canonical serviceIntent to human-readable workshop terminology.
+ * inspection -> Revisión / inspección
+ * oil_service -> Cambio de aceite / mantenimiento
+ * brakes_or_noise -> Frenos o ruidos
+ * generic_fault -> Avería / trabajo general
+ */
+export function formatServiceIntent(intent?: string | null): string {
+  switch (intent?.toLowerCase()) {
+    case 'inspection':
+      return 'Revisión / inspección';
+    case 'oil_service':
+      return 'Cambio de aceite / mantenimiento';
+    case 'brakes_or_noise':
+      return 'Frenos o ruidos';
+    case 'generic_fault':
+      return 'Avería / trabajo general';
+    default:
+      return intent || 'Intervención de taller';
+  }
+}
+
 

@@ -265,6 +265,17 @@ export const WorkshopCapacityConfigSection: React.FC<WorkshopCapacityConfigSecti
       fallbackMinutes: Number(durationRules.fallbackMinutes) || 60,
     };
 
+    const existingResourceRequirements = (targetWorkshop as any)?.capacity_policy?.resourceRequirements;
+
+    // Fail-closed if resourceRequirements is missing on workshop surface:
+    if (!existingResourceRequirements && surface === 'workshop') {
+      setFeedback({
+        type: 'error',
+        message: 'Configuración incompleta: el taller no dispone de política inicial canónica de recursos físicos (resourceRequirements). Debe ser inicializada por backend.',
+      });
+      return;
+    }
+
     const cleanCapacityPolicy: WorkshopCapacityPolicy = {
       version: (targetWorkshop as any)?.capacity_policy?.version || 'v1',
       liftCount: Math.max(1, Number(liftCount) || 1),
@@ -272,15 +283,7 @@ export const WorkshopCapacityConfigSection: React.FC<WorkshopCapacityConfigSecti
       concurrentTechnicians: Math.max(1, Number(concurrentTechnicians) || 1),
       maxVehiclesOnSite: Math.max(1, Number(maxVehiclesOnSite) || 1),
       maxVehicleIntakesPerHour: Math.max(1, Number(maxVehicleIntakesPerHour) || 1),
-      resourceRequirements: (targetWorkshop as any)?.capacity_policy?.resourceRequirements || {
-        rules: {
-          inspection: { mechanic: 1, lift: 0, genericBay: 1 },
-          oil_service: { mechanic: 1, lift: 1, genericBay: 0 },
-          brakes_or_noise: { mechanic: 1, lift: 1, genericBay: 0 },
-          generic_fault: { mechanic: 1, lift: 0, genericBay: 1 },
-        },
-        fallback: { mechanic: 1, lift: 0, genericBay: 0 },
-      },
+      resourceRequirements: existingResourceRequirements || null,
     };
 
     const expectedVersion = targetWorkshop?.version ?? 1;

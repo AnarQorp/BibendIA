@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Plus, Calendar, Clock, User, Car, AlertCircle, Wrench } from 'lucide-react';
-import type { WorkshopCustomer, WorkshopVehicle, WorkshopAppointmentResponse, CreateWorkshopAppointmentCommand } from '../../types';
+import type { WorkshopCustomer, WorkshopVehicle, WorkshopAppointmentResponse, CreateWorkshopAppointmentCommand, CanonicalServiceIntent } from '../../types';
 import { listWorkshopCustomers, listWorkshopVehicles, createWorkshopAppointment } from '../../services/workshopOperations';
 
 export interface ManualAppointmentModalProps {
@@ -26,8 +26,7 @@ export const ManualAppointmentModal: React.FC<ManualAppointmentModalProps> = ({
 }) => {
   const [date, setDate] = useState(initialDate || new Date().toISOString().slice(0, 10));
   const [time, setTime] = useState(initialTime || '09:00');
-  const [durationMinutes, setDurationMinutes] = useState(60);
-  const [serviceIntent, setServiceIntent] = useState('Revisión periódica y diagnosis');
+  const [serviceIntent, setServiceIntent] = useState<CanonicalServiceIntent>('inspection');
   const [customerWaitMode, setCustomerWaitMode] = useState<'DROP_OFF' | 'WAIT_ON_SITE'>('DROP_OFF');
   const [notes, setNotes] = useState('');
 
@@ -90,8 +89,7 @@ export const ManualAppointmentModal: React.FC<ManualAppointmentModalProps> = ({
       const command: CreateWorkshopAppointmentCommand = {
         idempotencyKey,
         startAt: startAtIso,
-        durationMinutes,
-        serviceIntent: serviceIntent.trim() || 'Intervención de taller',
+        serviceIntent,
         customerWaitMode,
         notes: notes.trim() || undefined,
         customerId: customerMode === 'existing' && selectedCustomerId ? selectedCustomerId : undefined,
@@ -186,33 +184,36 @@ export const ManualAppointmentModal: React.FC<ManualAppointmentModalProps> = ({
             </div>
           </div>
 
-          {/* Duration & Motivo */}
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">Duración (min)</label>
-              <select
-                value={durationMinutes}
-                onChange={e => setDurationMinutes(Number(e.target.value))}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-xs font-mono"
-              >
-                <option value={30}>30 min</option>
-                <option value={45}>45 min</option>
-                <option value={60}>60 min (1h)</option>
-                <option value={90}>90 min (1.5h)</option>
-                <option value={120}>120 min (2h)</option>
-                <option value={180}>180 min (3h)</option>
-              </select>
+          {/* Tipo de Intervención (Canónico) */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block font-bold text-slate-700">Tipo de intervención</label>
+              <span className="text-2xs text-slate-500 font-medium">Duración calculada por política del taller</span>
             </div>
-            <div className="col-span-2">
-              <label className="block font-bold text-slate-700 mb-1">Motivo / Intervención</label>
-              <input
-                type="text"
-                value={serviceIntent}
-                required
-                onChange={e => setServiceIntent(e.target.value)}
-                placeholder="Ej: Cambio de aceite, ruidos en frenos..."
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:border-blue-500 text-xs"
-              />
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { id: 'inspection', label: 'Revisión / inspección', desc: 'Revisión periódica y diagnosis' },
+                { id: 'oil_service', label: 'Cambio de aceite / mantenimiento', desc: 'Fluidos y filtros programados' },
+                { id: 'brakes_or_noise', label: 'Frenos o ruidos', desc: 'Pastillas, discos o ruidos anómalos' },
+                { id: 'generic_fault', label: 'Avería / trabajo general', desc: 'Reparaciones generales de taller' },
+              ].map(opt => {
+                const isSelected = serviceIntent === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => setServiceIntent(opt.id as CanonicalServiceIntent)}
+                    className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between cursor-pointer ${
+                      isSelected
+                        ? 'bg-blue-50 border-blue-500 text-blue-900 shadow-2xs ring-1 ring-blue-500'
+                        : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    <span className="font-bold text-xs">{opt.label}</span>
+                    <span className="text-3xs text-slate-500 mt-0.5">{opt.desc}</span>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -370,14 +371,14 @@ export const ManualAppointmentModal: React.FC<ManualAppointmentModalProps> = ({
             )}
           </div>
 
-          {/* Internal Notes */}
+          {/* Motivo detallado / Observaciones */}
           <div>
-            <label className="block font-bold text-slate-700 mb-1">Notas internas de taller</label>
+            <label className="block font-bold text-slate-700 mb-1">Motivo detallado / observaciones</label>
             <textarea
               value={notes}
               onChange={e => setNotes(e.target.value)}
               rows={2}
-              placeholder="Instrucciones para recepción o mecánicos..."
+              placeholder="Ej: Ruido metálico al frenar a baja velocidad, revisión 60.000 km, instrucciones..."
               className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:border-blue-500 text-xs"
             />
           </div>

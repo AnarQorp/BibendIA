@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatAppointmentSource, formatAppointmentStatus, formatCustomerWaitMode } from '../src/utils/workshopFormatters';
+import { formatAppointmentSource, formatAppointmentStatus, formatCustomerWaitMode, formatServiceIntent } from '../src/utils/workshopFormatters';
 import {
   computeDayOperationalMetrics,
   formatAppointmentForPresentation,
@@ -8,6 +8,18 @@ import {
 import type { WorkshopAppointmentResponse, WorkshopCustomer, WorkshopVehicle } from '../src/types';
 
 describe('Agenda UX Presentation and Operational Logic', () => {
+  describe('formatServiceIntent', () => {
+    it('translates canonical service intents to human-readable workshop descriptions', () => {
+      expect(formatServiceIntent('inspection')).toBe('Revisión / inspección');
+      expect(formatServiceIntent('oil_service')).toBe('Cambio de aceite / mantenimiento');
+      expect(formatServiceIntent('brakes_or_noise')).toBe('Frenos o ruidos');
+      expect(formatServiceIntent('generic_fault')).toBe('Avería / trabajo general');
+      expect(formatServiceIntent('unknown_custom')).toBe('unknown_custom');
+      expect(formatServiceIntent(null)).toBe('Intervención de taller');
+      expect(formatServiceIntent(undefined)).toBe('Intervención de taller');
+    });
+  });
+
   describe('formatAppointmentStatus', () => {
     it('translates canonical statuses to natural workshop terminology with proper badge styles', () => {
       const confirmed = formatAppointmentStatus('confirmed');
@@ -187,9 +199,23 @@ describe('Agenda UX Presentation and Operational Logic', () => {
       expect(presentation.vehicleInfo).toBe('Volkswagen Golf VII 2.0 TDI');
       expect(presentation.serviceTitle).toBe('Cambio de pastillas delanteras y revisión');
       expect(presentation.symptoms).toEqual(['Ruido metálico al frenar']);
+      expect(presentation.notes).toBe('Cliente avisa que el pedal vibra un poco');
       expect(presentation.durationMinutes).toBe(75);
       expect(presentation.status).toBe('confirmed');
       expect(presentation.source).toBe('voice_phone');
+    });
+
+    it('translates canonical intent keys to natural human titles and preserves notes', () => {
+      const canonicalAppt: WorkshopAppointmentResponse = {
+        ...rawAppointment,
+        service_request: {
+          intent: 'oil_service',
+          notes: 'Aceite 5W30 longlife y filtro original'
+        }
+      };
+      const presentation = formatAppointmentForPresentation(canonicalAppt);
+      expect(presentation.serviceTitle).toBe('Cambio de aceite / mantenimiento');
+      expect(presentation.notes).toBe('Aceite 5W30 longlife y filtro original');
     });
 
     it('never leaks internal UUIDs or hashes to user-facing display fields', () => {
