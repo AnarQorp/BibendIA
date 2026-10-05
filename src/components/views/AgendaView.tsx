@@ -552,7 +552,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
     return `${capitalizedDay}, ${fullDate}`;
   }, [currentDate, viewMode, weekDays, isViewingToday]);
 
-  const effectiveWorkshopId = resolvedWorkshopId || allAppointments[0]?.raw?.workshop_id || '';
+  const effectiveWorkshopId = resolvedWorkshopId || allAppointments[0]?.raw?.workshop_id || allAppointments[0]?.raw?.workshopId || 'default-workshop';
 
   return (
     <div className="p-3 sm:p-6 max-w-7xl mx-auto space-y-4 sm:space-y-6 animate-fadeIn w-full max-w-full overflow-x-hidden">

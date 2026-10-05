@@ -45,6 +45,42 @@ const DAYS = [
   { key: '7', name: 'Domingo' },
 ];
 
+export function parsePositiveCapacityField(
+  value: number | string,
+  fieldName: string
+): { value?: number; error?: string } {
+  const str = String(value ?? '').trim();
+  if (str === '') {
+    return { error: `El campo "${fieldName}" no puede estar vacío.` };
+  }
+  const num = Number(str);
+  if (Number.isNaN(num) || !Number.isInteger(num)) {
+    return { error: `El campo "${fieldName}" debe ser un número entero sin decimales.` };
+  }
+  if (num < 1 || num > 500) {
+    return { error: `El campo "${fieldName}" debe estar comprendido entre 1 y 500.` };
+  }
+  return { value: num };
+}
+
+export function parseDurationField(
+  value: number | string,
+  fieldName: string
+): { value?: number; error?: string } {
+  const str = String(value ?? '').trim();
+  if (str === '') {
+    return { error: `La duración de "${fieldName}" no puede estar vacía.` };
+  }
+  const num = Number(str);
+  if (Number.isNaN(num) || !Number.isInteger(num)) {
+    return { error: `La duración de "${fieldName}" debe ser un número entero sin decimales.` };
+  }
+  if (num < 15 || num > 480) {
+    return { error: `La duración de "${fieldName}" debe estar comprendida entre 15 y 480 minutos.` };
+  }
+  return { value: num };
+}
+
 export const WorkshopCapacityConfigSection: React.FC<WorkshopCapacityConfigSectionProps> = ({
   tenantId,
   workshop: propWorkshop,
@@ -85,7 +121,7 @@ export const WorkshopCapacityConfigSection: React.FC<WorkshopCapacityConfigSecti
 
   // Service Duration Policy state
   const policy = propWorkshop?.service_duration_policy;
-  const [durationRules, setDurationRules] = useState({
+  const [durationRules, setDurationRules] = useState<Record<string, number | string>>({
     inspection: policy?.rules?.inspection ?? 45,
     oil_service: policy?.rules?.oil_service ?? 45,
     brakes_or_noise: policy?.rules?.brakes_or_noise ?? 45,
@@ -95,11 +131,11 @@ export const WorkshopCapacityConfigSection: React.FC<WorkshopCapacityConfigSecti
 
   // Physical capacity resources state (canonical capacity_policy)
   const capPolicy = (propWorkshop as any)?.capacity_policy as WorkshopCapacityPolicy | undefined;
-  const [liftCount, setLiftCount] = useState<number>(capPolicy?.liftCount ?? 2);
-  const [nonLiftBayCount, setNonLiftBayCount] = useState<number>(capPolicy?.nonLiftBayCount ?? 1);
-  const [concurrentTechnicians, setConcurrentTechnicians] = useState<number>(capPolicy?.concurrentTechnicians ?? 3);
-  const [maxVehiclesOnSite, setMaxVehiclesOnSite] = useState<number>(capPolicy?.maxVehiclesOnSite ?? 8);
-  const [maxVehicleIntakesPerHour, setMaxVehicleIntakesPerHour] = useState<number>(capPolicy?.maxVehicleIntakesPerHour ?? 2);
+  const [liftCount, setLiftCount] = useState<number | string>(capPolicy?.liftCount ?? 2);
+  const [nonLiftBayCount, setNonLiftBayCount] = useState<number | string>(capPolicy?.nonLiftBayCount ?? 1);
+  const [concurrentTechnicians, setConcurrentTechnicians] = useState<number | string>(capPolicy?.concurrentTechnicians ?? 3);
+  const [maxVehiclesOnSite, setMaxVehiclesOnSite] = useState<number | string>(capPolicy?.maxVehiclesOnSite ?? 8);
+  const [maxVehicleIntakesPerHour, setMaxVehicleIntakesPerHour] = useState<number | string>(capPolicy?.maxVehicleIntakesPerHour ?? 2);
 
   // Read-only vehicles currently on site metric from backend authority
   const [vehiclesCurrentlyOnSite, setVehiclesCurrentlyOnSite] = useState<number | null>(
@@ -254,15 +290,46 @@ export const WorkshopCapacityConfigSection: React.FC<WorkshopCapacityConfigSecti
       }
     }
 
+    const parsedInspection = parseDurationField(durationRules.inspection, 'Revisión / inspección');
+    if (parsedInspection.error) {
+      setFeedback({ type: 'error', message: parsedInspection.error });
+      setIsSaving(false);
+      return;
+    }
+    const parsedOil = parseDurationField(durationRules.oil_service, 'Cambio de aceite / mantenimiento');
+    if (parsedOil.error) {
+      setFeedback({ type: 'error', message: parsedOil.error });
+      setIsSaving(false);
+      return;
+    }
+    const parsedBrakes = parseDurationField(durationRules.brakes_or_noise, 'Frenos o ruidos');
+    if (parsedBrakes.error) {
+      setFeedback({ type: 'error', message: parsedBrakes.error });
+      setIsSaving(false);
+      return;
+    }
+    const parsedGeneric = parseDurationField(durationRules.generic_fault, 'Avería / trabajo general');
+    if (parsedGeneric.error) {
+      setFeedback({ type: 'error', message: parsedGeneric.error });
+      setIsSaving(false);
+      return;
+    }
+    const parsedFallback = parseDurationField(durationRules.fallbackMinutes, 'Duración por defecto');
+    if (parsedFallback.error) {
+      setFeedback({ type: 'error', message: parsedFallback.error });
+      setIsSaving(false);
+      return;
+    }
+
     const cleanDurationPolicy: WorkshopServiceDurationPolicy = {
       version: targetWorkshop?.service_duration_policy?.version || 'v1',
       rules: {
-        inspection: Number(durationRules.inspection) || 45,
-        oil_service: Number(durationRules.oil_service) || 45,
-        brakes_or_noise: Number(durationRules.brakes_or_noise) || 45,
-        generic_fault: Number(durationRules.generic_fault) || 60,
+        inspection: parsedInspection.value!,
+        oil_service: parsedOil.value!,
+        brakes_or_noise: parsedBrakes.value!,
+        generic_fault: parsedGeneric.value!,
       },
-      fallbackMinutes: Number(durationRules.fallbackMinutes) || 60,
+      fallbackMinutes: parsedFallback.value!,
     };
 
     const existingResourceRequirements = (targetWorkshop as any)?.capacity_policy?.resourceRequirements;
@@ -273,16 +340,48 @@ export const WorkshopCapacityConfigSection: React.FC<WorkshopCapacityConfigSecti
         type: 'error',
         message: 'Configuración incompleta: el taller no dispone de política inicial canónica de recursos físicos (resourceRequirements). Debe ser inicializada por backend.',
       });
+      setIsSaving(false);
+      return;
+    }
+
+    const parsedLift = parsePositiveCapacityField(liftCount, 'Elevadores disponibles');
+    if (parsedLift.error) {
+      setFeedback({ type: 'error', message: parsedLift.error });
+      setIsSaving(false);
+      return;
+    }
+    const parsedNonLift = parsePositiveCapacityField(nonLiftBayCount, 'Otros puestos de trabajo');
+    if (parsedNonLift.error) {
+      setFeedback({ type: 'error', message: parsedNonLift.error });
+      setIsSaving(false);
+      return;
+    }
+    const parsedTechs = parsePositiveCapacityField(concurrentTechnicians, 'Técnicos simultáneos');
+    if (parsedTechs.error) {
+      setFeedback({ type: 'error', message: parsedTechs.error });
+      setIsSaving(false);
+      return;
+    }
+    const parsedMaxVehicles = parsePositiveCapacityField(maxVehiclesOnSite, 'Máximo de vehículos en taller');
+    if (parsedMaxVehicles.error) {
+      setFeedback({ type: 'error', message: parsedMaxVehicles.error });
+      setIsSaving(false);
+      return;
+    }
+    const parsedIntakes = parsePositiveCapacityField(maxVehicleIntakesPerHour, 'Máximo de entradas por hora');
+    if (parsedIntakes.error) {
+      setFeedback({ type: 'error', message: parsedIntakes.error });
+      setIsSaving(false);
       return;
     }
 
     const cleanCapacityPolicy: WorkshopCapacityPolicy = {
       version: (targetWorkshop as any)?.capacity_policy?.version || 'v1',
-      liftCount: Math.max(1, Number(liftCount) || 1),
-      nonLiftBayCount: Math.max(1, Number(nonLiftBayCount) || 1),
-      concurrentTechnicians: Math.max(1, Number(concurrentTechnicians) || 1),
-      maxVehiclesOnSite: Math.max(1, Number(maxVehiclesOnSite) || 1),
-      maxVehicleIntakesPerHour: Math.max(1, Number(maxVehicleIntakesPerHour) || 1),
+      liftCount: parsedLift.value!,
+      nonLiftBayCount: parsedNonLift.value!,
+      concurrentTechnicians: parsedTechs.value!,
+      maxVehiclesOnSite: parsedMaxVehicles.value!,
+      maxVehicleIntakesPerHour: parsedIntakes.value!,
       resourceRequirements: existingResourceRequirements || null,
     };
 
@@ -407,7 +506,7 @@ export const WorkshopCapacityConfigSection: React.FC<WorkshopCapacityConfigSecti
           <div>
             <span className="text-[11px] font-bold text-slate-500 uppercase block tracking-wider">Aforo de Vehículos en Vivo</span>
             <p className="text-sm font-extrabold text-slate-900 mt-0.5">
-              Vehículos en taller: <span className="font-mono text-blue-700">{vehiclesCurrentlyOnSite ?? 0}</span> / <span className="font-mono text-slate-600">{maxVehiclesOnSite}</span>
+              Vehículos en taller: <span className="font-mono text-blue-700">{vehiclesCurrentlyOnSite ?? 0}</span> / <span className="font-mono text-slate-600">{maxVehiclesOnSite || '—'}</span>
             </p>
           </div>
         </div>
@@ -531,7 +630,7 @@ export const WorkshopCapacityConfigSection: React.FC<WorkshopCapacityConfigSecti
                 min={1}
                 max={500}
                 value={liftCount}
-                onChange={(e) => setLiftCount(Math.max(1, Number(e.target.value) || 1))}
+                onChange={(e) => setLiftCount(e.target.value)}
                 className="w-20 px-2.5 py-1 text-xs font-mono font-bold bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-hidden focus:border-blue-500"
               />
               <span className="text-xs text-slate-500 font-medium">elevadores</span>
@@ -547,7 +646,7 @@ export const WorkshopCapacityConfigSection: React.FC<WorkshopCapacityConfigSecti
                 min={1}
                 max={500}
                 value={nonLiftBayCount}
-                onChange={(e) => setNonLiftBayCount(Math.max(1, Number(e.target.value) || 1))}
+                onChange={(e) => setNonLiftBayCount(e.target.value)}
                 className="w-20 px-2.5 py-1 text-xs font-mono font-bold bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-hidden focus:border-blue-500"
               />
               <span className="text-xs text-slate-500 font-medium">puestos</span>
@@ -563,7 +662,7 @@ export const WorkshopCapacityConfigSection: React.FC<WorkshopCapacityConfigSecti
                 min={1}
                 max={500}
                 value={concurrentTechnicians}
-                onChange={(e) => setConcurrentTechnicians(Math.max(1, Number(e.target.value) || 1))}
+                onChange={(e) => setConcurrentTechnicians(e.target.value)}
                 className="w-20 px-2.5 py-1 text-xs font-mono font-bold bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-hidden focus:border-blue-500"
               />
               <span className="text-xs text-slate-500 font-medium">técnicos</span>
@@ -579,7 +678,7 @@ export const WorkshopCapacityConfigSection: React.FC<WorkshopCapacityConfigSecti
                 min={1}
                 max={500}
                 value={maxVehiclesOnSite}
-                onChange={(e) => setMaxVehiclesOnSite(Math.max(1, Number(e.target.value) || 1))}
+                onChange={(e) => setMaxVehiclesOnSite(e.target.value)}
                 className="w-20 px-2.5 py-1 text-xs font-mono font-bold bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-hidden focus:border-blue-500"
               />
               <span className="text-xs text-slate-500 font-medium">vehículos</span>
@@ -595,7 +694,7 @@ export const WorkshopCapacityConfigSection: React.FC<WorkshopCapacityConfigSecti
                 min={1}
                 max={500}
                 value={maxVehicleIntakesPerHour}
-                onChange={(e) => setMaxVehicleIntakesPerHour(Math.max(1, Number(e.target.value) || 1))}
+                onChange={(e) => setMaxVehicleIntakesPerHour(e.target.value)}
                 className="w-20 px-2.5 py-1 text-xs font-mono font-bold bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-hidden focus:border-blue-500"
               />
               <span className="text-xs text-slate-500 font-medium">entradas/h</span>
@@ -624,7 +723,7 @@ export const WorkshopCapacityConfigSection: React.FC<WorkshopCapacityConfigSecti
                 max={480}
                 step={5}
                 value={durationRules.inspection}
-                onChange={(e) => setDurationRules((prev) => ({ ...prev, inspection: Number(e.target.value) }))}
+                onChange={(e) => setDurationRules((prev) => ({ ...prev, inspection: e.target.value }))}
                 className="w-20 px-2.5 py-1 text-xs font-mono font-bold bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-hidden focus:border-blue-500"
               />
               <span className="text-xs text-slate-500 font-medium">minutos</span>
@@ -640,7 +739,7 @@ export const WorkshopCapacityConfigSection: React.FC<WorkshopCapacityConfigSecti
                 max={480}
                 step={5}
                 value={durationRules.oil_service}
-                onChange={(e) => setDurationRules((prev) => ({ ...prev, oil_service: Number(e.target.value) }))}
+                onChange={(e) => setDurationRules((prev) => ({ ...prev, oil_service: e.target.value }))}
                 className="w-20 px-2.5 py-1 text-xs font-mono font-bold bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-hidden focus:border-blue-500"
               />
               <span className="text-xs text-slate-500 font-medium">minutos</span>
@@ -656,7 +755,7 @@ export const WorkshopCapacityConfigSection: React.FC<WorkshopCapacityConfigSecti
                 max={480}
                 step={5}
                 value={durationRules.brakes_or_noise}
-                onChange={(e) => setDurationRules((prev) => ({ ...prev, brakes_or_noise: Number(e.target.value) }))}
+                onChange={(e) => setDurationRules((prev) => ({ ...prev, brakes_or_noise: e.target.value }))}
                 className="w-20 px-2.5 py-1 text-xs font-mono font-bold bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-hidden focus:border-blue-500"
               />
               <span className="text-xs text-slate-500 font-medium">minutos</span>
@@ -672,7 +771,7 @@ export const WorkshopCapacityConfigSection: React.FC<WorkshopCapacityConfigSecti
                 max={480}
                 step={5}
                 value={durationRules.generic_fault}
-                onChange={(e) => setDurationRules((prev) => ({ ...prev, generic_fault: Number(e.target.value) }))}
+                onChange={(e) => setDurationRules((prev) => ({ ...prev, generic_fault: e.target.value }))}
                 className="w-20 px-2.5 py-1 text-xs font-mono font-bold bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-hidden focus:border-blue-500"
               />
               <span className="text-xs text-slate-500 font-medium">minutos</span>
@@ -688,7 +787,7 @@ export const WorkshopCapacityConfigSection: React.FC<WorkshopCapacityConfigSecti
                 max={480}
                 step={5}
                 value={durationRules.fallbackMinutes}
-                onChange={(e) => setDurationRules((prev) => ({ ...prev, fallbackMinutes: Number(e.target.value) }))}
+                onChange={(e) => setDurationRules((prev) => ({ ...prev, fallbackMinutes: e.target.value }))}
                 className="w-20 px-2.5 py-1 text-xs font-mono font-bold bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-hidden focus:border-blue-500"
               />
               <span className="text-xs text-slate-500 font-medium">minutos</span>

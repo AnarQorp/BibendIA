@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { patchPlatformWorkshop } from '../src/services/platformAdmin';
 import { getWorkshopCapacity, patchWorkshopCapacity } from '../src/services/workshopOperations';
-import type { WorkshopOpeningHours, WorkshopServiceDurationPolicy } from '../src/types';
+import { parsePositiveCapacityField, parseDurationField } from '../src/components/admin/views/WorkshopCapacityConfigSection';
+import type { WorkshopOpeningHours, WorkshopServiceDurationPolicy, WorkshopCapacityPolicy } from '../src/types';
 
 describe('Workshop Capacity and Operational Configuration', () => {
   afterEach(() => {
@@ -243,6 +244,169 @@ describe('Workshop Capacity and Operational Configuration', () => {
 
       expect(result.status).toBe('version_conflict');
       expect(result.message).toContain('Conflicto');
+    });
+  });
+
+  describe('Capacity & Duration Field Parsing and Validation (Zero Silent Conversion Bug)', () => {
+    describe('parsePositiveCapacityField', () => {
+      it('specifically validates "8 -> borrar -> 6 -> guardar = 6" and guarantees it NEVER becomes 16', () => {
+        // Initial state before editing
+        const initial = 8;
+        const parsedInitial = parsePositiveCapacityField(initial, 'Máximo de vehículos en taller');
+        expect(parsedInitial.value).toBe(8);
+
+        // Step 1: User clears the input (value becomes "")
+        const clearedInput = '';
+        const parsedCleared = parsePositiveCapacityField(clearedInput, 'Máximo de vehículos en taller');
+        // Must reject empty without defaulting silently to 1!
+        expect(parsedCleared.error).toBe('El campo "Máximo de vehículos en taller" no puede estar vacío.');
+        expect(parsedCleared.value).toBeUndefined();
+
+        // Step 2: User types "6"
+        const typedInput = '6';
+        const parsedTyped = parsePositiveCapacityField(typedInput, 'Máximo de vehículos en taller');
+        expect(parsedTyped.error).toBeUndefined();
+        expect(parsedTyped.value).toBe(6);
+
+        // Crucial bug prevention assertion: verify it NEVER equals 16
+        expect(parsedTyped.value).not.toBe(16);
+      });
+
+      it('validates the editing sequence (initial -> erase -> new value) across all 5 physical capacity fields', () => {
+        const fields = [
+          { name: 'Elevadores disponibles', initial: 2, typed: '4', expected: 4, forbiddenBugValue: 14 },
+          { name: 'Otros puestos de trabajo', initial: 1, typed: '3', expected: 3, forbiddenBugValue: 13 },
+          { name: 'Técnicos simultáneos', initial: 3, typed: '5', expected: 5, forbiddenBugValue: 15 },
+          { name: 'Máximo de vehículos en taller', initial: 8, typed: '6', expected: 6, forbiddenBugValue: 16 },
+          { name: 'Máximo de entradas por hora', initial: 2, typed: '4', expected: 4, forbiddenBugValue: 14 },
+        ];
+
+        for (const field of fields) {
+          // Erase
+          const erased = parsePositiveCapacityField('', field.name);
+          expect(erased.error).toBe(`El campo "${field.name}" no puede estar vacío.`);
+          expect(erased.value).toBeUndefined();
+
+          // Type new value
+          const result = parsePositiveCapacityField(field.typed, field.name);
+          expect(result.error).toBeUndefined();
+          expect(result.value).toBe(field.expected);
+          expect(result.value).not.toBe(field.forbiddenBugValue);
+        }
+      });
+
+      it('rejects invalid inputs (empty, zero, negative, decimal, above 500) without inventing fallback values', () => {
+        const fieldName = 'Elevadores disponibles';
+
+        // Empty string
+        expect(parsePositiveCapacityField('', fieldName).error).toContain('no puede estar vacío');
+        expect(parsePositiveCapacityField('   ', fieldName).error).toContain('no puede estar vacío');
+
+        // Zero
+        expect(parsePositiveCapacityField(0, fieldName).error).toContain('debe estar comprendido entre 1 y 500');
+        expect(parsePositiveCapacityField('0', fieldName).error).toContain('debe estar comprendido entre 1 y 500');
+
+        // Negative
+        expect(parsePositiveCapacityField(-1, fieldName).error).toContain('debe estar comprendido entre 1 y 500');
+        expect(parsePositiveCapacityField('-5', fieldName).error).toContain('debe estar comprendido entre 1 y 500');
+
+        // Decimal
+        expect(parsePositiveCapacityField(1.5, fieldName).error).toContain('debe ser un número entero');
+        expect(parsePositiveCapacityField('2.7', fieldName).error).toContain('debe ser un número entero');
+
+        // Exceeding 500
+        expect(parsePositiveCapacityField(501, fieldName).error).toContain('debe estar comprendido entre 1 y 500');
+        expect(parsePositiveCapacityField('999', fieldName).error).toContain('debe estar comprendido entre 1 y 500');
+
+        // Non-numeric
+        expect(parsePositiveCapacityField('abc', fieldName).error).toContain('debe ser un número entero');
+      });
+
+      it('accepts boundary valid values (1 and 500)', () => {
+        expect(parsePositiveCapacityField(1, 'Test').value).toBe(1);
+        expect(parsePositiveCapacityField('1', 'Test').value).toBe(1);
+        expect(parsePositiveCapacityField(500, 'Test').value).toBe(500);
+        expect(parsePositiveCapacityField('500', 'Test').value).toBe(500);
+      });
+    });
+
+    describe('parseDurationField', () => {
+      it('validates duration between 15 and 480 minutes and rejects empty or out-of-range', () => {
+        expect(parseDurationField(45, 'oil_service').value).toBe(45);
+        expect(parseDurationField('60', 'inspection').value).toBe(60);
+        expect(parseDurationField(15, 'min').value).toBe(15);
+        expect(parseDurationField(480, 'max').value).toBe(480);
+
+        // Under 15 min
+        expect(parseDurationField(10, 'short').error).toContain('entre 15 y 480 minutos');
+        expect(parseDurationField('0', 'zero').error).toContain('entre 15 y 480 minutos');
+
+        // Over 480 min
+        expect(parseDurationField(500, 'long').error).toContain('entre 15 y 480 minutos');
+
+        // Empty
+        expect(parseDurationField('', 'empty').error).toContain('no puede estar vacía');
+
+        // Decimal
+        expect(parseDurationField(30.5, 'decimal').error).toContain('debe ser un número entero');
+      });
+    });
+
+    describe('Payload Verification: Exact User Values Persisted', () => {
+      it('verifies that saving edited capacity fields sends exactly the user values in patchWorkshopCapacity payload', async () => {
+        const mockFetch = vi.fn().mockResolvedValue({
+          status: 200,
+          ok: true,
+          headers: { get: () => 'corr-1' },
+          json: async () => ({ receipt: { receiptId: 'rcpt-1' } })
+        });
+        vi.stubGlobal('fetch', mockFetch);
+
+        // Simulation of user inputs after "8 -> erase -> 6"
+        const userInputs = {
+          liftCount: '4',              // 2 -> "" -> 4
+          nonLiftBayCount: '3',         // 1 -> "" -> 3
+          concurrentTechnicians: '5',   // 3 -> "" -> 5
+          maxVehiclesOnSite: '6',       // 8 -> "" -> 6 (Aketza scenario)
+          maxVehicleIntakesPerHour: '4' // 2 -> "" -> 4
+        };
+
+        const parsedLift = parsePositiveCapacityField(userInputs.liftCount, 'Elevadores disponibles');
+        const parsedNonLift = parsePositiveCapacityField(userInputs.nonLiftBayCount, 'Otros puestos de trabajo');
+        const parsedTechs = parsePositiveCapacityField(userInputs.concurrentTechnicians, 'Técnicos simultáneos');
+        const parsedMaxVehicles = parsePositiveCapacityField(userInputs.maxVehiclesOnSite, 'Máximo de vehículos en taller');
+        const parsedIntakes = parsePositiveCapacityField(userInputs.maxVehicleIntakesPerHour, 'Máximo de entradas por hora');
+
+        const cleanCapacityPolicy: WorkshopCapacityPolicy = {
+          version: 'v1',
+          liftCount: parsedLift.value!,
+          nonLiftBayCount: parsedNonLift.value!,
+          concurrentTechnicians: parsedTechs.value!,
+          maxVehiclesOnSite: parsedMaxVehicles.value!,
+          maxVehicleIntakesPerHour: parsedIntakes.value!,
+          resourceRequirements: null,
+        };
+
+        const result = await patchWorkshopCapacity(tenantId, workshopId, {
+          capacityPolicy: cleanCapacityPolicy,
+          expectedVersion: 1,
+          idempotencyKey: 'test-exact-payload'
+        });
+
+        expect(result.status).toBe('success');
+        const [url, options] = mockFetch.mock.calls[0];
+        const body = JSON.parse(options.body);
+
+        // Strictly verify payload contains exactly 6 for maxVehiclesOnSite and NEVER 16
+        expect(body.capacityPolicy.maxVehiclesOnSite).toBe(6);
+        expect(body.capacityPolicy.maxVehiclesOnSite).not.toBe(16);
+
+        // Strictly verify other fields match user input exactly
+        expect(body.capacityPolicy.liftCount).toBe(4);
+        expect(body.capacityPolicy.nonLiftBayCount).toBe(3);
+        expect(body.capacityPolicy.concurrentTechnicians).toBe(5);
+        expect(body.capacityPolicy.maxVehicleIntakesPerHour).toBe(4);
+      });
     });
   });
 });
