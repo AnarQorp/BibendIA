@@ -317,6 +317,41 @@ export interface WorkshopServiceDurationPolicy {
   fallbackMinutes: number | null;
 }
 
+export interface WorkshopResourceRule {
+  mechanic: number;
+  lift: number;
+  genericBay: number;
+}
+
+export interface WorkshopCapacityPolicy {
+  version: string;
+  liftCount: number;
+  nonLiftBayCount: number;
+  concurrentTechnicians: number;
+  maxVehiclesOnSite: number;
+  maxVehicleIntakesPerHour: number;
+  resourceRequirements: {
+    rules: {
+      inspection?: WorkshopResourceRule;
+      oil_service?: WorkshopResourceRule;
+      brakes_or_noise?: WorkshopResourceRule;
+      generic_fault?: WorkshopResourceRule;
+    };
+    fallback: WorkshopResourceRule | null;
+  };
+}
+
+export interface WorkshopCapacityData {
+  id: string;
+  tenant_id: string;
+  opening_hours: WorkshopOpeningHours | Record<string, unknown>;
+  service_duration_policy?: WorkshopServiceDurationPolicy;
+  capacity_policy?: WorkshopCapacityPolicy;
+  version: number;
+  updated_at: string;
+  vehiclesCurrentlyOnSite: number;
+}
+
 export interface PlatformWorkshopRow {
   id: string;
   tenant_id: string;
@@ -324,6 +359,7 @@ export interface PlatformWorkshopRow {
   timezone: string;
   opening_hours: WorkshopOpeningHours | Record<string, unknown>;
   service_duration_policy?: WorkshopServiceDurationPolicy;
+  capacity_policy?: WorkshopCapacityPolicy;
   status: 'active' | 'suspended' | 'closed';
   version: number;
   updated_at: string;

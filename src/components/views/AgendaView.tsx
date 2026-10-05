@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useDemo } from '../../context/DemoContext';
 import { useRouter } from '../../router/RouterContext';
 import {
@@ -24,24 +24,35 @@ import {
   ArrowRight,
   CalendarCheck2,
   Timer,
-  Info
+  Info,
+  Layers,
+  Activity
 } from 'lucide-react';
 import {
   fetchWorkshopAppointments,
   getWorkshopTenantId,
   type WorkshopAppointmentsState
 } from '../../services/workshopAppointments';
-import { listWorkshopCustomers, listWorkshopVehicles } from '../../services/workshopOperations';
+import {
+  listWorkshopCustomers,
+  listWorkshopVehicles,
+  listTenantWorkshops,
+  getWorkshopCapacity,
+  updateAppointmentStatus
+} from '../../services/workshopOperations';
 import { loadHumanSession } from '../../services/humanSession';
 import type { WorkshopCustomer, WorkshopVehicle, WorkshopAppointmentResponse } from '../../types';
 import {
   formatAppointmentSource,
   formatAppointmentStatus,
+  formatCustomerWaitMode,
   type CanonicalAppointmentOrigin,
-  type CanonicalAppointmentStatus
+  type CanonicalAppointmentStatus,
+  type CustomerWaitMode
 } from '../../utils/workshopFormatters';
 import { SpanishPlateBadge } from './DirectorioView';
 import { ManualAppointmentModal } from './ManualAppointmentModal';
+import { WorkshopCapacityConfigSection } from '../admin/views/WorkshopCapacityConfigSection';
 
 export interface AgendaViewProps {
   tenantId?: string | null;
@@ -62,6 +73,7 @@ export interface NormalizedAppointment {
   symptoms: string[];
   durationMinutes: number;
   status: CanonicalAppointmentStatus | string;
+  customerWaitMode?: 'DROP_OFF' | 'WAIT_ON_SITE';
   source: CanonicalAppointmentOrigin;
   evidenceRef?: string | null;
   version?: number;
@@ -132,6 +144,7 @@ export function formatAppointmentForPresentation(
   }
 
   const status: CanonicalAppointmentStatus | string = app.status || 'confirmed';
+  const customerWaitMode: 'DROP_OFF' | 'WAIT_ON_SITE' = app.customer_wait_mode || (app as any).customerWaitMode || 'DROP_OFF';
 
   return {
     id: app.id,
@@ -148,12 +161,40 @@ export function formatAppointmentForPresentation(
     symptoms: app.service_request?.symptoms || [],
     durationMinutes: app.service_request?.estimated_duration_minutes || duration,
     status,
+    customerWaitMode,
     source,
     evidenceRef: app.confirmation_evidence_ref,
     version: app.version,
     raw: app
   };
 }
+
+export const ALLOWED_OPERATIONAL_TRANSITIONS: Record<string, { nextStatus: 'awaiting_arrival' | 'on_site' | 'in_progress' | 'waiting' | 'completed' | 'delivered' | 'cancelled'; label: string; primary?: boolean }[]> = {
+  confirmed: [
+    { nextStatus: 'on_site', label: 'Marcar llegada', primary: true }
+  ],
+  awaiting_arrival: [
+    { nextStatus: 'on_site', label: 'Marcar llegada', primary: true }
+  ],
+  on_site: [
+    { nextStatus: 'in_progress', label: 'Iniciar trabajo', primary: true }
+  ],
+  in_progress: [
+    { nextStatus: 'waiting', label: 'Poner en espera' },
+    { nextStatus: 'completed', label: 'Completar trabajo', primary: true }
+  ],
+  waiting: [
+    { nextStatus: 'in_progress', label: 'Continuar trabajo', primary: true },
+    { nextStatus: 'completed', label: 'Completar trabajo' }
+  ],
+  completed: [
+    { nextStatus: 'delivered', label: 'Entregar vehículo', primary: true }
+  ],
+  delivered: [],
+  cancelled: [],
+  tentative: [],
+  held: []
+};
 
 export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId = null }) => {
   const {
@@ -168,6 +209,11 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
   const urlNew = searchParams.get('new');
   const urlCustomerId = searchParams.get('customerId') || undefined;
   const urlVehicleId = searchParams.get('vehicleId') || undefined;
+
+  // Tabs: 'citas' vs 'capacidad'
+  const [activeTab, setActiveTab] = useState<'citas' | 'capacidad'>(() => {
+    return searchParams.get('tab') === 'capacidad' ? 'capacidad' : 'citas';
+  });
 
   // Tenant Resolution (Prop -> Window/Env -> URL param -> LocalStorage)
   const [activeTenantId, setActiveTenantId] = useState<string | null>(() => {
@@ -185,6 +231,12 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
 
   const [tenantInput, setTenantInput] = useState('');
   const [showTenantModal, setShowTenantModal] = useState(false);
+  const [resolvedWorkshopId, setResolvedWorkshopId] = useState<string | null>(null);
+
+  // Authoritative capacity metrics from backend
+  const [vehiclesCurrentlyOnSite, setVehiclesCurrentlyOnSite] = useState<number | null>(null);
+  const [maxVehiclesOnSite, setMaxVehiclesOnSite] = useState<number>(8);
+  const [statusUpdating, setStatusUpdating] = useState<string | null>(null);
 
   // Automatic Session Resolution: If authenticated, resolve tenant without manual selector
   useEffect(() => {
@@ -229,7 +281,24 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
   // Real Backend Data State
   const [realState, setRealState] = useState<WorkshopAppointmentsState>({ status: 'idle' });
 
-  const loadRealAppointments = async (tId: string) => {
+  const loadCapacityData = useCallback(async (tId: string, wsId: string) => {
+    if (!tId || !wsId) return;
+    try {
+      const res = await getWorkshopCapacity(tId, wsId);
+      if (res.status === 'success' && res.data) {
+        if (typeof res.data.vehiclesCurrentlyOnSite === 'number') {
+          setVehiclesCurrentlyOnSite(res.data.vehiclesCurrentlyOnSite);
+        }
+        if (res.data.capacity_policy?.maxVehiclesOnSite) {
+          setMaxVehiclesOnSite(res.data.capacity_policy.maxVehiclesOnSite);
+        }
+      }
+    } catch {
+      // Ignore
+    }
+  }, []);
+
+  const loadRealAppointments = useCallback(async (tId: string) => {
     if (!tId) {
       setRealState({ status: 'idle' });
       return;
@@ -237,6 +306,14 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
     setRealState({ status: 'loading' });
     const res = await fetchWorkshopAppointments({ tenantId: tId });
     setRealState(res);
+
+    if (res.status === 'success' && res.data && res.data.length > 0 && !resolvedWorkshopId) {
+      const firstWs = res.data[0].workshop_id;
+      if (firstWs) {
+        setResolvedWorkshopId(firstWs);
+        loadCapacityData(tId, firstWs);
+      }
+    }
 
     // Concurrently enrich customer & vehicle directory data for phone numbers & models
     listWorkshopCustomers(tId, { limit: 100 }).then(r => {
@@ -254,13 +331,47 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
         setCachedVehicles(map);
       }
     }).catch(() => {});
-  };
+  }, [loadCapacityData, resolvedWorkshopId]);
 
   useEffect(() => {
     if (!demoModeActive && activeTenantId) {
       loadRealAppointments(activeTenantId);
+      listTenantWorkshops(activeTenantId).then(r => {
+        if (r.status === 'success' && r.data && r.data.length > 0) {
+          const wsId = r.data[0].id;
+          setResolvedWorkshopId(wsId);
+          loadCapacityData(activeTenantId, wsId);
+        }
+      }).catch(() => {});
     }
-  }, [demoModeActive, activeTenantId]);
+  }, [demoModeActive, activeTenantId, loadRealAppointments, loadCapacityData]);
+
+  const handleUpdateAppointmentStatus = async (
+    appt: NormalizedAppointment,
+    nextStatus: 'awaiting_arrival' | 'on_site' | 'in_progress' | 'waiting' | 'completed' | 'delivered' | 'cancelled'
+  ) => {
+    if (!activeTenantId) return;
+    setStatusUpdating(appt.id);
+    const expectedVersion = appt.version ?? 1;
+    const idempotencyKey = `status-${appt.id}-${nextStatus}-${Date.now()}`;
+    const res = await updateAppointmentStatus(activeTenantId, appt.id, {
+      status: nextStatus,
+      expectedVersion,
+      idempotencyKey,
+    });
+    setStatusUpdating(null);
+
+    if (res.status === 'success') {
+      await loadRealAppointments(activeTenantId);
+      const wsId = resolvedWorkshopId || appt.raw?.workshop_id;
+      if (wsId) {
+        await loadCapacityData(activeTenantId, wsId);
+      }
+      setSelectedAppointment(null);
+    } else {
+      alert(res.message || 'Error al actualizar el estado de la cita.');
+    }
+  };
 
   const handleSaveTenantId = (e: React.FormEvent) => {
     e.preventDefault();
@@ -306,6 +417,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
         symptoms: [],
         durationMinutes: app.estimatedDurationMinutes,
         status: app.status,
+        customerWaitMode: 'DROP_OFF',
         source: (app.aiCreated ? 'voice_phone' : 'workshop_manual') as CanonicalAppointmentOrigin,
         version: 1,
         raw: app
@@ -430,479 +542,562 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
     return `${capitalizedDay}, ${fullDate}`;
   }, [currentDate, viewMode, weekDays, isViewingToday]);
 
+  const effectiveWorkshopId = resolvedWorkshopId || allAppointments[0]?.raw?.workshop_id || '';
+
   return (
-    <div className="p-3 sm:p-6 max-w-7xl mx-auto space-y-4 sm:space-y-6 animate-fadeIn">
+    <div className="p-3 sm:p-6 max-w-7xl mx-auto space-y-4 sm:space-y-6 animate-fadeIn w-full max-w-full overflow-x-hidden">
       
       {/* ========================================================================= */}
-      {/* B2. CLEAN AGENDA HEADER (Sin botones superfluos, sólo + Nueva Cita)         */}
+      {/* B2. CLEAN AGENDA HEADER                                                   */}
       {/* ========================================================================= */}
       <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-xs space-y-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="space-y-1">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs font-bold bg-blue-50 text-blue-800 border border-blue-200 px-2.5 py-0.5 rounded-md flex items-center gap-1">
                 <CalendarIcon className="w-3.5 h-3.5 text-blue-600" /> Agenda de Taller
               </span>
               <span className="text-xs text-emerald-800 font-semibold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Conectado
               </span>
+              {/* Read-only Vehicles on Site Metric */}
+              <div className="flex items-center gap-1.5 px-2.5 py-0.5 bg-slate-100 border border-slate-200 rounded-md text-xs font-bold text-slate-700">
+                <Car className="w-3.5 h-3.5 text-blue-600" />
+                <span>Vehículos en taller: <strong className="text-slate-900 font-mono">{vehiclesCurrentlyOnSite ?? 0}</strong> / <span className="text-slate-500 font-mono">{maxVehiclesOnSite}</span></span>
+              </div>
             </div>
             <h1 data-testid="agenda-date-title" className="text-xl sm:text-2xl font-extrabold text-slate-900 tracking-tight capitalize">
-              {headerDateTitle}
+              {activeTab === 'capacidad' ? 'Configuración de Capacidad y Agenda' : headerDateTitle}
             </h1>
             <p className="text-xs text-slate-500">
-              Control cronológico de entradas de taller, recepción telefónica IA y citas programadas.
+              {activeTab === 'capacidad'
+                ? 'Gestión de aforo, puestos de trabajo, elevadores y horarios de apertura del taller.'
+                : 'Control cronológico de entradas de taller, recepción telefónica IA y citas programadas.'}
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
-            {/* View Mode Toggle: Día | Semana */}
+            {/* Surface Tabs: Citas vs Capacidad y Agenda */}
             <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-bold">
               <button
                 type="button"
-                data-testid="toggle-day-view"
-                onClick={() => setViewMode('day')}
-                className={`px-4 py-2 rounded-lg transition ${
-                  viewMode === 'day'
+                data-testid="tab-citas"
+                onClick={() => setActiveTab('citas')}
+                className={`px-3.5 py-2 rounded-lg transition cursor-pointer min-h-[44px] sm:min-h-0 flex items-center gap-1.5 ${
+                  activeTab === 'citas'
                     ? 'bg-white text-blue-600 shadow-2xs font-extrabold'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                Día
+                <CalendarIcon className="w-3.5 h-3.5" />
+                <span>Citas</span>
               </button>
               <button
                 type="button"
-                data-testid="toggle-week-view"
-                onClick={() => setViewMode('week')}
-                className={`px-4 py-2 rounded-lg transition ${
-                  viewMode === 'week'
+                data-testid="tab-capacidad"
+                onClick={() => setActiveTab('capacidad')}
+                className={`px-3.5 py-2 rounded-lg transition cursor-pointer min-h-[44px] sm:min-h-0 flex items-center gap-1.5 ${
+                  activeTab === 'capacidad'
                     ? 'bg-white text-blue-600 shadow-2xs font-extrabold'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                Semana
+                <Layers className="w-3.5 h-3.5" />
+                <span>Capacidad y Agenda</span>
               </button>
             </div>
 
-            {/* Primary Action Button: + Nueva Cita */}
-            {activeTenantId && (
-              <button
-                type="button"
-                onClick={() => setIsManualAppointmentModalOpen(true)}
-                className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer min-h-[44px]"
-                title="Crear cita manual de taller"
-              >
-                <Plus className="w-4 h-4" />
-                <span>+ Nueva Cita</span>
-              </button>
-            )}
-
-            {/* Sync Button (real mode only) */}
-            {!demoModeActive && activeTenantId && (
-              <button
-                type="button"
-                onClick={() => loadRealAppointments(activeTenantId)}
-                disabled={realState.status === 'loading'}
-                className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition border border-slate-300 disabled:opacity-50 min-h-[44px]"
-                title="Actualizar agenda con el taller"
-              >
-                <RotateCcw className={`w-3.5 h-3.5 ${realState.status === 'loading' ? 'animate-spin' : ''}`} />
-                <span className="hidden sm:inline">Sincronizar</span>
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Date Navigation Controls */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-slate-100">
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handlePrev}
-              className="p-2.5 bg-slate-50 hover:bg-slate-100 active:bg-slate-200 border border-slate-200 rounded-xl text-slate-700 transition cursor-pointer min-h-[44px] min-w-[44px] flex items-center justify-center"
-              title="Día o período anterior"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <button
-              type="button"
-              onClick={handleToday}
-              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition min-h-[44px] ${
-                isViewingToday
-                  ? 'bg-blue-600 text-white shadow-2xs font-extrabold'
-                  : 'bg-slate-100 hover:bg-slate-200 text-slate-800'
-              }`}
-            >
-              Hoy
-            </button>
-            <button
-              type="button"
-              onClick={handleNext}
-              className="p-2.5 bg-slate-50 hover:bg-slate-100 active:bg-slate-200 border border-slate-200 rounded-xl text-slate-700 transition cursor-pointer min-h-[44px] min-w-[44px] flex items-center justify-center"
-              title="Día o período siguiente"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
-
-            <span className="text-sm font-extrabold text-slate-900 capitalize ml-2">
-              {viewMode === 'day' ? currentDate.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' }) : 'Vista Semanal'}
-            </span>
-          </div>
-
-          {/* Canonical Status Legend */}
-          <div className="flex items-center gap-3 text-xs text-slate-600 font-mono">
-            <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> Confirmada
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span> Tentativa
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-slate-300"></span> Hueco libre
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* ========================================================================= */}
-      {/* B3. OPERATIONAL SUMMARY STRIP (Franja operativa observable del día)       */}
-      {/* ========================================================================= */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="bg-white border border-slate-200 rounded-2xl p-3.5 shadow-2xs">
-          <div className="flex items-center gap-2 text-slate-500 mb-1">
-            <CalendarCheck2 className="w-4 h-4 text-blue-600" />
-            <span className="text-[11px] font-bold uppercase tracking-wider">Citas del día</span>
-          </div>
-          <p className="text-xl sm:text-2xl font-black text-slate-900 font-mono">
-            {dayMetrics.totalCount}
-          </p>
-          <p className="text-[11px] text-slate-500 mt-0.5">
-            {dayMetrics.totalCount === 0 ? 'Sin citas programadas' : `${dayMetrics.totalCount} vehículo(s) en agenda`}
-          </p>
-        </div>
-
-        <div className="bg-white border border-slate-200 rounded-2xl p-3.5 shadow-2xs">
-          <div className="flex items-center gap-2 text-slate-500 mb-1">
-            <Clock className="w-4 h-4 text-emerald-600" />
-            <span className="text-[11px] font-bold uppercase tracking-wider">Primera entrada</span>
-          </div>
-          <p className="text-xl sm:text-2xl font-black text-slate-900 font-mono">
-            {dayMetrics.firstAppointmentTime ? `${dayMetrics.firstAppointmentTime} h` : '—'}
-          </p>
-          <p className="text-[11px] text-slate-500 mt-0.5">
-            {dayMetrics.firstAppointmentTime ? 'Hora de primera recepción' : 'Sin aperturas hoy'}
-          </p>
-        </div>
-
-        <div className="bg-white border border-slate-200 rounded-2xl p-3.5 shadow-2xs">
-          <div className="flex items-center gap-2 text-slate-500 mb-1">
-            <Timer className="w-4 h-4 text-indigo-600" />
-            <span className="text-[11px] font-bold uppercase tracking-wider">Carga estimada</span>
-          </div>
-          <p className="text-xl sm:text-2xl font-black text-slate-900 font-mono">
-            {dayMetrics.totalHours}h {dayMetrics.remainingMinutes > 0 ? `${dayMetrics.remainingMinutes}m` : ''}
-          </p>
-          <p className="text-[11px] text-slate-500 mt-0.5">
-            Tiempo de mano de obra
-          </p>
-        </div>
-
-        <div className="bg-white border border-slate-200 rounded-2xl p-3.5 shadow-2xs">
-          <div className="flex items-center gap-2 text-slate-500 mb-1">
-            <CheckCircle2 className="w-4 h-4 text-amber-600" />
-            <span className="text-[11px] font-bold uppercase tracking-wider">Estados</span>
-          </div>
-          <div className="flex items-center gap-2 mt-1">
-            <span className="text-xs font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
-              {dayMetrics.confirmedCount} conf.
-            </span>
-            {dayMetrics.tentativeCount > 0 && (
-              <span className="text-xs font-bold px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">
-                {dayMetrics.tentativeCount} tent.
-              </span>
-            )}
-          </div>
-          <p className="text-[11px] text-slate-500 mt-1">
-            Validación en sistema
-          </p>
-        </div>
-      </div>
-
-      {/* Backend Status State (When not in demo mode) */}
-      {!demoModeActive && realState.status === 'loading' && (
-        <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center shadow-xs space-y-2">
-          <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
-          <p className="text-xs font-semibold text-slate-600">Consultando citas reales del taller...</p>
-        </div>
-      )}
-
-      {!demoModeActive && realState.status === 'unauthorized' && (
-        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-xs text-amber-900 flex items-start gap-3">
-          <Lock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-          <div className="space-y-1">
-            <p className="font-bold">Sesión requerida para consultar la agenda</p>
-            <p className="text-amber-800">{realState.message} (Mostrando vista operativa mientras se completa el inicio de sesión).</p>
-          </div>
-        </div>
-      )}
-
-      {!demoModeActive && realState.status === 'error' && (
-        <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 text-xs text-rose-900 flex items-start gap-3">
-          <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-          <div>
-            <p className="font-bold">Error al consultar la agenda del taller</p>
-            <p className="text-rose-800">{realState.message}</p>
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* B4 & B13. DAY VIEW (VISTA DÍA — 1 COLUMNA CRONOLÓGICA USABLE EN 390PX)     */}
-      {/* ========================================================================= */}
-      {viewMode === 'day' && (
-        <div className="space-y-3">
-          {dayAppointments.length === 0 ? (
-            /* Empty State for Day */
-            <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center shadow-xs space-y-4">
-              <div className="w-14 h-14 bg-slate-100 border border-slate-200 rounded-2xl flex items-center justify-center mx-auto text-slate-400">
-                <CalendarIcon className="w-7 h-7" />
-              </div>
-              <div className="space-y-1 max-w-sm mx-auto">
-                <h3 className="text-base font-extrabold text-slate-900">
-                  No hay citas programadas para este día
-                </h3>
-                <p className="text-xs text-slate-500">
-                  Puedes registrar una cita manualmente o las reservas acordadas por la recepción telefónica IA se reflejarán automáticamente.
-                </p>
-              </div>
-              {activeTenantId && (
-                <button
-                  type="button"
-                  onClick={() => setIsManualAppointmentModalOpen(true)}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer min-h-[44px]"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>+ Crear Cita para este día</span>
-                </button>
-              )}
-            </div>
-          ) : (
-            /* Chronological Appointment Cards */
-            <div className="space-y-3">
-              {dayAppointments.map(app => {
-                const statusMeta = formatAppointmentStatus(app.status);
-                const sourceMeta = formatAppointmentSource(app.source);
-
-                return (
-                  <div
-                    key={app.id}
-                    onClick={() => setSelectedAppointment(app)}
-                    className="telemetry-strip-cobalt bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-xs hover:border-blue-400 hover:shadow-md transition-all cursor-pointer group flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+            {activeTab === 'citas' && (
+              <>
+                {/* View Mode Toggle: Día | Semana */}
+                <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-bold">
+                  <button
+                    type="button"
+                    data-testid="toggle-day-view"
+                    onClick={() => setViewMode('day')}
+                    className={`px-4 py-2 rounded-lg transition cursor-pointer min-h-[44px] sm:min-h-0 ${
+                      viewMode === 'day'
+                        ? 'bg-white text-blue-600 shadow-2xs font-extrabold'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
                   >
-                    {/* Visual Hierarchy: 1. Hora -> 2. Matrícula -> 3. Vehículo -> 4. Cliente -> 5. Motivo */}
-                    <div className="flex items-start gap-3.5 sm:gap-4 flex-1">
-                      
-                      {/* 1. Hora */}
-                      <div className="bg-blue-50 border border-blue-200 px-3 py-2.5 rounded-xl text-center shrink-0 font-mono min-w-[76px] flex flex-col justify-center">
-                        <span className="text-[10px] font-bold text-blue-600 block uppercase tracking-wider">Entrada</span>
-                        <span className="text-base font-black text-blue-900 leading-tight">{app.timeStr}</span>
-                        <span className="text-[10px] text-blue-700 font-medium">{app.endStr}</span>
-                      </div>
+                    Día
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="toggle-week-view"
+                    onClick={() => setViewMode('week')}
+                    className={`px-4 py-2 rounded-lg transition cursor-pointer min-h-[44px] sm:min-h-0 ${
+                      viewMode === 'week'
+                        ? 'bg-white text-blue-600 shadow-2xs font-extrabold'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Semana
+                  </button>
+                </div>
 
-                      {/* Content block */}
-                      <div className="space-y-1.5 flex-1 min-w-0">
-                        {/* 2. Matrícula + 3. Vehículo + Tags */}
-                        <div className="flex flex-wrap items-center gap-2">
-                          <SpanishPlateBadge plate={app.vehiclePlate} />
-                          {app.vehicleInfo && (
-                            <span className="text-xs font-extrabold text-slate-800 flex items-center gap-1">
-                              <Car className="w-3.5 h-3.5 text-slate-400" />
-                              {app.vehicleInfo}
-                            </span>
-                          )}
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded border shrink-0 ${sourceMeta.bg} ${sourceMeta.text} ${sourceMeta.border}`}>
-                            {sourceMeta.label}
-                          </span>
-                        </div>
+                {/* Primary Action Button: + Nueva Cita */}
+                {(activeTenantId || demoModeActive) && (
+                  <button
+                    type="button"
+                    data-testid="button-nueva-cita"
+                    onClick={() => setIsManualAppointmentModalOpen(true)}
+                    className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer min-h-[44px]"
+                    title="Crear cita manual de taller"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>+ Nueva Cita</span>
+                  </button>
+                )}
 
-                        {/* 4. Cliente */}
-                        <div className="flex items-center gap-2 text-xs">
-                          <span className="text-slate-400 font-medium">Cliente:</span>
-                          <span className="font-extrabold text-slate-900 truncate">
-                            {app.customerName}
-                          </span>
-                          {app.customerPhone && (
-                            <span className="text-slate-500 font-mono text-[11px] hidden sm:inline">
-                              · {app.customerPhone}
-                            </span>
-                          )}
-                        </div>
+                {/* Sync Button (real mode only) */}
+                {!demoModeActive && activeTenantId && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      loadRealAppointments(activeTenantId);
+                      if (effectiveWorkshopId) loadCapacityData(activeTenantId, effectiveWorkshopId);
+                    }}
+                    disabled={realState.status === 'loading'}
+                    className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition border border-slate-300 disabled:opacity-50 min-h-[44px] cursor-pointer"
+                    title="Actualizar agenda con el taller"
+                  >
+                    <RotateCcw className={`w-3.5 h-3.5 ${realState.status === 'loading' ? 'animate-spin' : ''}`} />
+                    <span className="hidden sm:inline">Sincronizar</span>
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        </div>
 
-                        {/* 5. Motivo / Trabajo */}
-                        <div className="text-xs text-slate-700 font-semibold truncate">
-                          {app.serviceTitle}
-                        </div>
+        {/* Date Navigation Controls (visible only in Citas tab) */}
+        {activeTab === 'citas' && (
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-slate-100">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handlePrev}
+                className="p-2.5 bg-slate-50 hover:bg-slate-100 active:bg-slate-200 border border-slate-200 rounded-xl text-slate-700 transition cursor-pointer min-h-[44px] min-w-[44px] flex items-center justify-center"
+                title="Día o período anterior"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={handleToday}
+                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition min-h-[44px] cursor-pointer ${
+                  isViewingToday
+                    ? 'bg-blue-600 text-white shadow-2xs font-extrabold'
+                    : 'bg-slate-100 hover:bg-slate-200 text-slate-800'
+                }`}
+              >
+                Hoy
+              </button>
+              <button
+                type="button"
+                onClick={handleNext}
+                className="p-2.5 bg-slate-50 hover:bg-slate-100 active:bg-slate-200 border border-slate-200 rounded-xl text-slate-700 transition cursor-pointer min-h-[44px] min-w-[44px] flex items-center justify-center"
+                title="Día o período siguiente"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
 
-                        {/* Symptoms tags if any */}
-                        {app.symptoms.length > 0 && (
-                          <div className="flex flex-wrap gap-1 pt-0.5">
-                            {app.symptoms.map((symptom, idx) => (
-                              <span
-                                key={idx}
-                                className="text-[10px] bg-slate-100 text-slate-600 border border-slate-200 px-2 py-0.5 rounded-md"
-                              >
-                                {symptom}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
+              <span className="text-sm font-extrabold text-slate-900 capitalize ml-2">
+                {viewMode === 'day' ? currentDate.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' }) : 'Vista Semanal'}
+              </span>
+            </div>
 
-                    {/* 6. Estado canónico y métricas en extremo derecho */}
-                    <div className="flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100 shrink-0">
-                      <span className="text-xs text-slate-500 font-mono flex items-center gap-1">
-                        <Clock className="w-3.5 h-3.5 text-slate-400" /> {app.durationMinutes} min
-                      </span>
-                      <span className={`text-xs font-bold px-3 py-1.5 rounded-xl border flex items-center gap-1.5 ${statusMeta.bg} ${statusMeta.text} ${statusMeta.border}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${statusMeta.dotColor}`}></span>
-                        {statusMeta.label}
-                      </span>
-                      <span className="text-slate-400 group-hover:text-blue-600 transition pl-1 hidden sm:inline">
-                        <ArrowRight className="w-4 h-4" />
-                      </span>
-                    </div>
+            {/* Canonical Status Legend */}
+            <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600 font-mono">
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> Confirmada
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-cyan-500"></span> En taller
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-indigo-500"></span> En trabajo
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span> En espera
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-slate-300"></span> Libre
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
 
-                  </div>
-                );
-              })}
+      {/* ========================================================================= */}
+      {/* TAB: CAPACIDAD Y AGENDA (SUPERFICIE WORKSHOP PARA OWNER/MANAGER)           */}
+      {/* ========================================================================= */}
+      {activeTab === 'capacidad' && (
+        <div className="space-y-4">
+          <WorkshopCapacityConfigSection
+            tenantId={activeTenantId || '11111111-1111-4111-8111-111111111111'}
+            workshopId={effectiveWorkshopId}
+            surface="workshop"
+            onWorkshopUpdated={() => {
+              if (activeTenantId) {
+                loadRealAppointments(activeTenantId);
+                if (effectiveWorkshopId) {
+                  loadCapacityData(activeTenantId, effectiveWorkshopId);
+                }
+              }
+            }}
+          />
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* TAB: CITAS (DÍA / SEMANA)                                                 */}
+      {/* ========================================================================= */}
+      {activeTab === 'citas' && (
+        <>
+          {/* Operational Summary Strip */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="bg-white border border-slate-200 rounded-2xl p-3.5 shadow-2xs">
+              <div className="flex items-center gap-2 text-slate-500 mb-1">
+                <CalendarCheck2 className="w-4 h-4 text-blue-600" />
+                <span className="text-[11px] font-bold uppercase tracking-wider">Citas del día</span>
+              </div>
+              <p className="text-xl sm:text-2xl font-black text-slate-900 font-mono">
+                {dayMetrics.totalCount}
+              </p>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                {dayMetrics.totalCount === 0 ? 'Sin citas programadas' : `${dayMetrics.totalCount} vehículo(s) en agenda`}
+              </p>
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-2xl p-3.5 shadow-2xs">
+              <div className="flex items-center gap-2 text-slate-500 mb-1">
+                <Clock className="w-4 h-4 text-emerald-600" />
+                <span className="text-[11px] font-bold uppercase tracking-wider">Primera entrada</span>
+              </div>
+              <p className="text-xl sm:text-2xl font-black text-slate-900 font-mono">
+                {dayMetrics.firstAppointmentTime ? `${dayMetrics.firstAppointmentTime} h` : '—'}
+              </p>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                {dayMetrics.firstAppointmentTime ? 'Hora de primera recepción' : 'Sin aperturas hoy'}
+              </p>
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-2xl p-3.5 shadow-2xs">
+              <div className="flex items-center gap-2 text-slate-500 mb-1">
+                <Timer className="w-4 h-4 text-indigo-600" />
+                <span className="text-[11px] font-bold uppercase tracking-wider">Carga estimada</span>
+              </div>
+              <p className="text-xl sm:text-2xl font-black text-slate-900 font-mono">
+                {dayMetrics.totalHours}h {dayMetrics.remainingMinutes > 0 ? `${dayMetrics.remainingMinutes}m` : ''}
+              </p>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                Tiempo de mano de obra
+              </p>
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-2xl p-3.5 shadow-2xs">
+              <div className="flex items-center gap-2 text-slate-500 mb-1">
+                <CheckCircle2 className="w-4 h-4 text-amber-600" />
+                <span className="text-[11px] font-bold uppercase tracking-wider">Aforo Taller</span>
+              </div>
+              <div className="flex items-center gap-2 mt-1">
+                <span className="text-xs font-bold px-2 py-0.5 rounded bg-blue-50 text-blue-800 border border-blue-200 font-mono">
+                  {vehiclesCurrentlyOnSite ?? 0} en taller
+                </span>
+                <span className="text-xs font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200 font-mono">
+                  máx {maxVehiclesOnSite}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500 mt-1">
+                Aforo en tiempo real
+              </p>
+            </div>
+          </div>
+
+          {/* Backend Status State (When not in demo mode) */}
+          {!demoModeActive && realState.status === 'loading' && (
+            <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center shadow-xs space-y-2">
+              <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
+              <p className="text-xs font-semibold text-slate-600">Consultando citas reales del taller...</p>
             </div>
           )}
-        </div>
-      )}
 
-      {/* ========================================================================= */}
-      {/* B12. WEEK VIEW (VISTA SEMANAL — RESUMEN COMPACTO LUNES A SÁBADO)          */}
-      {/* ========================================================================= */}
-      {viewMode === 'week' && (
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
-          <div className="overflow-x-auto">
-            <div className="min-w-[850px]">
-              
-              {/* Day Headers */}
-              <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50/80 sticky top-0 z-10">
-                <div className="p-3 text-center border-r border-slate-200 text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center justify-center">
-                  Hora
-                </div>
-                {weekDays.map(day => {
-                  const dayApps = allAppointments.filter(a => a.dateStr === day.dateStr);
-                  const isDayToday = (
-                    day.date.getFullYear() === getTodayReference().getFullYear() &&
-                    day.date.getMonth() === getTodayReference().getMonth() &&
-                    day.date.getDate() === getTodayReference().getDate()
-                  );
-
-                  return (
-                    <div
-                      key={day.dateStr}
-                      onClick={() => {
-                        setCurrentDate(day.date);
-                        setViewMode('day');
-                      }}
-                      className={`p-3 text-center border-r border-slate-200 cursor-pointer transition hover:bg-blue-50/50 ${
-                        isDayToday ? 'bg-blue-50/80 border-b-2 border-b-blue-600' : ''
-                      }`}
-                      title={`Ver citas del ${day.fullDayName}`}
-                    >
-                      <span className="text-xs font-bold text-slate-500 uppercase block">{day.dayName}</span>
-                      <span className="text-base font-extrabold text-slate-900 block font-mono">{day.dayNum}</span>
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full inline-block mt-0.5 ${
-                        dayApps.length > 0 ? 'bg-blue-100 text-blue-800' : 'bg-slate-200 text-slate-600'
-                      }`}>
-                        {dayApps.length} {dayApps.length === 1 ? 'cita' : 'citas'}
-                      </span>
-                    </div>
-                  );
-                })}
+          {!demoModeActive && realState.status === 'unauthorized' && (
+            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-xs text-amber-900 flex items-start gap-3">
+              <Lock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="font-bold">Sesión requerida para consultar la agenda</p>
+                <p className="text-amber-800">{realState.message} (Mostrando vista operativa mientras se completa el inicio de sesión).</p>
               </div>
+            </div>
+          )}
 
-              {/* Hourly Grid Rows */}
-              <div className="divide-y divide-slate-100">
-                {hours.map(hour => {
-                  const hourInt = parseInt(hour.split(':')[0], 10);
+          {!demoModeActive && realState.status === 'error' && (
+            <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 text-xs text-rose-900 flex items-start gap-3">
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold">Error al consultar la agenda del taller</p>
+                <p className="text-rose-800">{realState.message}</p>
+              </div>
+            </div>
+          )}
 
-                  return (
-                    <div key={hour} className="grid grid-cols-7 min-h-[75px]">
-                      {/* Hour Column */}
-                      <div className="p-2 border-r border-slate-200 text-center text-xs font-mono font-bold text-slate-400 bg-slate-50/40 flex items-start justify-center pt-2">
-                        {hour}
-                      </div>
+          {/* DAY VIEW */}
+          {viewMode === 'day' && (
+            <div className="space-y-3">
+              {dayAppointments.length === 0 ? (
+                <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center shadow-xs space-y-4">
+                  <div className="w-14 h-14 bg-slate-100 border border-slate-200 rounded-2xl flex items-center justify-center mx-auto text-slate-400">
+                    <CalendarIcon className="w-7 h-7" />
+                  </div>
+                  <div className="space-y-1 max-w-sm mx-auto">
+                    <h3 className="text-base font-extrabold text-slate-900">
+                      No hay citas programadas para este día
+                    </h3>
+                    <p className="text-xs text-slate-500 leading-relaxed">
+                      El taller no tiene entradas registradas para esta jornada. Puedes programar una nueva cita con el botón superior.
+                    </p>
+                  </div>
+                  {(activeTenantId || demoModeActive) && (
+                    <button
+                      type="button"
+                      onClick={() => setIsManualAppointmentModalOpen(true)}
+                      className="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer min-h-[44px]"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Agendar Cita en este Día</span>
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  {dayAppointments.map(app => {
+                    const sourceMeta = formatAppointmentSource(app.source);
+                    const statusMeta = formatAppointmentStatus(app.status);
+                    const waitModeMeta = formatCustomerWaitMode(app.customerWaitMode);
 
-                      {/* 6 Day Columns for this hour */}
-                      {weekDays.map(day => {
-                        const cellApps = allAppointments.filter(a => {
-                          if (a.dateStr !== day.dateStr) return false;
-                          const aHour = parseInt(a.timeStr.split(':')[0], 10);
-                          return aHour === hourInt;
-                        });
+                    return (
+                      <div
+                        key={app.id}
+                        onClick={() => setSelectedAppointment(app)}
+                        className="telemetry-strip-cobalt bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-xs hover:border-blue-400 hover:shadow-md transition-all cursor-pointer group flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                      >
+                        {/* Visual Hierarchy: 1. Hora -> 2. Matrícula -> 3. Vehículo -> 4. Cliente -> 5. Motivo */}
+                        <div className="flex items-start gap-3.5 sm:gap-4 flex-1">
+                          
+                          {/* 1. Hora */}
+                          <div className="bg-blue-50 border border-blue-200 px-3 py-2.5 rounded-xl text-center shrink-0 font-mono min-w-[76px] flex flex-col justify-center">
+                            <span className="text-[10px] font-bold text-blue-600 block uppercase tracking-wider">Entrada</span>
+                            <span className="text-base font-black text-blue-900 leading-tight">{app.timeStr}</span>
+                            <span className="text-[10px] text-blue-700 font-medium">{app.endStr}</span>
+                          </div>
 
-                        return (
-                          <div
-                            key={day.dateStr}
-                            className="p-1.5 border-r border-slate-100 hover:bg-slate-50/60 transition relative flex flex-col gap-1.5"
-                          >
-                            {cellApps.map(app => {
-                              const statusMeta = formatAppointmentStatus(app.status);
-                              return (
-                                <button
-                                  key={app.id}
-                                  type="button"
-                                  onClick={() => setSelectedAppointment(app)}
-                                  className="w-full text-left p-2 rounded-xl border bg-blue-50/90 border-blue-300 shadow-2xs hover:bg-blue-100 transition-all flex flex-col gap-1 group cursor-pointer"
-                                >
-                                  <div className="flex items-center justify-between">
-                                    <span className="font-extrabold text-blue-800 text-[11px] font-mono">
-                                      {app.timeStr}
-                                    </span>
-                                    <SpanishPlateBadge plate={app.vehiclePlate} className="scale-90 origin-right" />
-                                  </div>
-                                  <p className="text-xs font-bold text-slate-900 truncate leading-tight">
-                                    {app.serviceTitle}
-                                  </p>
-                                  <div className="flex items-center justify-between text-[10px] text-slate-600">
-                                    <span className="truncate max-w-[90px]">{app.customerName}</span>
-                                    <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded border ${statusMeta.bg} ${statusMeta.text} ${statusMeta.border}`}>
-                                      {statusMeta.label}
-                                    </span>
-                                  </div>
-                                </button>
-                              );
-                            })}
+                          {/* Content block */}
+                          <div className="space-y-1.5 flex-1 min-w-0">
+                            {/* 2. Matrícula + 3. Vehículo + Tags */}
+                            <div className="flex flex-wrap items-center gap-2">
+                              <SpanishPlateBadge plate={app.vehiclePlate} />
+                              {app.vehicleInfo && (
+                                <span className="text-xs font-extrabold text-slate-800 flex items-center gap-1">
+                                  <Car className="w-3.5 h-3.5 text-slate-400" />
+                                  {app.vehicleInfo}
+                                </span>
+                              )}
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded border shrink-0 ${sourceMeta.bg} ${sourceMeta.text} ${sourceMeta.border}`}>
+                                {sourceMeta.label}
+                              </span>
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded border shrink-0 ${waitModeMeta.bg} ${waitModeMeta.text} ${waitModeMeta.border}`}>
+                                {waitModeMeta.label}
+                              </span>
+                            </div>
 
-                            {cellApps.length === 0 && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setCurrentDate(new Date(day.date));
-                                  setViewMode('day');
-                                }}
-                                title={`Ver planificación del ${day.fullDayName} ${day.dayNum} a las ${hour}`}
-                                className="h-full w-full rounded-lg border border-dashed border-transparent hover:border-slate-300 flex items-center justify-center text-[10px] text-slate-300 hover:text-slate-600 hover:bg-slate-50 cursor-pointer transition-colors"
-                              >
-                                + Libre
-                              </button>
+                            {/* 4. Cliente */}
+                            <div className="flex items-center gap-2 text-xs">
+                              <span className="text-slate-400 font-medium">Cliente:</span>
+                              <span className="font-extrabold text-slate-900 truncate">
+                                {app.customerName}
+                              </span>
+                              {app.customerPhone && (
+                                <span className="text-slate-500 font-mono text-[11px] hidden sm:inline">
+                                  · {app.customerPhone}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* 5. Motivo / Trabajo */}
+                            <div className="text-xs text-slate-700 font-semibold truncate">
+                              {app.serviceTitle}
+                            </div>
+
+                            {/* Symptoms tags if any */}
+                            {app.symptoms.length > 0 && (
+                              <div className="flex flex-wrap gap-1 pt-0.5">
+                                {app.symptoms.map((symptom, idx) => (
+                                  <span
+                                    key={idx}
+                                    className="text-[10px] bg-slate-100 text-slate-600 border border-slate-200 px-2 py-0.5 rounded-md"
+                                  >
+                                    {symptom}
+                                  </span>
+                                ))}
+                              </div>
                             )}
                           </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })}
-              </div>
+                        </div>
 
+                        {/* 6. Estado canónico y métricas en extremo derecho */}
+                        <div className="flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100 shrink-0">
+                          <span className="text-xs text-slate-500 font-mono flex items-center gap-1">
+                            <Clock className="w-3.5 h-3.5 text-slate-400" /> {app.durationMinutes} min
+                          </span>
+                          <span className={`text-xs font-bold px-3 py-1.5 rounded-xl border flex items-center gap-1.5 ${statusMeta.bg} ${statusMeta.text} ${statusMeta.border}`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${statusMeta.dotColor}`}></span>
+                            {statusMeta.label}
+                          </span>
+                          <span className="text-slate-400 group-hover:text-blue-600 transition pl-1 hidden sm:inline">
+                            <ArrowRight className="w-4 h-4" />
+                          </span>
+                        </div>
+
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
-          </div>
-        </div>
+          )}
+
+          {/* WEEK VIEW */}
+          {viewMode === 'week' && (
+            <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
+              <div className="overflow-x-auto">
+                <div className="min-w-[700px]">
+                  
+                  {/* Weekday Column Headers */}
+                  <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50">
+                    <div className="p-3 text-center border-r border-slate-200 text-xs font-bold text-slate-400 flex items-center justify-center font-mono">
+                      Hora
+                    </div>
+                    {weekDays.map(day => {
+                      const dayApps = allAppointments.filter(a => a.dateStr === day.dateStr);
+                      const isDayToday = (
+                        day.date.getFullYear() === getTodayReference().getFullYear() &&
+                        day.date.getMonth() === getTodayReference().getMonth() &&
+                        day.date.getDate() === getTodayReference().getDate()
+                      );
+
+                      return (
+                        <div
+                          key={day.dateStr}
+                          onClick={() => {
+                            setCurrentDate(day.date);
+                            setViewMode('day');
+                          }}
+                          className={`p-3 text-center border-r border-slate-200 cursor-pointer transition hover:bg-blue-50/50 ${
+                            isDayToday ? 'bg-blue-50/80 border-b-2 border-b-blue-600' : ''
+                          }`}
+                          title={`Ver citas del ${day.fullDayName}`}
+                        >
+                          <span className="text-xs font-bold text-slate-500 uppercase block">{day.dayName}</span>
+                          <span className="text-base font-extrabold text-slate-900 block font-mono">{day.dayNum}</span>
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full inline-block mt-0.5 ${
+                            dayApps.length > 0 ? 'bg-blue-100 text-blue-800' : 'bg-slate-200 text-slate-600'
+                          }`}>
+                            {dayApps.length} {dayApps.length === 1 ? 'cita' : 'citas'}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Hourly Grid Rows */}
+                  <div className="divide-y divide-slate-100">
+                    {hours.map(hour => {
+                      const hourInt = parseInt(hour.split(':')[0], 10);
+
+                      return (
+                        <div key={hour} className="grid grid-cols-7 min-h-[75px]">
+                          {/* Hour Column */}
+                          <div className="p-2 border-r border-slate-200 text-center text-xs font-mono font-bold text-slate-400 bg-slate-50/40 flex items-start justify-center pt-2">
+                            {hour}
+                          </div>
+
+                          {/* 6 Day Columns for this hour */}
+                          {weekDays.map(day => {
+                            const cellApps = allAppointments.filter(a => {
+                              if (a.dateStr !== day.dateStr) return false;
+                              const aHour = parseInt(a.timeStr.split(':')[0], 10);
+                              return aHour === hourInt;
+                            });
+
+                            return (
+                              <div
+                                key={day.dateStr}
+                                className="p-1.5 border-r border-slate-100 hover:bg-slate-50/60 transition relative flex flex-col gap-1.5"
+                              >
+                                {cellApps.map(app => {
+                                  const statusMeta = formatAppointmentStatus(app.status);
+                                  const waitModeMeta = formatCustomerWaitMode(app.customerWaitMode);
+                                  return (
+                                    <button
+                                      key={app.id}
+                                      type="button"
+                                      onClick={() => setSelectedAppointment(app)}
+                                      className="w-full text-left p-2 rounded-xl border bg-blue-50/90 border-blue-300 shadow-2xs hover:bg-blue-100 transition-all flex flex-col gap-1 group cursor-pointer"
+                                    >
+                                      <div className="flex items-center justify-between">
+                                        <span className="font-extrabold text-blue-800 text-[11px] font-mono">
+                                          {app.timeStr}
+                                        </span>
+                                        <SpanishPlateBadge plate={app.vehiclePlate} className="scale-90 origin-right" />
+                                      </div>
+                                      <p className="text-xs font-bold text-slate-900 truncate leading-tight">
+                                        {app.serviceTitle}
+                                      </p>
+                                      <div className="flex items-center justify-between text-[10px] text-slate-600">
+                                        <span className="truncate max-w-[90px]">{app.customerName}</span>
+                                        <div className="flex items-center gap-1">
+                                          <span className={`text-[9px] font-bold px-1 rounded border ${waitModeMeta.bg} ${waitModeMeta.text} ${waitModeMeta.border}`}>
+                                            {waitModeMeta.label}
+                                          </span>
+                                          <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded border ${statusMeta.bg} ${statusMeta.text} ${statusMeta.border}`}>
+                                            {statusMeta.label}
+                                          </span>
+                                        </div>
+                                      </div>
+                                    </button>
+                                  );
+                                })}
+
+                                {cellApps.length === 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setCurrentDate(new Date(day.date));
+                                      setViewMode('day');
+                                    }}
+                                    title={`Ver planificación del ${day.fullDayName} ${day.dayNum} a las ${hour}`}
+                                    className="h-full w-full rounded-lg border border-dashed border-transparent hover:border-slate-300 flex items-center justify-center text-[10px] text-slate-300 hover:text-slate-600 hover:bg-slate-50 cursor-pointer transition-colors"
+                                  >
+                                    + Libre
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                </div>
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {/* ========================================================================= */}
@@ -935,6 +1130,14 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
                       </span>
                     );
                   })()}
+                  {(() => {
+                    const wm = formatCustomerWaitMode(selectedAppointment.customerWaitMode);
+                    return (
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded border ${wm.bg} ${wm.text} ${wm.border}`}>
+                        {wm.label}
+                      </span>
+                    );
+                  })()}
                 </div>
                 <h3 className="text-base sm:text-lg font-extrabold text-slate-900">
                   {selectedAppointment.serviceTitle}
@@ -952,23 +1155,58 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
 
             {/* Modal Body */}
             <div className="space-y-3 text-xs">
-              {/* Horario y Duración */}
-              <div className="grid grid-cols-2 gap-3 p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+              {/* Horario, Duración y Modo de Estancia */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
                 <div>
-                  <span className="text-[11px] text-slate-500 font-bold uppercase block">Fecha y Horario</span>
+                  <span className="text-[11px] text-slate-500 font-bold uppercase block">Horario</span>
                   <p className="font-black text-slate-900 text-sm font-mono mt-0.5">
-                    {selectedAppointment.dateStr} · {selectedAppointment.timeStr} – {selectedAppointment.endStr}
+                    {selectedAppointment.timeStr} – {selectedAppointment.endStr}
                   </p>
                 </div>
                 <div>
-                  <span className="text-[11px] text-slate-500 font-bold uppercase block">Duración Estimada</span>
+                  <span className="text-[11px] text-slate-500 font-bold uppercase block">Duración</span>
                   <p className="font-bold text-slate-800 text-sm mt-0.5">
-                    {selectedAppointment.durationMinutes} minutos
+                    {selectedAppointment.durationMinutes} min
+                  </p>
+                </div>
+                <div>
+                  <span className="text-[11px] text-slate-500 font-bold uppercase block">Estancia</span>
+                  <p className="font-bold text-slate-800 text-sm mt-0.5">
+                    {selectedAppointment.customerWaitMode === 'WAIT_ON_SITE' ? 'Espera' : 'Deja el coche'}
                   </p>
                 </div>
               </div>
 
-              {/* Cliente Autorizado con acción a Directorio */}
+              {/* Acciones Operativas según estado canónico */}
+              {ALLOWED_OPERATIONAL_TRANSITIONS[selectedAppointment.status]?.length > 0 && (
+                <div className="p-3.5 bg-blue-50/60 border border-blue-200 rounded-xl space-y-2">
+                  <span className="text-[11px] text-blue-900 font-extrabold uppercase tracking-wider block">
+                    Gestión Operativa del Vehículo
+                  </span>
+                  <div className="flex flex-wrap gap-2">
+                    {ALLOWED_OPERATIONAL_TRANSITIONS[selectedAppointment.status].map((action) => (
+                      <button
+                        key={action.nextStatus}
+                        type="button"
+                        disabled={statusUpdating === selectedAppointment.id}
+                        onClick={() => handleUpdateAppointmentStatus(selectedAppointment, action.nextStatus)}
+                        className={`px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer min-h-[44px] ${
+                          action.primary
+                            ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-xs font-extrabold'
+                            : 'bg-white hover:bg-slate-100 text-slate-800 border border-slate-300'
+                        } disabled:opacity-50`}
+                      >
+                        {statusUpdating === selectedAppointment.id ? (
+                          <div className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <span>{action.label}</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Cliente Autorizado con acción a Directorio */}
               <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
@@ -1113,7 +1351,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
       )}
 
       {/* Manual Appointment Modal */}
-      {activeTenantId && (
+      {(activeTenantId || isManualAppointmentModalOpen) && (
         <ManualAppointmentModal
           isOpen={isManualAppointmentModalOpen}
           onClose={() => setIsManualAppointmentModalOpen(false)}
@@ -1121,7 +1359,12 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
           initialCustomerId={urlCustomerId}
           initialVehicleId={urlVehicleId}
           onAppointmentCreated={() => {
-            loadRealAppointments(activeTenantId);
+            if (activeTenantId) {
+              loadRealAppointments(activeTenantId);
+              if (effectiveWorkshopId) {
+                loadCapacityData(activeTenantId, effectiveWorkshopId);
+              }
+            }
           }}
         />
       )}

@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { formatAppointmentSource, formatAppointmentStatus } from '../src/utils/workshopFormatters';
+import { formatAppointmentSource, formatAppointmentStatus, formatCustomerWaitMode } from '../src/utils/workshopFormatters';
 import {
   computeDayOperationalMetrics,
-  formatAppointmentForPresentation
+  formatAppointmentForPresentation,
+  ALLOWED_OPERATIONAL_TRANSITIONS
 } from '../src/components/views/AgendaView';
 import type { WorkshopAppointmentResponse, WorkshopCustomer, WorkshopVehicle } from '../src/types';
 
@@ -12,6 +13,24 @@ describe('Agenda UX Presentation and Operational Logic', () => {
       const confirmed = formatAppointmentStatus('confirmed');
       expect(confirmed.label).toBe('Confirmada');
       expect(confirmed.bg).toContain('emerald');
+
+      const awaitingArrival = formatAppointmentStatus('awaiting_arrival');
+      expect(awaitingArrival.label).toBe('Pendiente de llegada');
+
+      const onSite = formatAppointmentStatus('on_site');
+      expect(onSite.label).toBe('En taller');
+
+      const inProgress = formatAppointmentStatus('in_progress');
+      expect(inProgress.label).toBe('En trabajo');
+
+      const waiting = formatAppointmentStatus('waiting');
+      expect(waiting.label).toBe('En espera');
+
+      const completed = formatAppointmentStatus('completed');
+      expect(completed.label).toBe('Lista');
+
+      const delivered = formatAppointmentStatus('delivered');
+      expect(delivered.label).toBe('Entregada');
 
       const tentative = formatAppointmentStatus('tentative');
       expect(tentative.label).toBe('Tentativa');
@@ -26,6 +45,34 @@ describe('Agenda UX Presentation and Operational Logic', () => {
 
       const fallback = formatAppointmentStatus(null);
       expect(fallback.label).toBe('Registrada');
+    });
+  });
+
+  describe('formatCustomerWaitMode', () => {
+    it('translates customer wait mode correctly to Spanish workshop semantics', () => {
+      expect(formatCustomerWaitMode('DROP_OFF').label).toBe('Deja el coche');
+      expect(formatCustomerWaitMode('WAIT_ON_SITE').label).toBe('Espera');
+      expect(formatCustomerWaitMode(undefined).label).toBe('Deja el coche');
+    });
+  });
+
+  describe('ALLOWED_OPERATIONAL_TRANSITIONS', () => {
+    it('defines accurate transitions conforming to backend state machine without invalid steps', () => {
+      expect(ALLOWED_OPERATIONAL_TRANSITIONS.confirmed).toEqual([
+        { nextStatus: 'on_site', label: 'Marcar llegada', primary: true }
+      ]);
+      expect(ALLOWED_OPERATIONAL_TRANSITIONS.on_site).toEqual([
+        { nextStatus: 'in_progress', label: 'Iniciar trabajo', primary: true }
+      ]);
+      expect(ALLOWED_OPERATIONAL_TRANSITIONS.in_progress).toEqual([
+        { nextStatus: 'waiting', label: 'Poner en espera' },
+        { nextStatus: 'completed', label: 'Completar trabajo', primary: true }
+      ]);
+      expect(ALLOWED_OPERATIONAL_TRANSITIONS.completed).toEqual([
+        { nextStatus: 'delivered', label: 'Entregar vehículo', primary: true }
+      ]);
+      expect(ALLOWED_OPERATIONAL_TRANSITIONS.delivered).toEqual([]);
+      expect(ALLOWED_OPERATIONAL_TRANSITIONS.cancelled).toEqual([]);
     });
   });
 

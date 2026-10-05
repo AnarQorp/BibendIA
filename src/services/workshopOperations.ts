@@ -5,6 +5,10 @@ import type {
   WorkshopAppointmentResponse,
   CustomerDetailResponse,
   VehicleDetailResponse,
+  WorkshopCapacityData,
+  WorkshopCapacityPolicy,
+  WorkshopOpeningHours,
+  WorkshopServiceDurationPolicy,
 } from '../types';
 
 export interface WorkshopCustomersResult {
@@ -193,6 +197,13 @@ export async function createWorkshopAppointment(
     }
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
+      if (
+        res.status === 422 ||
+        (typeof err.error === 'string' && err.error.includes('CAPACITY')) ||
+        (typeof err.message === 'string' && err.message.includes('CAPACITY'))
+      ) {
+        return { status: 'error', message: 'No hay capacidad disponible a esa hora.' };
+      }
       return { status: 'error', message: err.message || err.error || `HTTP ${res.status}` };
     }
     const json = await res.json();
@@ -404,3 +415,202 @@ export async function associateCustomerVehicle(
     return { status: 'error', message: err instanceof Error ? err.message : 'Error de red' };
   }
 }
+
+export interface WorkshopCapacityResult {
+  status: 'success' | 'unauthorized' | 'not_found' | 'error';
+  data?: WorkshopCapacityData;
+  message?: string;
+  correlationId?: string;
+}
+
+export async function getWorkshopCapacity(
+  tenantId: string,
+  workshopId: string,
+  baseUrl = ''
+): Promise<WorkshopCapacityResult> {
+  if (!tenantId || !workshopId) {
+    return { status: 'error', message: 'Se requiere tenantId y workshopId.' };
+  }
+  try {
+    const res = await fetch(`${baseUrl}/v1/workshop/tenants/${encodeURIComponent(tenantId)}/workshops/${encodeURIComponent(workshopId)}/capacity`, {
+      method: 'GET',
+      credentials: 'include',
+      headers: { Accept: 'application/json' },
+    });
+    const correlationId = res.headers.get('x-correlation-id') || undefined;
+    if (res.status === 401 || res.status === 403) {
+      return { status: 'unauthorized', message: 'No autorizado para consultar la capacidad del taller.', correlationId };
+    }
+    if (res.status === 404) {
+      return { status: 'not_found', message: 'Taller no encontrado.', correlationId };
+    }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      return { status: 'error', message: err.message || err.error || `HTTP ${res.status}`, correlationId };
+    }
+    const json = await res.json();
+    const data = json.data !== undefined ? json.data : json;
+    return { status: 'success', data, correlationId: json.correlationId || correlationId };
+  } catch (err) {
+    return { status: 'error', message: err instanceof Error ? err.message : 'Error de red' };
+  }
+}
+
+export interface PatchWorkshopCapacityPayload {
+  openingHours?: Record<string, unknown>;
+  serviceDurationPolicy?: WorkshopServiceDurationPolicy;
+  capacityPolicy?: WorkshopCapacityPolicy;
+  expectedVersion: number;
+  idempotencyKey: string;
+}
+
+export interface PatchWorkshopCapacityResult {
+  status: 'success' | 'unauthorized' | 'version_conflict' | 'idempotency_conflict' | 'error';
+  ok?: boolean;
+  data?: WorkshopCapacityData;
+  receipt?: any;
+  message?: string;
+  correlationId?: string;
+}
+
+export async function patchWorkshopCapacity(
+  tenantId: string,
+  workshopId: string,
+  payload: PatchWorkshopCapacityPayload,
+  baseUrl = ''
+): Promise<PatchWorkshopCapacityResult> {
+  if (!tenantId || !workshopId) {
+    return { status: 'error', message: 'Se requiere tenantId y workshopId.' };
+  }
+  try {
+    const res = await fetch(`${baseUrl}/v1/workshop/tenants/${encodeURIComponent(tenantId)}/workshops/${encodeURIComponent(workshopId)}/capacity`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+    const correlationId = res.headers.get('x-correlation-id') || undefined;
+    if (res.status === 401 || res.status === 403) {
+      return { status: 'unauthorized', message: 'No autorizado para modificar la capacidad del taller.', correlationId };
+    }
+    if (res.status === 409) {
+      const err = await res.json().catch(() => ({}));
+      if (err.error === 'VERSION_CONFLICT' || err.message?.includes('Version conflict')) {
+        return { status: 'version_conflict', message: 'Conflicto de concurrencia: versión desactualizada.', correlationId };
+      }
+      return { status: 'idempotency_conflict', message: 'Conflicto de idempotencia en la mutación.', correlationId };
+    }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      return { status: 'error', message: err.message || err.error || `HTTP ${res.status}`, correlationId };
+    }
+    const json = await res.json();
+    const data = json.data !== undefined ? json.data : json;
+    return {
+      status: 'success',
+      ok: true,
+      data,
+      receipt: json.receipt,
+      correlationId: json.correlationId || correlationId
+    };
+  } catch (err) {
+    return { status: 'error', message: err instanceof Error ? err.message : 'Error de red' };
+  }
+}
+
+export interface UpdateAppointmentStatusParams {
+  status: 'awaiting_arrival' | 'on_site' | 'in_progress' | 'waiting' | 'completed' | 'delivered' | 'cancelled';
+  expectedVersion: number;
+  idempotencyKey: string;
+}
+
+export interface UpdateAppointmentStatusResult {
+  status: 'success' | 'version_conflict' | 'invalid_transition' | 'unauthorized' | 'error';
+  data?: { id: string; workshop_id: string; status: string; customer_wait_mode: string; version: number };
+  message?: string;
+  correlationId?: string;
+}
+
+export async function updateAppointmentStatus(
+  tenantId: string,
+  appointmentId: string,
+  params: UpdateAppointmentStatusParams,
+  baseUrl = ''
+): Promise<UpdateAppointmentStatusResult> {
+  if (!tenantId || !appointmentId) {
+    return { status: 'error', message: 'Parámetros incompletos.' };
+  }
+  try {
+    const res = await fetch(`${baseUrl}/v1/workshop/tenants/${encodeURIComponent(tenantId)}/appointments/${encodeURIComponent(appointmentId)}/status`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      credentials: 'include',
+      body: JSON.stringify(params),
+    });
+    const correlationId = res.headers.get('x-correlation-id') || undefined;
+    if (res.status === 401 || res.status === 403) {
+      return { status: 'unauthorized', message: 'No autorizado para cambiar el estado de la cita.', correlationId };
+    }
+    if (res.status === 409) {
+      const err = await res.json().catch(() => ({}));
+      if (err.error === 'VERSION_CONFLICT') {
+        return { status: 'version_conflict', message: 'Conflicto de concurrencia: la cita ha sido modificada por otro usuario.', correlationId };
+      }
+      return { status: 'invalid_transition', message: 'Transición de estado no permitida para el estado actual.', correlationId };
+    }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      return { status: 'error', message: err.message || err.error || `HTTP ${res.status}`, correlationId };
+    }
+    const json = await res.json();
+    return { status: 'success', data: json.data, correlationId: json.correlationId || correlationId };
+  } catch (err) {
+    return { status: 'error', message: err instanceof Error ? err.message : 'Error de red' };
+  }
+}
+
+export interface TenantWorkshopSummary {
+  id: string;
+  tenant_id: string;
+  name: string;
+  timezone: string;
+  version: number;
+}
+
+export interface ListTenantWorkshopsResult {
+  status: 'success' | 'unauthorized' | 'error';
+  data?: TenantWorkshopSummary[];
+  message?: string;
+}
+
+export async function listTenantWorkshops(
+  tenantId: string,
+  baseUrl = ''
+): Promise<ListTenantWorkshopsResult> {
+  if (!tenantId) return { status: 'error', message: 'Se requiere tenantId.' };
+  try {
+    const res = await fetch(`${baseUrl}/v1/workshop/tenants/${encodeURIComponent(tenantId)}/workshops`, {
+      method: 'GET',
+      credentials: 'include',
+      headers: { Accept: 'application/json' },
+    });
+    if (res.status === 401 || res.status === 403) {
+      return { status: 'unauthorized', message: 'No autorizado para listar talleres.' };
+    }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      return { status: 'error', message: err.message || err.error || `HTTP ${res.status}` };
+    }
+    const json = await res.json();
+    return { status: 'success', data: json.data || [] };
+  } catch (err) {
+    return { status: 'error', message: err instanceof Error ? err.message : 'Error de red' };
+  }
+}
+
