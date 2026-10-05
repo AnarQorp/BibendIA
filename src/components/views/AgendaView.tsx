@@ -20,39 +20,139 @@ import {
   CheckCircle2,
   X,
   FileText,
-  Plus
+  Plus,
+  ArrowRight,
+  CalendarCheck2,
+  Timer,
+  Info
 } from 'lucide-react';
 import {
   fetchWorkshopAppointments,
   getWorkshopTenantId,
   type WorkshopAppointmentsState
 } from '../../services/workshopAppointments';
+import { listWorkshopCustomers, listWorkshopVehicles } from '../../services/workshopOperations';
 import { loadHumanSession } from '../../services/humanSession';
-import type { WorkshopAppointmentResponse } from '../../types';
-import { formatAppointmentSource } from '../../utils/workshopFormatters';
+import type { WorkshopCustomer, WorkshopVehicle, WorkshopAppointmentResponse } from '../../types';
+import {
+  formatAppointmentSource,
+  formatAppointmentStatus,
+  type CanonicalAppointmentOrigin,
+  type CanonicalAppointmentStatus
+} from '../../utils/workshopFormatters';
+import { SpanishPlateBadge } from './DirectorioView';
 import { ManualAppointmentModal } from './ManualAppointmentModal';
-import { ManualCustomerModal } from './ManualCustomerModal';
-import { ManualVehicleModal } from './ManualVehicleModal';
 
 export interface AgendaViewProps {
   tenantId?: string | null;
 }
 
-interface NormalizedAppointment {
+export interface NormalizedAppointment {
   id: string;
   dateStr: string; // YYYY-MM-DD
   timeStr: string; // HH:mm
   endStr: string;  // HH:mm
   customerName: string;
+  customerPhone?: string | null;
+  customerId?: string | null;
   vehiclePlate: string;
+  vehicleInfo?: string | null;
+  vehicleId?: string | null;
   serviceTitle: string;
   symptoms: string[];
   durationMinutes: number;
-  status: string;
-  source: 'phone_ai' | 'workshop' | 'web';
+  status: CanonicalAppointmentStatus | string;
+  source: CanonicalAppointmentOrigin;
   evidenceRef?: string | null;
   version?: number;
   raw?: any;
+}
+
+export interface DayOperationalMetrics {
+  totalCount: number;
+  firstAppointmentTime: string | null;
+  totalHours: number;
+  remainingMinutes: number;
+  confirmedCount: number;
+  tentativeCount: number;
+}
+
+/**
+ * Computes strictly observable operational day metrics from appointments.
+ * Zero synthetic capacity, zero fictional limits.
+ */
+export function computeDayOperationalMetrics(
+  appointments: Array<{ timeStr: string; durationMinutes?: number; status: string }>
+): DayOperationalMetrics {
+  const totalCount = appointments.length;
+  const firstAppointmentTime = appointments.length > 0 ? appointments[0].timeStr : null;
+  const totalDurationMinutes = appointments.reduce((acc, a) => acc + (a.durationMinutes || 0), 0);
+  const totalHours = Math.floor(totalDurationMinutes / 60);
+  const remainingMinutes = totalDurationMinutes % 60;
+
+  const confirmedCount = appointments.filter(a => a.status === 'confirmed').length;
+  const tentativeCount = appointments.filter(a => a.status === 'tentative' || a.status === 'held').length;
+
+  return {
+    totalCount,
+    firstAppointmentTime,
+    totalHours,
+    remainingMinutes,
+    confirmedCount,
+    tentativeCount
+  };
+}
+
+/**
+ * Normalizes a canonical backend WorkshopAppointmentResponse into the presentation model.
+ * Guarantees zero technical leak (no UUIDs in text fields).
+ */
+export function formatAppointmentForPresentation(
+  app: WorkshopAppointmentResponse,
+  cachedCustomer?: WorkshopCustomer,
+  cachedVehicle?: WorkshopVehicle
+): NormalizedAppointment {
+  const start = new Date(app.start_at);
+  const end = new Date(app.end_at);
+  const yyyy = start.getFullYear();
+  const mm = String(start.getMonth() + 1).padStart(2, '0');
+  const dd = String(start.getDate()).padStart(2, '0');
+  const dateStr = `${yyyy}-${mm}-${dd}`;
+  const timeStr = start.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+  const endStr = end.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+  const duration = Math.max(15, Math.round((end.getTime() - start.getTime()) / 60000)) || 60;
+
+  const vehicleInfo = cachedVehicle
+    ? [cachedVehicle.make, cachedVehicle.model].filter(Boolean).join(' ')
+    : null;
+
+  let source: CanonicalAppointmentOrigin = 'workshop_manual';
+  if (app.origin === 'voice_phone' || app.origin === 'web_lead' || app.origin === 'dms_import' || app.origin === 'workshop_manual') {
+    source = app.origin;
+  }
+
+  const status: CanonicalAppointmentStatus | string = app.status || 'confirmed';
+
+  return {
+    id: app.id,
+    dateStr,
+    timeStr,
+    endStr,
+    customerName: app.customer_name || cachedCustomer?.name || 'Cliente Verificado',
+    customerPhone: cachedCustomer?.phone || null,
+    customerId: app.customer_id || null,
+    vehiclePlate: app.vehicle_plate || cachedVehicle?.plate || '—',
+    vehicleInfo: vehicleInfo || null,
+    vehicleId: app.vehicle_id || null,
+    serviceTitle: app.service_request?.intent || (app.service_request?.symptoms?.[0] ? `Revisión: ${app.service_request.symptoms[0]}` : 'Intervención de Taller'),
+    symptoms: app.service_request?.symptoms || [],
+    durationMinutes: app.service_request?.estimated_duration_minutes || duration,
+    status,
+    source,
+    evidenceRef: app.confirmation_evidence_ref,
+    version: app.version,
+    raw: app
+  };
 }
 
 export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId = null }) => {
@@ -106,13 +206,19 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
     return () => { isMounted = false; };
   }, [activeTenantId]);
 
-  // Calendar Navigation & Views
-  const [viewMode, setViewMode] = useState<'week' | 'month' | 'day'>('week');
-  const [currentDate, setCurrentDate] = useState<Date>(new Date(2026, 8, 29)); // Default to Sep 29, 2026 or today
+  // B1. Default View: Agenda Día is the absolute priority
+  const [viewMode, setViewMode] = useState<'day' | 'week'>('day');
+
+  // Baseline demo date is 2026-09-29; in real mode default to today
+  const getTodayReference = () => (demoModeActive ? new Date(2026, 8, 29) : new Date());
+  const [currentDate, setCurrentDate] = useState<Date>(() => getTodayReference());
+
   const [selectedAppointment, setSelectedAppointment] = useState<NormalizedAppointment | null>(null);
   const [isManualAppointmentModalOpen, setIsManualAppointmentModalOpen] = useState(false);
-  const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
-  const [isVehicleModalOpen, setIsVehicleModalOpen] = useState(false);
+
+  // Background directory cache for customer phones & vehicle models in real mode
+  const [cachedCustomers, setCachedCustomers] = useState<Record<string, WorkshopCustomer>>({});
+  const [cachedVehicles, setCachedVehicles] = useState<Record<string, WorkshopVehicle>>({});
 
   useEffect(() => {
     if (urlNew === 'manual') {
@@ -131,6 +237,23 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
     setRealState({ status: 'loading' });
     const res = await fetchWorkshopAppointments({ tenantId: tId });
     setRealState(res);
+
+    // Concurrently enrich customer & vehicle directory data for phone numbers & models
+    listWorkshopCustomers(tId, { limit: 100 }).then(r => {
+      if (r.status === 'success' && r.data) {
+        const map: Record<string, WorkshopCustomer> = {};
+        r.data.forEach(c => { map[c.id] = c; });
+        setCachedCustomers(map);
+      }
+    }).catch(() => {});
+
+    listWorkshopVehicles(tId, { limit: 100 }).then(r => {
+      if (r.status === 'success' && r.data) {
+        const map: Record<string, WorkshopVehicle> = {};
+        r.data.forEach(v => { map[v.id] = v; });
+        setCachedVehicles(map);
+      }
+    }).catch(() => {});
   };
 
   useEffect(() => {
@@ -156,32 +279,9 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
   const allAppointments: NormalizedAppointment[] = useMemo(() => {
     if (!demoModeActive && realState.status === 'success' && realState.data) {
       return realState.data.map(app => {
-        const start = new Date(app.start_at);
-        const end = new Date(app.end_at);
-        const yyyy = start.getFullYear();
-        const mm = String(start.getMonth() + 1).padStart(2, '0');
-        const dd = String(start.getDate()).padStart(2, '0');
-        const dateStr = `${yyyy}-${mm}-${dd}`;
-        const timeStr = start.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-        const endStr = end.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-        const duration = Math.max(15, Math.round((end.getTime() - start.getTime()) / 60000)) || 60;
-
-        return {
-          id: app.id,
-          dateStr,
-          timeStr,
-          endStr,
-          customerName: app.customer_name || 'Cliente Verificado',
-          vehiclePlate: app.vehicle_plate || '—',
-          serviceTitle: app.service_request?.intent || (app.service_request?.symptoms?.[0] ? `Revisión: ${app.service_request.symptoms[0]}` : 'Intervención de Taller'),
-          symptoms: app.service_request?.symptoms || [],
-          durationMinutes: app.service_request?.estimated_duration_minutes || duration,
-          status: app.status || 'confirmed',
-          source: app.origin === 'workshop_manual' ? 'workshop' : (app.origin === 'web_lead' ? 'web' : 'phone_ai'),
-          evidenceRef: app.confirmation_evidence_ref,
-          version: app.version,
-          raw: app
-        };
+        const customer = app.customer_id ? cachedCustomers[app.customer_id] : undefined;
+        const vehicle = app.vehicle_id ? cachedVehicles[app.vehicle_id] : undefined;
+        return formatAppointmentForPresentation(app, customer, vehicle);
       });
     }
 
@@ -189,23 +289,29 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
     return demoAppointments.map(app => {
       const cust = demoCustomers.find(c => c.id === app.customerId);
       const veh = demoVehicles.find(v => v.id === app.vehicleId);
+      const vehInfo = veh ? [veh.brand, veh.model].filter(Boolean).join(' ') : null;
+
       return {
         id: app.id,
         dateStr: app.date,
         timeStr: app.time,
         endStr: calculateEndTime(app.time, app.estimatedDurationMinutes),
         customerName: cust?.name || 'Cliente',
+        customerPhone: cust?.phone || null,
+        customerId: app.customerId,
         vehiclePlate: veh?.plate || '—',
+        vehicleInfo: vehInfo,
+        vehicleId: app.vehicleId,
         serviceTitle: app.serviceName,
         symptoms: [],
         durationMinutes: app.estimatedDurationMinutes,
         status: app.status,
-        source: app.aiCreated ? 'phone_ai' : 'workshop',
+        source: (app.aiCreated ? 'voice_phone' : 'workshop_manual') as CanonicalAppointmentOrigin,
         version: 1,
         raw: app
       };
     });
-  }, [demoModeActive, realState, demoAppointments, demoCustomers, demoVehicles]);
+  }, [demoModeActive, realState, demoAppointments, demoCustomers, demoVehicles, cachedCustomers, cachedVehicles]);
 
   // Support direct deep-link navigation from Reception Cases
   const urlAppointmentId = searchParams.get('appointment');
@@ -217,6 +323,36 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
       }
     }
   }, [urlAppointmentId, allAppointments]);
+
+  // Current Date String in YYYY-MM-DD
+  const currentDateStr = useMemo(() => {
+    const yyyy = currentDate.getFullYear();
+    const mm = String(currentDate.getMonth() + 1).padStart(2, '0');
+    const dd = String(currentDate.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  }, [currentDate]);
+
+  // Is viewing today?
+  const isViewingToday = useMemo(() => {
+    const ref = getTodayReference();
+    return (
+      currentDate.getFullYear() === ref.getFullYear() &&
+      currentDate.getMonth() === ref.getMonth() &&
+      currentDate.getDate() === ref.getDate()
+    );
+  }, [currentDate, demoModeActive]);
+
+  // Appointments for the selected day, sorted chronologically
+  const dayAppointments = useMemo(() => {
+    return allAppointments
+      .filter(a => a.dateStr === currentDateStr)
+      .sort((a, b) => a.timeStr.localeCompare(b.timeStr));
+  }, [allAppointments, currentDateStr]);
+
+  // Operational metrics for the day (strictly observable, zero synthetic rules)
+  const dayMetrics = useMemo(() => {
+    return computeDayOperationalMetrics(dayAppointments);
+  }, [dayAppointments]);
 
   // Calendar calculations
   // Get start of week (Monday)
@@ -250,7 +386,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
     return days;
   }, [weekStart]);
 
-  // Hours: 08:00 to 19:00
+  // Hours: 08:00 to 18:00
   const hours = useMemo(() => {
     const h = [];
     for (let i = 8; i <= 18; i++) {
@@ -262,39 +398,44 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
   // Date Navigation handlers
   const handlePrev = () => {
     const d = new Date(currentDate);
-    if (viewMode === 'month') d.setMonth(d.getMonth() - 1);
-    else if (viewMode === 'week') d.setDate(d.getDate() - 7);
+    if (viewMode === 'week') d.setDate(d.getDate() - 7);
     else d.setDate(d.getDate() - 1);
     setCurrentDate(d);
   };
 
   const handleNext = () => {
     const d = new Date(currentDate);
-    if (viewMode === 'month') d.setMonth(d.getMonth() + 1);
-    else if (viewMode === 'week') d.setDate(d.getDate() + 7);
+    if (viewMode === 'week') d.setDate(d.getDate() + 7);
     else d.setDate(d.getDate() + 1);
     setCurrentDate(d);
   };
 
   const handleToday = () => {
-    setCurrentDate(new Date(2026, 8, 29)); // Or new Date()
+    setCurrentDate(getTodayReference());
   };
 
-  const formattedRange = useMemo(() => {
-    if (viewMode === 'month') {
-      return currentDate.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
-    }
+  // Header Title Formatting
+  const headerDateTitle = useMemo(() => {
     if (viewMode === 'week') {
-      const endDay = new Date(weekDays[5].date);
-      return `${weekDays[0].date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })} – ${endDay.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+      const startDay = weekDays[0].date;
+      const endDay = weekDays[5].date;
+      return `Semana del ${startDay.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })} al ${endDay.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })}`;
     }
-    return currentDate.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-  }, [currentDate, viewMode, weekDays]);
+    const dayName = currentDate.toLocaleDateString('es-ES', { weekday: 'long' });
+    const fullDate = currentDate.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' });
+    const capitalizedDay = dayName.charAt(0).toUpperCase() + dayName.slice(1);
+    if (isViewingToday) {
+      return `Hoy — ${capitalizedDay}, ${fullDate}`;
+    }
+    return `${capitalizedDay}, ${fullDate}`;
+  }, [currentDate, viewMode, weekDays, isViewingToday]);
 
   return (
     <div className="p-3 sm:p-6 max-w-7xl mx-auto space-y-4 sm:space-y-6 animate-fadeIn">
       
-      {/* Header & Operational Controls */}
+      {/* ========================================================================= */}
+      {/* B2. CLEAN AGENDA HEADER (Sin botones superfluos, sólo + Nueva Cita)         */}
+      {/* ========================================================================= */}
       <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-xs space-y-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="space-y-1">
@@ -306,125 +447,184 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Conectado
               </span>
             </div>
-            <h1 className="text-lg sm:text-xl font-extrabold text-slate-900 tracking-tight">
-              Calendario Operativo y Planificación
+            <h1 data-testid="agenda-date-title" className="text-xl sm:text-2xl font-extrabold text-slate-900 tracking-tight capitalize">
+              {headerDateTitle}
             </h1>
             <p className="text-xs text-slate-500">
-              Vista horaria completa de citas, capacidad de elevadores y recepción telefónica automatizada.
+              Control cronológico de entradas de taller, recepción telefónica IA y citas programadas.
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
-            {/* View Mode Selector */}
+            {/* View Mode Toggle: Día | Semana */}
             <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-bold">
               <button
-                onClick={() => setViewMode('week')}
-                className={`px-3 py-1.5 rounded-lg transition ${viewMode === 'week' ? 'bg-white text-blue-600 shadow-2xs font-extrabold' : 'text-slate-600 hover:text-slate-900'}`}
-              >
-                Semanal
-              </button>
-              <button
+                type="button"
+                data-testid="toggle-day-view"
                 onClick={() => setViewMode('day')}
-                className={`px-3 py-1.5 rounded-lg transition ${viewMode === 'day' ? 'bg-white text-blue-600 shadow-2xs font-extrabold' : 'text-slate-600 hover:text-slate-900'}`}
+                className={`px-4 py-2 rounded-lg transition ${
+                  viewMode === 'day'
+                    ? 'bg-white text-blue-600 shadow-2xs font-extrabold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
               >
-                Diario
+                Día
               </button>
               <button
-                onClick={() => setViewMode('month')}
-                className={`px-3 py-1.5 rounded-lg transition ${viewMode === 'month' ? 'bg-white text-blue-600 shadow-2xs font-extrabold' : 'text-slate-600 hover:text-slate-900'}`}
+                type="button"
+                data-testid="toggle-week-view"
+                onClick={() => setViewMode('week')}
+                className={`px-4 py-2 rounded-lg transition ${
+                  viewMode === 'week'
+                    ? 'bg-white text-blue-600 shadow-2xs font-extrabold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
               >
-                Mensual
+                Semana
               </button>
             </div>
 
-            {/* New Manual Appointment Button */}
+            {/* Primary Action Button: + Nueva Cita */}
             {activeTenantId && (
               <button
+                type="button"
                 onClick={() => setIsManualAppointmentModalOpen(true)}
-                className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition shadow-xs"
+                className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer min-h-[44px]"
                 title="Crear cita manual de taller"
               >
-                <Plus className="w-3.5 h-3.5" />
+                <Plus className="w-4 h-4" />
                 <span>+ Nueva Cita</span>
               </button>
             )}
 
-            {/* New Customer Button */}
-            {activeTenantId && (
-              <button
-                onClick={() => setIsCustomerModalOpen(true)}
-                className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition border border-slate-300 shadow-2xs"
-                title="Registrar nuevo cliente en taller"
-              >
-                <User className="w-3.5 h-3.5 text-blue-600" />
-                <span>+ Nuevo cliente</span>
-              </button>
-            )}
-
-            {/* New Vehicle Button */}
-            {activeTenantId && (
-              <button
-                onClick={() => setIsVehicleModalOpen(true)}
-                className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition border border-slate-300 shadow-2xs"
-                title="Añadir nuevo vehículo en taller"
-              >
-                <Car className="w-3.5 h-3.5 text-emerald-600" />
-                <span>+ Añadir vehículo</span>
-              </button>
-            )}
-
-            {/* Sync Button */}
+            {/* Sync Button (real mode only) */}
             {!demoModeActive && activeTenantId && (
               <button
+                type="button"
                 onClick={() => loadRealAppointments(activeTenantId)}
                 disabled={realState.status === 'loading'}
-                className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition shadow-xs disabled:opacity-50"
-                title="Sincronizar con el taller"
+                className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition border border-slate-300 disabled:opacity-50 min-h-[44px]"
+                title="Actualizar agenda con el taller"
               >
                 <RotateCcw className={`w-3.5 h-3.5 ${realState.status === 'loading' ? 'animate-spin' : ''}`} />
-                <span>Sincronizar</span>
+                <span className="hidden sm:inline">Sincronizar</span>
               </button>
             )}
           </div>
         </div>
 
-        {/* Date Navigation Bar */}
+        {/* Date Navigation Controls */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-slate-100">
           <div className="flex items-center gap-2">
             <button
+              type="button"
               onClick={handlePrev}
-              className="p-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl text-slate-700 transition"
-              title="Período anterior"
+              className="p-2.5 bg-slate-50 hover:bg-slate-100 active:bg-slate-200 border border-slate-200 rounded-xl text-slate-700 transition cursor-pointer min-h-[44px] min-w-[44px] flex items-center justify-center"
+              title="Día o período anterior"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
             <button
+              type="button"
               onClick={handleToday}
-              className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold transition"
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition min-h-[44px] ${
+                isViewingToday
+                  ? 'bg-blue-600 text-white shadow-2xs font-extrabold'
+                  : 'bg-slate-100 hover:bg-slate-200 text-slate-800'
+              }`}
             >
               Hoy
             </button>
             <button
+              type="button"
               onClick={handleNext}
-              className="p-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl text-slate-700 transition"
-              title="Período siguiente"
+              className="p-2.5 bg-slate-50 hover:bg-slate-100 active:bg-slate-200 border border-slate-200 rounded-xl text-slate-700 transition cursor-pointer min-h-[44px] min-w-[44px] flex items-center justify-center"
+              title="Día o período siguiente"
             >
               <ChevronRight className="w-4 h-4" />
             </button>
 
             <span className="text-sm font-extrabold text-slate-900 capitalize ml-2">
-              {formattedRange}
+              {viewMode === 'day' ? currentDate.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' }) : 'Vista Semanal'}
             </span>
           </div>
 
-          <div className="flex items-center gap-3 text-xs text-slate-500 font-mono">
+          {/* Canonical Status Legend */}
+          <div className="flex items-center gap-3 text-xs text-slate-600 font-mono">
             <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-blue-600"></span> Confirmada ({allAppointments.length})
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> Confirmada
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> Hueco Disponible
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span> Tentativa
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-slate-300"></span> Hueco libre
             </span>
           </div>
+        </div>
+      </div>
+
+      {/* ========================================================================= */}
+      {/* B3. OPERATIONAL SUMMARY STRIP (Franja operativa observable del día)       */}
+      {/* ========================================================================= */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="bg-white border border-slate-200 rounded-2xl p-3.5 shadow-2xs">
+          <div className="flex items-center gap-2 text-slate-500 mb-1">
+            <CalendarCheck2 className="w-4 h-4 text-blue-600" />
+            <span className="text-[11px] font-bold uppercase tracking-wider">Citas del día</span>
+          </div>
+          <p className="text-xl sm:text-2xl font-black text-slate-900 font-mono">
+            {dayMetrics.totalCount}
+          </p>
+          <p className="text-[11px] text-slate-500 mt-0.5">
+            {dayMetrics.totalCount === 0 ? 'Sin citas programadas' : `${dayMetrics.totalCount} vehículo(s) en agenda`}
+          </p>
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-2xl p-3.5 shadow-2xs">
+          <div className="flex items-center gap-2 text-slate-500 mb-1">
+            <Clock className="w-4 h-4 text-emerald-600" />
+            <span className="text-[11px] font-bold uppercase tracking-wider">Primera entrada</span>
+          </div>
+          <p className="text-xl sm:text-2xl font-black text-slate-900 font-mono">
+            {dayMetrics.firstAppointmentTime ? `${dayMetrics.firstAppointmentTime} h` : '—'}
+          </p>
+          <p className="text-[11px] text-slate-500 mt-0.5">
+            {dayMetrics.firstAppointmentTime ? 'Hora de primera recepción' : 'Sin aperturas hoy'}
+          </p>
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-2xl p-3.5 shadow-2xs">
+          <div className="flex items-center gap-2 text-slate-500 mb-1">
+            <Timer className="w-4 h-4 text-indigo-600" />
+            <span className="text-[11px] font-bold uppercase tracking-wider">Carga estimada</span>
+          </div>
+          <p className="text-xl sm:text-2xl font-black text-slate-900 font-mono">
+            {dayMetrics.totalHours}h {dayMetrics.remainingMinutes > 0 ? `${dayMetrics.remainingMinutes}m` : ''}
+          </p>
+          <p className="text-[11px] text-slate-500 mt-0.5">
+            Tiempo de mano de obra
+          </p>
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-2xl p-3.5 shadow-2xs">
+          <div className="flex items-center gap-2 text-slate-500 mb-1">
+            <CheckCircle2 className="w-4 h-4 text-amber-600" />
+            <span className="text-[11px] font-bold uppercase tracking-wider">Estados</span>
+          </div>
+          <div className="flex items-center gap-2 mt-1">
+            <span className="text-xs font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
+              {dayMetrics.confirmedCount} conf.
+            </span>
+            {dayMetrics.tentativeCount > 0 && (
+              <span className="text-xs font-bold px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">
+                {dayMetrics.tentativeCount} tent.
+              </span>
+            )}
+          </div>
+          <p className="text-[11px] text-slate-500 mt-1">
+            Validación en sistema
+          </p>
         </div>
       </div>
 
@@ -457,7 +657,132 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
       )}
 
       {/* ========================================================================= */}
-      {/* 1. WEEK VIEW: Professional Workshop Hourly Grid                           */}
+      {/* B4 & B13. DAY VIEW (VISTA DÍA — 1 COLUMNA CRONOLÓGICA USABLE EN 390PX)     */}
+      {/* ========================================================================= */}
+      {viewMode === 'day' && (
+        <div className="space-y-3">
+          {dayAppointments.length === 0 ? (
+            /* Empty State for Day */
+            <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center shadow-xs space-y-4">
+              <div className="w-14 h-14 bg-slate-100 border border-slate-200 rounded-2xl flex items-center justify-center mx-auto text-slate-400">
+                <CalendarIcon className="w-7 h-7" />
+              </div>
+              <div className="space-y-1 max-w-sm mx-auto">
+                <h3 className="text-base font-extrabold text-slate-900">
+                  No hay citas programadas para este día
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Puedes registrar una cita manualmente o las reservas acordadas por la recepción telefónica IA se reflejarán automáticamente.
+                </p>
+              </div>
+              {activeTenantId && (
+                <button
+                  type="button"
+                  onClick={() => setIsManualAppointmentModalOpen(true)}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer min-h-[44px]"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>+ Crear Cita para este día</span>
+                </button>
+              )}
+            </div>
+          ) : (
+            /* Chronological Appointment Cards */
+            <div className="space-y-3">
+              {dayAppointments.map(app => {
+                const statusMeta = formatAppointmentStatus(app.status);
+                const sourceMeta = formatAppointmentSource(app.source);
+
+                return (
+                  <div
+                    key={app.id}
+                    onClick={() => setSelectedAppointment(app)}
+                    className="telemetry-strip-cobalt bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-xs hover:border-blue-400 hover:shadow-md transition-all cursor-pointer group flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                  >
+                    {/* Visual Hierarchy: 1. Hora -> 2. Matrícula -> 3. Vehículo -> 4. Cliente -> 5. Motivo */}
+                    <div className="flex items-start gap-3.5 sm:gap-4 flex-1">
+                      
+                      {/* 1. Hora */}
+                      <div className="bg-blue-50 border border-blue-200 px-3 py-2.5 rounded-xl text-center shrink-0 font-mono min-w-[76px] flex flex-col justify-center">
+                        <span className="text-[10px] font-bold text-blue-600 block uppercase tracking-wider">Entrada</span>
+                        <span className="text-base font-black text-blue-900 leading-tight">{app.timeStr}</span>
+                        <span className="text-[10px] text-blue-700 font-medium">{app.endStr}</span>
+                      </div>
+
+                      {/* Content block */}
+                      <div className="space-y-1.5 flex-1 min-w-0">
+                        {/* 2. Matrícula + 3. Vehículo + Tags */}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <SpanishPlateBadge plate={app.vehiclePlate} />
+                          {app.vehicleInfo && (
+                            <span className="text-xs font-extrabold text-slate-800 flex items-center gap-1">
+                              <Car className="w-3.5 h-3.5 text-slate-400" />
+                              {app.vehicleInfo}
+                            </span>
+                          )}
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded border shrink-0 ${sourceMeta.bg} ${sourceMeta.text} ${sourceMeta.border}`}>
+                            {sourceMeta.label}
+                          </span>
+                        </div>
+
+                        {/* 4. Cliente */}
+                        <div className="flex items-center gap-2 text-xs">
+                          <span className="text-slate-400 font-medium">Cliente:</span>
+                          <span className="font-extrabold text-slate-900 truncate">
+                            {app.customerName}
+                          </span>
+                          {app.customerPhone && (
+                            <span className="text-slate-500 font-mono text-[11px] hidden sm:inline">
+                              · {app.customerPhone}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* 5. Motivo / Trabajo */}
+                        <div className="text-xs text-slate-700 font-semibold truncate">
+                          {app.serviceTitle}
+                        </div>
+
+                        {/* Symptoms tags if any */}
+                        {app.symptoms.length > 0 && (
+                          <div className="flex flex-wrap gap-1 pt-0.5">
+                            {app.symptoms.map((symptom, idx) => (
+                              <span
+                                key={idx}
+                                className="text-[10px] bg-slate-100 text-slate-600 border border-slate-200 px-2 py-0.5 rounded-md"
+                              >
+                                {symptom}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* 6. Estado canónico y métricas en extremo derecho */}
+                    <div className="flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100 shrink-0">
+                      <span className="text-xs text-slate-500 font-mono flex items-center gap-1">
+                        <Clock className="w-3.5 h-3.5 text-slate-400" /> {app.durationMinutes} min
+                      </span>
+                      <span className={`text-xs font-bold px-3 py-1.5 rounded-xl border flex items-center gap-1.5 ${statusMeta.bg} ${statusMeta.text} ${statusMeta.border}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${statusMeta.dotColor}`}></span>
+                        {statusMeta.label}
+                      </span>
+                      <span className="text-slate-400 group-hover:text-blue-600 transition pl-1 hidden sm:inline">
+                        <ArrowRight className="w-4 h-4" />
+                      </span>
+                    </div>
+
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* B12. WEEK VIEW (VISTA SEMANAL — RESUMEN COMPACTO LUNES A SÁBADO)          */}
       {/* ========================================================================= */}
       {viewMode === 'week' && (
         <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
@@ -466,12 +791,16 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
               
               {/* Day Headers */}
               <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50/80 sticky top-0 z-10">
-                <div className="p-3 text-center border-r border-slate-200 text-xs font-bold text-slate-400 uppercase tracking-wider">
+                <div className="p-3 text-center border-r border-slate-200 text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center justify-center">
                   Hora
                 </div>
                 {weekDays.map(day => {
                   const dayApps = allAppointments.filter(a => a.dateStr === day.dateStr);
-                  const isCurrent = day.dateStr === '2026-09-29'; // Today's date marker
+                  const isDayToday = (
+                    day.date.getFullYear() === getTodayReference().getFullYear() &&
+                    day.date.getMonth() === getTodayReference().getMonth() &&
+                    day.date.getDate() === getTodayReference().getDate()
+                  );
 
                   return (
                     <div
@@ -481,8 +810,9 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
                         setViewMode('day');
                       }}
                       className={`p-3 text-center border-r border-slate-200 cursor-pointer transition hover:bg-blue-50/50 ${
-                        isCurrent ? 'bg-blue-50/70 border-b-2 border-b-blue-600' : ''
+                        isDayToday ? 'bg-blue-50/80 border-b-2 border-b-blue-600' : ''
                       }`}
+                      title={`Ver citas del ${day.fullDayName}`}
                     >
                       <span className="text-xs font-bold text-slate-500 uppercase block">{day.dayName}</span>
                       <span className="text-base font-extrabold text-slate-900 block font-mono">{day.dayNum}</span>
@@ -521,36 +851,33 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
                             key={day.dateStr}
                             className="p-1.5 border-r border-slate-100 hover:bg-slate-50/60 transition relative flex flex-col gap-1.5"
                           >
-                            {cellApps.map(app => (
-                              <button
-                                key={app.id}
-                                onClick={() => setSelectedAppointment(app)}
-                                className="w-full text-left p-2 rounded-xl border bg-blue-50/90 border-blue-300 shadow-2xs hover:bg-blue-100 transition-all flex flex-col gap-1 group"
-                              >
-                                <div className="flex items-center justify-between">
-                                  <span className="font-extrabold text-blue-700 text-[11px] font-mono">
-                                    {app.timeStr}
-                                  </span>
-                                  <span className="license-plate text-[10px] px-1.5 py-0.2">
-                                    {app.vehiclePlate}
-                                  </span>
-                                </div>
-                                <p className="text-xs font-bold text-slate-900 truncate leading-tight">
-                                  {app.serviceTitle}
-                                </p>
-                                <div className="flex items-center justify-between text-[10px] text-slate-600">
-                                  <span className="truncate">{app.customerName}</span>
-                                  {(() => {
-                                    const src = formatAppointmentSource(app.source);
-                                    return (
-                                      <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded border shrink-0 ${src.bg} ${src.text} ${src.border}`}>
-                                        {src.label}
-                                      </span>
-                                    );
-                                  })()}
-                                </div>
-                              </button>
-                            ))}
+                            {cellApps.map(app => {
+                              const statusMeta = formatAppointmentStatus(app.status);
+                              return (
+                                <button
+                                  key={app.id}
+                                  type="button"
+                                  onClick={() => setSelectedAppointment(app)}
+                                  className="w-full text-left p-2 rounded-xl border bg-blue-50/90 border-blue-300 shadow-2xs hover:bg-blue-100 transition-all flex flex-col gap-1 group cursor-pointer"
+                                >
+                                  <div className="flex items-center justify-between">
+                                    <span className="font-extrabold text-blue-800 text-[11px] font-mono">
+                                      {app.timeStr}
+                                    </span>
+                                    <SpanishPlateBadge plate={app.vehiclePlate} className="scale-90 origin-right" />
+                                  </div>
+                                  <p className="text-xs font-bold text-slate-900 truncate leading-tight">
+                                    {app.serviceTitle}
+                                  </p>
+                                  <div className="flex items-center justify-between text-[10px] text-slate-600">
+                                    <span className="truncate max-w-[90px]">{app.customerName}</span>
+                                    <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded border ${statusMeta.bg} ${statusMeta.text} ${statusMeta.border}`}>
+                                      {statusMeta.label}
+                                    </span>
+                                  </div>
+                                </button>
+                              );
+                            })}
 
                             {cellApps.length === 0 && (
                               <button
@@ -579,168 +906,16 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
       )}
 
       {/* ========================================================================= */}
-      {/* 2. DAY VIEW: Hour-by-Hour Timeline with Slots Detail                      */}
-      {/* ========================================================================= */}
-      {viewMode === 'day' && (
-        <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-xs space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-            <div>
-              <h3 className="text-base font-extrabold text-slate-900">
-                Planificación Diaria — {currentDate.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-              </h3>
-              <p className="text-xs text-slate-500">Distribución horaria de intervenciones programadas en el taller.</p>
-            </div>
-            <span className="text-xs font-mono font-bold px-3 py-1 bg-blue-50 text-blue-700 border border-blue-200 rounded-xl">
-              {allAppointments.filter(a => a.dateStr === weekDays.find(w => w.date.toDateString() === currentDate.toDateString())?.dateStr).length} Citas hoy
-            </span>
-          </div>
-
-          <div className="space-y-3">
-            {hours.map(hour => {
-              const hourInt = parseInt(hour.split(':')[0], 10);
-              const currentDateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
-              const slotApps = allAppointments.filter(a => a.dateStr === currentDateStr && parseInt(a.timeStr.split(':')[0], 10) === hourInt);
-
-              return (
-                <div key={hour} className="flex gap-4 items-start p-2 rounded-xl hover:bg-slate-50 transition border border-transparent hover:border-slate-200">
-                  <div className="w-16 pt-2 text-xs font-mono font-extrabold text-slate-500 shrink-0 text-right">
-                    {hour}
-                  </div>
-
-                  <div className="flex-1 space-y-2">
-                    {slotApps.length > 0 ? (
-                      slotApps.map(app => (
-                        <div
-                          key={app.id}
-                          onClick={() => setSelectedAppointment(app)}
-                          className="telemetry-strip-cobalt bg-white border border-slate-200 rounded-xl p-4 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer hover:border-blue-400 transition"
-                        >
-                          <div className="flex items-start gap-4">
-                            <div className="bg-blue-50 border border-blue-200 px-3 py-2 rounded-xl text-center shrink-0 font-mono">
-                              <span className="text-[10px] font-bold text-blue-600 block uppercase">INICIO</span>
-                              <span className="text-sm font-extrabold text-blue-800">{app.timeStr}</span>
-                            </div>
-
-                            <div className="space-y-1">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <h4 className="text-sm font-bold text-slate-900">{app.serviceTitle}</h4>
-                                <span className="license-plate">{app.vehiclePlate}</span>
-                                {(() => {
-                                  const src = formatAppointmentSource(app.source);
-                                  return (
-                                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${src.bg} ${src.text} ${src.border}`}>
-                                      {src.label}
-                                    </span>
-                                  );
-                                })()}
-                              </div>
-                              <p className="text-xs text-slate-600">
-                                Cliente: <strong className="text-slate-900 font-bold">{app.customerName}</strong>
-                              </p>
-                              {app.symptoms.length > 0 && (
-                                <p className="text-[11px] text-slate-500">
-                                  Síntomas: {app.symptoms.join(', ')}
-                                </p>
-                              )}
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-3 shrink-0">
-                            <span className="text-xs text-slate-500 font-mono flex items-center gap-1">
-                              <Clock className="w-3.5 h-3.5" /> {app.durationMinutes} min
-                            </span>
-                            <span className="text-xs font-bold px-3 py-1.5 rounded-xl border bg-blue-50 text-blue-800 border-blue-200 flex items-center gap-1">
-                              <Check className="w-3.5 h-3.5" /> {app.status}
-                            </span>
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="p-3 border border-dashed border-slate-200 rounded-xl text-xs text-slate-400 flex items-center justify-between">
-                        <span>Hueco libre en elevadores (Capacidad disponible)</span>
-                        <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded">Disponible</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* 3. MONTH VIEW: Month Matrix Grid with Appointment Badges                  */}
-      {/* ========================================================================= */}
-      {viewMode === 'month' && (
-        <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-xs space-y-4">
-          <div className="grid grid-cols-7 text-center font-bold text-xs uppercase text-slate-400 border-b border-slate-100 pb-2">
-            <div>Lun</div>
-            <div>Mar</div>
-            <div>Mié</div>
-            <div>Jue</div>
-            <div>Vie</div>
-            <div>Sáb</div>
-            <div>Dom</div>
-          </div>
-
-          <div className="grid grid-cols-7 gap-2">
-            {Array.from({ length: 35 }).map((_, idx) => {
-              const dayNum = (idx % 30) + 1;
-              const dateStr = `2026-09-${String(dayNum).padStart(2, '0')}`;
-              const dayApps = allAppointments.filter(a => a.dateStr === dateStr);
-              const isSelected = currentDate.getDate() === dayNum;
-
-              return (
-                <div
-                  key={idx}
-                  onClick={() => {
-                    const d = new Date(currentDate);
-                    d.setDate(dayNum);
-                    setCurrentDate(d);
-                    setViewMode('day');
-                  }}
-                  className={`min-h-[90px] p-2 border rounded-xl cursor-pointer transition flex flex-col justify-between ${
-                    isSelected ? 'border-blue-600 bg-blue-50/40 ring-2 ring-blue-600/20' : 'border-slate-200 hover:border-slate-300'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-extrabold text-xs text-slate-800 font-mono">{dayNum}</span>
-                    {dayApps.length > 0 && (
-                      <span className="w-2 h-2 rounded-full bg-blue-600"></span>
-                    )}
-                  </div>
-
-                  <div className="space-y-1">
-                    {dayApps.slice(0, 2).map(app => (
-                      <div key={app.id} className="text-[10px] p-1 bg-slate-100 text-slate-800 rounded font-semibold truncate">
-                        {app.timeStr} {app.vehiclePlate}
-                      </div>
-                    ))}
-                    {dayApps.length > 2 && (
-                      <span className="text-[10px] text-blue-600 font-bold block">
-                        +{dayApps.length - 2} más
-                      </span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* 4. APPOINTMENT DETAIL MODAL (Apertura de Detalle Operativo)                */}
+      {/* B9. APPOINTMENT DETAIL DRAWER / MODAL                                     */}
       {/* ========================================================================= */}
       {selectedAppointment && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn">
-          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-lg p-6 shadow-2xl space-y-5">
+          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-lg p-5 sm:p-6 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto">
             
             {/* Modal Header */}
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div className="flex items-start justify-between border-b border-slate-100 pb-3">
               <div className="space-y-1">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <span className="text-xs font-bold bg-blue-50 text-blue-800 border border-blue-200 px-2 py-0.5 rounded">
                     Cita en Taller
                   </span>
@@ -752,52 +927,112 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
                       </span>
                     );
                   })()}
-                  <span className="text-xs font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
-                    {selectedAppointment.status}
-                  </span>
+                  {(() => {
+                    const st = formatAppointmentStatus(selectedAppointment.status);
+                    return (
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded border ${st.bg} ${st.text} ${st.border}`}>
+                        {st.label}
+                      </span>
+                    );
+                  })()}
                 </div>
-                <h3 className="text-base font-extrabold text-slate-900">{selectedAppointment.serviceTitle}</h3>
+                <h3 className="text-base sm:text-lg font-extrabold text-slate-900">
+                  {selectedAppointment.serviceTitle}
+                </h3>
               </div>
               <button
+                type="button"
                 onClick={() => setSelectedAppointment(null)}
-                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg transition"
+                className="min-h-[44px] min-w-[44px] flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition cursor-pointer shrink-0"
+                title="Cerrar detalle"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             {/* Modal Body */}
-            <div className="space-y-3.5 text-xs">
+            <div className="space-y-3 text-xs">
+              {/* Horario y Duración */}
               <div className="grid grid-cols-2 gap-3 p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
                 <div>
-                  <span className="text-[11px] text-slate-500 font-bold uppercase block">Fecha y Hora</span>
-                  <p className="font-extrabold text-slate-900 text-sm font-mono mt-0.5">
-                    {selectedAppointment.dateStr} · {selectedAppointment.timeStr} h
+                  <span className="text-[11px] text-slate-500 font-bold uppercase block">Fecha y Horario</span>
+                  <p className="font-black text-slate-900 text-sm font-mono mt-0.5">
+                    {selectedAppointment.dateStr} · {selectedAppointment.timeStr} – {selectedAppointment.endStr}
                   </p>
                 </div>
                 <div>
                   <span className="text-[11px] text-slate-500 font-bold uppercase block">Duración Estimada</span>
-                  <p className="font-bold text-slate-800 mt-0.5">
+                  <p className="font-bold text-slate-800 text-sm mt-0.5">
                     {selectedAppointment.durationMinutes} minutos
                   </p>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3 p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+              {/* Cliente Autorizado con acción a Directorio */}
+              {/* Cliente Autorizado con acción a Directorio */}
+              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
-                  <span className="text-[11px] text-slate-500 font-bold uppercase block">Cliente Autorizado</span>
-                  <p className="font-bold text-slate-900 text-sm mt-0.5">
+                  <span className="text-[11px] text-slate-500 font-bold uppercase block">Cliente</span>
+                  <p className="font-extrabold text-slate-900 text-sm mt-0.5">
                     {selectedAppointment.customerName}
                   </p>
+                  {selectedAppointment.customerPhone && (
+                    <p className="text-slate-600 font-mono text-xs mt-0.5 flex items-center gap-1">
+                      <Phone className="w-3 h-3 text-slate-400" />
+                      {selectedAppointment.customerPhone}
+                    </p>
+                  )}
                 </div>
-                <div>
-                  <span className="text-[11px] text-slate-500 font-bold uppercase block">Matrícula</span>
-                  <span className="license-plate inline-block mt-1">
-                    {selectedAppointment.vehiclePlate}
-                  </span>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const custId = selectedAppointment.customerId || selectedAppointment.raw?.customer_id;
+                    setSelectedAppointment(null);
+                    if (custId) {
+                      navigate(`/directorio?tab=clientes&customer=${encodeURIComponent(custId)}`);
+                    } else {
+                      navigate(`/directorio?tab=clientes&q=${encodeURIComponent(selectedAppointment.customerName)}`);
+                    }
+                  }}
+                  className="px-3.5 py-2.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shrink-0 min-h-[44px] w-full sm:w-auto"
+                >
+                  <User className="w-4 h-4 text-blue-600" />
+                  <span>Ver Ficha Cliente</span>
+                </button>
               </div>
 
+              {/* Vehículo con acción a Directorio */}
+              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <span className="text-[11px] text-slate-500 font-bold uppercase block">Vehículo</span>
+                  <div className="mt-1">
+                    <SpanishPlateBadge plate={selectedAppointment.vehiclePlate} />
+                  </div>
+                  {selectedAppointment.vehicleInfo && (
+                    <p className="text-slate-700 font-semibold text-xs mt-1">
+                      {selectedAppointment.vehicleInfo}
+                    </p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const vehId = selectedAppointment.vehicleId || selectedAppointment.raw?.vehicle_id;
+                    setSelectedAppointment(null);
+                    if (vehId) {
+                      navigate(`/directorio?tab=vehiculos&vehicle=${encodeURIComponent(vehId)}`);
+                    } else {
+                      navigate(`/directorio?tab=vehiculos&q=${encodeURIComponent(selectedAppointment.vehiclePlate)}`);
+                    }
+                  }}
+                  className="px-3.5 py-2.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shrink-0 min-h-[44px] w-full sm:w-auto"
+                >
+                  <Car className="w-4 h-4 text-emerald-600" />
+                  <span>Ver Ficha Vehículo</span>
+                </button>
+              </div>
+
+              {/* Síntomas Reportados */}
               {selectedAppointment.symptoms.length > 0 && (
                 <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
                   <span className="text-[11px] text-slate-500 font-bold uppercase block">Síntomas Reportados</span>
@@ -805,10 +1040,11 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
                 </div>
               )}
 
-              {selectedAppointment.evidenceRef && (
-                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-600 flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span>Cita confirmada y validada en el sistema del taller.</span>
+              {/* Observaciones o Notas de Recepción */}
+              {selectedAppointment.raw?.service_request?.notes && (
+                <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+                  <span className="text-[11px] text-slate-500 font-bold uppercase block">Notas de Recepción</span>
+                  <p className="text-slate-700 italic">{String(selectedAppointment.raw.service_request.notes)}</p>
                 </div>
               )}
             </div>
@@ -819,7 +1055,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
                 <button
                   type="button"
                   onClick={() => {
-                    const targetVehicleId = selectedAppointment.raw?.vehicle_id || '';
+                    const targetVehicleId = selectedAppointment.vehicleId || selectedAppointment.raw?.vehicle_id || '';
                     const params = new URLSearchParams();
                     params.set('new', 'rk');
                     if (targetVehicleId) params.set('vehicleId', targetVehicleId);
@@ -830,7 +1066,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
                     setSelectedAppointment(null);
                     navigate(`/presupuestos?${params.toString()}`);
                   }}
-                  className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-extrabold transition flex items-center justify-center gap-1.5 shadow-xs"
+                  className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-extrabold transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer min-h-[44px]"
                 >
                   <Sparkles className="w-3.5 h-3.5 text-amber-300" />
                   <span>Presupuesto con RK</span>
@@ -839,8 +1075,8 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
                 <button
                   type="button"
                   onClick={() => {
-                    const targetVehicleId = selectedAppointment.raw?.vehicle_id || '';
-                    const targetCustomerId = selectedAppointment.raw?.customer_id || '';
+                    const targetVehicleId = selectedAppointment.vehicleId || selectedAppointment.raw?.vehicle_id || '';
+                    const targetCustomerId = selectedAppointment.customerId || selectedAppointment.raw?.customer_id || '';
                     const params = new URLSearchParams();
                     params.set('new', 'manual');
                     params.set('appointmentId', selectedAppointment.id);
@@ -856,7 +1092,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
                     setSelectedAppointment(null);
                     navigate(`/presupuestos?${params.toString()}`);
                   }}
-                  className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5"
+                  className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer min-h-[44px]"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   <span>Presupuesto Manual</span>
@@ -866,60 +1102,12 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
               <button
                 type="button"
                 onClick={() => setSelectedAppointment(null)}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition text-center"
+                className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition text-center cursor-pointer min-h-[44px]"
               >
                 Cerrar
               </button>
             </div>
 
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* 5. TENANT CONFIGURATION MODAL                                             */}
-      {/* ========================================================================= */}
-      {showTenantModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn">
-          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="text-base font-extrabold text-slate-900">Configurar Tenant de Taller</h3>
-              <button onClick={() => setShowTenantModal(false)} className="text-slate-400 hover:text-slate-700">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveTenantId} className="space-y-4">
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-700">Identificador UUID del Taller (Tenant ID):</label>
-                <input
-                  type="text"
-                  value={tenantInput}
-                  onChange={e => setTenantInput(e.target.value)}
-                  placeholder="Ej. c306c70e-c02c-47c6-8742-536ba9c02e8e"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-mono text-slate-900 focus:outline-none focus:border-blue-500 focus:bg-white"
-                />
-                <p className="text-[11px] text-slate-500">
-                  Permite conectar la vista con tu taller real. Puedes consultar tus tenants en Platform Admin.
-                </p>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowTenantModal(false)}
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm"
-                >
-                  Guardar y Conectar
-                </button>
-              </div>
-            </form>
           </div>
         </div>
       )}
@@ -933,30 +1121,6 @@ export const AgendaView: React.FC<AgendaViewProps> = ({ tenantId: propTenantId =
           initialCustomerId={urlCustomerId}
           initialVehicleId={urlVehicleId}
           onAppointmentCreated={() => {
-            loadRealAppointments(activeTenantId);
-          }}
-        />
-      )}
-
-      {/* Manual Customer Modal */}
-      {activeTenantId && (
-        <ManualCustomerModal
-          isOpen={isCustomerModalOpen}
-          onClose={() => setIsCustomerModalOpen(false)}
-          tenantId={activeTenantId}
-          onCustomerCreated={() => {
-            loadRealAppointments(activeTenantId);
-          }}
-        />
-      )}
-
-      {/* Manual Vehicle Modal */}
-      {activeTenantId && (
-        <ManualVehicleModal
-          isOpen={isVehicleModalOpen}
-          onClose={() => setIsVehicleModalOpen(false)}
-          tenantId={activeTenantId}
-          onVehicleCreated={() => {
             loadRealAppointments(activeTenantId);
           }}
         />

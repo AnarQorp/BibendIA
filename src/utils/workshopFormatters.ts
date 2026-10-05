@@ -226,45 +226,117 @@ export function formatLineTotal(
 }
 
 /**
- * Formats appointment source cleanly for workshop UI.
+ * Canonical origins supported by the backend authority.
+ */
+export type CanonicalAppointmentOrigin = 'voice_phone' | 'workshop_manual' | 'web_lead' | 'dms_import';
+
+/**
+ * Translates canonical appointment origin to human-readable workshop terminology.
  */
 export function formatAppointmentSource(source?: string | null): {
   label: string;
-  sourceKey: 'phone' | 'web' | 'workshop';
+  sourceKey: CanonicalAppointmentOrigin;
   tooltip: string;
   bg: string;
   text: string;
   border: string;
 } {
   switch (source) {
-    case 'phone_ai':
-    case 'phone':
+    case 'voice_phone':
       return {
         label: 'Teléfono',
-        sourceKey: 'phone',
-        tooltip: 'Cita acordada por teléfono',
+        sourceKey: 'voice_phone',
+        tooltip: 'Cita acordada por recepción telefónica',
         bg: 'bg-blue-50',
         text: 'text-blue-700',
         border: 'border-blue-200'
       };
-    case 'web':
+    case 'web_lead':
       return {
         label: 'Web',
-        sourceKey: 'web',
-        tooltip: 'Cita reservada desde la web',
+        sourceKey: 'web_lead',
+        tooltip: 'Cita acordada a través de canal web',
         bg: 'bg-emerald-50',
         text: 'text-emerald-700',
         border: 'border-emerald-200'
       };
-    case 'workshop':
+    case 'dms_import':
+      return {
+        label: 'DMS',
+        sourceKey: 'dms_import',
+        tooltip: 'Cita importada desde sistema de gestión de taller',
+        bg: 'bg-amber-50',
+        text: 'text-amber-700',
+        border: 'border-amber-200'
+      };
+    case 'workshop_manual':
     default:
       return {
         label: 'Taller',
-        sourceKey: 'workshop',
-        tooltip: 'Cita registrada en el taller',
+        sourceKey: 'workshop_manual',
+        tooltip: 'Cita registrada manualmente en taller',
         bg: 'bg-slate-100',
         text: 'text-slate-700',
         border: 'border-slate-200'
       };
   }
 }
+
+export type CanonicalAppointmentStatus = 'tentative' | 'held' | 'confirmed' | 'cancelled';
+
+/**
+ * Translates canonical appointment status to human-readable workshop terminology and badge styling.
+ * Strictly consumes backend authority: tentative, held, confirmed, cancelled.
+ */
+export function formatAppointmentStatus(status?: string | null): {
+  label: string;
+  bg: string;
+  text: string;
+  border: string;
+  dotColor: string;
+} {
+  switch (status?.toLowerCase()) {
+    case 'confirmed':
+      return {
+        label: 'Confirmada',
+        bg: 'bg-emerald-50',
+        text: 'text-emerald-800',
+        border: 'border-emerald-200',
+        dotColor: 'bg-emerald-500'
+      };
+    case 'tentative':
+      return {
+        label: 'Tentativa',
+        bg: 'bg-amber-50',
+        text: 'text-amber-800',
+        border: 'border-amber-200',
+        dotColor: 'bg-amber-500'
+      };
+    case 'held':
+      return {
+        label: 'En espera',
+        bg: 'bg-slate-100',
+        text: 'text-slate-700',
+        border: 'border-slate-300',
+        dotColor: 'bg-slate-400'
+      };
+    case 'cancelled':
+      return {
+        label: 'Cancelada',
+        bg: 'bg-rose-50',
+        text: 'text-rose-700',
+        border: 'border-rose-200',
+        dotColor: 'bg-rose-500'
+      };
+    default:
+      return {
+        label: status || 'Registrada',
+        bg: 'bg-slate-100',
+        text: 'text-slate-700',
+        border: 'border-slate-200',
+        dotColor: 'bg-slate-400'
+      };
+  }
+}
+
+

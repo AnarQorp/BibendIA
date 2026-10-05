@@ -299,12 +299,31 @@ export interface PlatformTenantSummary {
   updated_at: string;
 }
 
+export interface WorkshopTimeSlot {
+  start: string;
+  end: string;
+}
+
+export type WorkshopOpeningHours = Record<string, WorkshopTimeSlot[]>;
+
+export interface WorkshopServiceDurationPolicy {
+  version: string;
+  rules: {
+    inspection?: number;
+    oil_service?: number;
+    brakes_or_noise?: number;
+    generic_fault?: number;
+  };
+  fallbackMinutes: number | null;
+}
+
 export interface PlatformWorkshopRow {
   id: string;
   tenant_id: string;
   name: string;
   timezone: string;
-  opening_hours: Record<string, unknown>;
+  opening_hours: WorkshopOpeningHours | Record<string, unknown>;
+  service_duration_policy?: WorkshopServiceDurationPolicy;
   status: 'active' | 'suspended' | 'closed';
   version: number;
   updated_at: string;

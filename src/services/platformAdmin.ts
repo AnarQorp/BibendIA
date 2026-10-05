@@ -10,6 +10,7 @@ import type {
   PlatformChannelEndpointRow,
   PlatformIntegrationRow,
   PlatformAuditEventRow,
+  WorkshopServiceDurationPolicy,
 } from '../types';
 
 export interface PlatformControlState {
@@ -274,6 +275,75 @@ export async function fetchPlatformWorkshops(tenantId: string, baseUrl = ''): Pr
     return { status: 'success', data: json.data || [], correlationId: json.correlationId };
   } catch (e) {
     return { status: 'error', message: e instanceof Error ? e.message : 'Error de red' };
+  }
+}
+
+export interface PatchPlatformWorkshopParams {
+  name?: string;
+  timezone?: string;
+  openingHours?: Record<string, unknown>;
+  serviceDurationPolicy?: WorkshopServiceDurationPolicy;
+  status?: 'active' | 'suspended' | 'closed';
+  expectedVersion: number;
+  idempotencyKey: string;
+}
+
+export interface PlatformCommandReceipt {
+  receiptId: string;
+  operation: string;
+  entityType: string;
+  entityId: string;
+  before?: unknown;
+  after?: unknown;
+  correlationId: string;
+  evidenceRef?: string;
+  occurredAt: string;
+}
+
+export interface PatchPlatformWorkshopResult {
+  ok: boolean;
+  status: 'success' | 'version_conflict' | 'unauthorized' | 'error';
+  message?: string;
+  receipt?: PlatformCommandReceipt;
+  correlationId?: string;
+}
+
+export async function patchPlatformWorkshop(
+  tenantId: string,
+  workshopId: string,
+  params: PatchPlatformWorkshopParams,
+  baseUrl = ''
+): Promise<PatchPlatformWorkshopResult> {
+  if (!tenantId || !workshopId) {
+    return { ok: false, status: 'error', message: 'Se requiere tenantId y workshopId' };
+  }
+  try {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    };
+
+    const res = await fetch(`${baseUrl}/v1/platform/tenants/${encodeURIComponent(tenantId)}/workshops/${encodeURIComponent(workshopId)}`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers,
+      body: JSON.stringify(params),
+    });
+    const correlationId = res.headers?.get ? (res.headers.get('x-correlation-id') || undefined) : undefined;
+    if (res.status === 401 || res.status === 403) {
+      return { ok: false, status: 'unauthorized', message: 'No autorizado para modificar la configuración del taller', correlationId };
+    }
+    if (res.status === 409) {
+      return { ok: false, status: 'version_conflict', message: 'Conflicto de concurrencia (versión desactualizada). Los datos se han recargado.', correlationId };
+    }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      return { ok: false, status: 'error', message: err.error || err.message || `Error HTTP ${res.status}`, correlationId };
+    }
+    const json = await res.json();
+    return { ok: true, status: 'success', receipt: json.receipt, correlationId: json.correlationId || correlationId };
+  } catch (e) {
+    return { ok: false, status: 'error', message: e instanceof Error ? e.message : 'Error de red' };
   }
 }
 
