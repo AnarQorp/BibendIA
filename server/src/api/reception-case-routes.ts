@@ -8,7 +8,7 @@ import type { ServicePrincipal } from '../auth/principal.js';
 import { inTenantTransaction } from '../persistence/pool.js';
 import { assertTenantOperation } from '../modules/tenant-control/tenant-control.js';
 import { resolveCanonicalReceptionContext } from '../modules/agent-core/reception-lifecycle-tools.js';
-import { createCaseSchema,voiceCaseSchema,requestHumanContactSchema,createReceptionCase,getReceptionCase,listReceptionCases,updateReceptionCase,
+import { manualCreateCaseSchema,voiceCaseSchema,requestHumanContactSchema,createReceptionCase,getReceptionCase,listReceptionCases,updateReceptionCase,
   getReceptionCaseHistory,ReceptionCaseError,statuses,priorities,categories,channels } from '../modules/reception-cases/reception-cases.js';
 import type { PiiProtection } from '../security/pii-protection.js';
 
@@ -36,7 +36,7 @@ function fail(reply:FastifyReply,error:unknown,correlationId:string){
 export function registerReceptionCaseRoutes(app:FastifyInstance,pool:pg.Pool,pii:PiiProtection){
   const human={config:{auth:{mode:'authenticated' as const,audience:'workshop' as const,principalKinds:['workshop_user' as const]}}};
   app.post('/v1/workshop/tenants/:tenantId/reception-cases',human,async(request,reply)=>{
-    const p=tenantParams.safeParse(request.params),body=createCaseSchema.safeParse(request.body);
+    const p=tenantParams.safeParse(request.params),body=manualCreateCaseSchema.safeParse(request.body);
     if(!p.success||!body.success)return reply.code(400).send({error:'INVALID_RECEPTION_CASE_PAYLOAD',correlationId:request.id});
     if(!request.principal)return reply.code(401).send({error:'AUTHENTICATION_REQUIRED'});
     try{const result=await inAuthorizedTenantTransaction(pool,{principal:request.principal,requestedTenantId:p.data.tenantId,
@@ -50,7 +50,7 @@ export function registerReceptionCaseRoutes(app:FastifyInstance,pool:pg.Pool,pii
           workshopId = wsRows.rows[0].id;
         }
         return createReceptionCase(client,pii,context.tenantId,{type:context.principal.kind,id:(context.principal as {userId:string}).userId},request.id,
-          {...body.data,workshopId,channel:'MANUAL',provenance:{...body.data.provenance,source:'workshop_manual'}});
+          {...body.data,workshopId,channel:'MANUAL',provenance:{source:'workshop_manual'}});
       }); return reply.code(result.replay?200:201).send({data:result.case,replay:result.replay,correlationId:request.id});
     }catch(error){return fail(reply,error,request.id);}
   });

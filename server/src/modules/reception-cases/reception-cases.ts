@@ -11,13 +11,13 @@ export const categories = ['callback_request','appointment_issue','late_arrival'
 export const priorities = ['LOW','NORMAL','HIGH','URGENT'] as const;
 export const statuses = ['OPEN','IN_PROGRESS','WAITING_CUSTOMER','WAITING_WORKSHOP','RESOLVED','CLOSED'] as const;
 
-export const createCaseSchema = z.object({
+export const manualCreateCaseSchema = z.object({
   workshopId: z.string().uuid().optional(), channel: z.enum(channels).default('MANUAL'), callerType: z.enum(callerTypes),
   category: z.enum(categories), summary: z.string().trim().min(1).max(500), detail: z.string().trim().max(4000).optional(),
   priority: z.enum(priorities).default('NORMAL'), customerId: z.string().uuid().nullable().optional(),
   vehicleId: z.string().uuid().nullable().optional(), appointmentId: z.string().uuid().nullable().optional(),
   estimateId: z.string().uuid().nullable().optional(), contactContext: z.record(z.string(), z.string().max(500)).optional(),
-  idempotencyKey: z.string().min(8).max(200), provenance: z.record(z.string(), z.unknown()).default({}),
+  idempotencyKey: z.string().min(8).max(200),
 }).strict();
 
 export const voiceCaseSchema = z.object({
@@ -32,10 +32,19 @@ export class ReceptionCaseError extends Error {
   constructor(readonly code: 'CASE_NOT_FOUND'|'CASE_IDEMPOTENCY_CONFLICT'|'CASE_LINK_INVALID'|'CASE_STATUS_INVALID'|'WORKSHOP_CONTEXT_AMBIGUOUS') { super(code); }
 }
 
-type CreateCase = Omit<z.input<typeof createCaseSchema>, 'workshopId'> & {
+export type ReceptionCaseProvenance = { source: 'workshop_manual' } | {
+  source: 'elevenlabs_tool';
+  provider?: 'elevenlabs';
+  servicePrincipalId?: string;
+  requestId?: string;
+  conversationId?: string;
+};
+
+type CreateCase = Omit<z.input<typeof manualCreateCaseSchema>, 'workshopId'> & {
   workshopId: string;
   conversationId?: string | null;
   providerConversationId?: string | null;
+  provenance: ReceptionCaseProvenance;
 };
 
 const canonical = (value: unknown): string => {
