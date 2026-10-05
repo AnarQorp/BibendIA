@@ -6,6 +6,8 @@ import {
   type PlatformWorkshopsState,
   type PlatformChannelsAndIntegrationsState
 } from '../../../services/platformAdmin';
+import type { PlatformWorkshopRow } from '../../../types';
+import { WorkshopCapacityConfigSection } from './WorkshopCapacityConfigSection';
 
 export interface WorkshopsAndChannelsViewProps {
   tenantId: string | null;
@@ -14,6 +16,7 @@ export interface WorkshopsAndChannelsViewProps {
 export const WorkshopsAndChannelsView: React.FC<WorkshopsAndChannelsViewProps> = ({ tenantId }) => {
   const [workshopsState, setWorkshopsState] = useState<PlatformWorkshopsState>({ status: 'idle' });
   const [channelsState, setChannelsState] = useState<PlatformChannelsAndIntegrationsState>({ status: 'idle' });
+  const [selectedWorkshopId, setSelectedWorkshopId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   const loadData = async () => {
@@ -28,6 +31,9 @@ export const WorkshopsAndChannelsView: React.FC<WorkshopsAndChannelsViewProps> =
       fetchPlatformChannelsAndIntegrations(tenantId)
     ]);
     setWorkshopsState(wRes);
+    if (wRes.status === 'success' && wRes.data && wRes.data.length > 0) {
+      setSelectedWorkshopId((prev) => prev || wRes.data![0].id);
+    }
     setChannelsState(cRes);
     setIsLoading(false);
   };
@@ -53,6 +59,7 @@ export const WorkshopsAndChannelsView: React.FC<WorkshopsAndChannelsViewProps> =
   const workshops = workshopsState.data || [];
   const endpoints = channelsState.endpoints || [];
   const integrations = channelsState.integrations || [];
+  const selectedWorkshop = workshops.find((w) => w.id === selectedWorkshopId) || workshops[0] || null;
 
   return (
     <div className="space-y-6">
@@ -104,23 +111,41 @@ export const WorkshopsAndChannelsView: React.FC<WorkshopsAndChannelsViewProps> =
             <div className="py-8 text-center text-xs text-slate-400 italic">No hay talleres registrados para este tenant.</div>
           ) : (
             <div className="space-y-2">
-              {workshops.map((w) => (
-                <div key={w.id} className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-bold text-slate-900">{w.name || w.id}</p>
-                    <p className="text-[11px] text-slate-500 font-mono">Zona horaria: {w.timezone}</p>
-                    <span className="text-[10px] text-slate-400 font-mono">ID: {w.id} (v{w.version})</span>
+              {workshops.map((w) => {
+                const isSelected = w.id === selectedWorkshopId;
+                return (
+                  <div
+                    key={w.id}
+                    onClick={() => setSelectedWorkshopId(w.id)}
+                    className={`p-3 rounded-xl flex items-center justify-between cursor-pointer transition border ${
+                      isSelected
+                        ? 'bg-blue-50/60 border-blue-500 shadow-2xs ring-1 ring-blue-500'
+                        : 'bg-slate-50 border-slate-200 hover:bg-slate-100/70'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <p className="text-xs font-bold text-slate-900">{w.name || w.id}</p>
+                        {isSelected && (
+                          <span className="text-[9px] font-bold uppercase tracking-wider bg-blue-600 text-white px-1.5 py-0.2 rounded">
+                            Seleccionado
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-500 font-mono">Zona horaria: {w.timezone}</p>
+                      <span className="text-[10px] text-slate-400 font-mono">ID: {w.id} (v{w.version})</span>
+                    </div>
+                    <div className="text-right">
+                      <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        w.status === 'active' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'
+                      }`}>
+                        {w.status === 'active' ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
+                        {w.status}
+                      </span>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                      w.status === 'active' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'
-                    }`}>
-                      {w.status === 'active' ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
-                      {w.status}
-                    </span>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -169,8 +194,18 @@ export const WorkshopsAndChannelsView: React.FC<WorkshopsAndChannelsViewProps> =
             </div>
           )}
         </div>
-
       </div>
+
+      {/* Capacidad y Agenda: Selected Workshop Configuration */}
+      {selectedWorkshop && (
+        <WorkshopCapacityConfigSection
+          tenantId={tenantId}
+          workshop={selectedWorkshop}
+          onWorkshopUpdated={() => {
+            loadData();
+          }}
+        />
+      )}
 
       {/* Integrations Row */}
       <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
