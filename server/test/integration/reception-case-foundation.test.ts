@@ -44,9 +44,27 @@ describe('Reception Case Foundation',()=>{
     expect(created.statusCode).toBe(201); expect(created.json().data).toMatchObject({channel:'MANUAL',customerId:ids.customer,vehicleId:ids.vehicle,status:'OPEN'});
     const listed=await app.inject({method:'GET',url:`/v1/workshop/tenants/${ids.tenant}/reception-cases?status=OPEN&customerId=${ids.customer}&limit=10`,headers:{authorization:'Bearer owner'}});
     expect(listed.statusCode).toBe(200); expect(listed.json().data.map((x:{id:string})=>x.id)).toContain(created.json().data.id);
-    const raw=await pool.query('SELECT summary_ciphertext,detail_ciphertext,provenance::text FROM reception_cases WHERE id=$1',[created.json().data.id]);
+    const raw=await pool.query('SELECT summary_ciphertext,detail_ciphertext,provenance FROM reception_cases WHERE id=$1',[created.json().data.id]);
     expect(raw.rows[0].summary_ciphertext).not.toBeNull(); expect(raw.rows[0].detail_ciphertext).not.toBeNull();
-    expect(JSON.stringify(raw.rows[0])).not.toContain('Cambiar la cita'); expect(JSON.stringify(raw.rows[0])).not.toContain('Llamar por la tarde'); await app.close();
+    expect(JSON.stringify(raw.rows[0])).not.toContain('Cambiar la cita'); expect(JSON.stringify(raw.rows[0])).not.toContain('Llamar por la tarde');
+    expect(raw.rows[0].provenance).toEqual({source:'workshop_manual',requestHash:expect.any(String)}); await app.close();
+  });
+
+  it('rejects caller-supplied manual provenance with zero persistence',async()=>{
+    const app=buildApi(pool,{authentication,piiProtection:pii}); const idempotencyKey=`forged-${randomUUID()}`;
+    const rejected=await app.inject({method:'POST',url:`/v1/workshop/tenants/${ids.tenant}/reception-cases`,headers:{authorization:'Bearer owner'},
+      payload:{workshopId:ids.workshop,callerType:'CUSTOMER',category:'other',summary:'Intento de provenance falsa',idempotencyKey,
+        provenance:{provider:'elevenlabs',servicePrincipalId:'fake',requestId:'fake'}}});
+    expect(rejected.statusCode).toBe(400);expect(rejected.json().error).toBe('INVALID_RECEPTION_CASE_PAYLOAD');
+    const persisted=await pool.query('SELECT count(*)::int count FROM reception_cases WHERE tenant_id=$1 AND idempotency_key=$2',[ids.tenant,idempotencyKey]);
+    expect(persisted.rows[0].count).toBe(0);
+    const cleanKey=`clean-${randomUUID()}`;
+    const clean=await app.inject({method:'POST',url:`/v1/workshop/tenants/${ids.tenant}/reception-cases`,headers:{authorization:'Bearer owner'},
+      payload:{workshopId:ids.workshop,callerType:'CUSTOMER',category:'other',summary:'Creación manual válida',idempotencyKey:cleanKey}});
+    expect(clean.statusCode).toBe(201);
+    const cleanProvenance=(await pool.query('SELECT provenance FROM reception_cases WHERE tenant_id=$1 AND idempotency_key=$2',[ids.tenant,cleanKey])).rows[0].provenance;
+    expect(cleanProvenance).toEqual({source:'workshop_manual',requestHash:expect.any(String)});
+    expect(cleanProvenance).not.toMatchObject({provider:'elevenlabs',servicePrincipalId:'fake',requestId:'fake'});await app.close();
   });
 
   it('supports unknown and supplier callers without forcing Customer',async()=>{
@@ -57,13 +75,17 @@ describe('Reception Case Foundation',()=>{
     await app.close();
   });
 
-  it('exact replay returns the same Case and changed replay is rejected',async()=>{
+  it('concurrent exact replay returns one Case and changed replay is rejected deterministically',async()=>{
     const app=buildApi(pool,{authentication,piiProtection:pii}),idempotencyKey=`replay-${randomUUID()}`;
     const payload={workshopId:ids.workshop,channel:'MANUAL',callerType:'CUSTOMER',category:'callback_request',summary:'Solicita llamada',idempotencyKey};
-    const first=await app.inject({method:'POST',url:`/v1/workshop/tenants/${ids.tenant}/reception-cases`,headers:{authorization:'Bearer owner'},payload});
-    const replay=await app.inject({method:'POST',url:`/v1/workshop/tenants/${ids.tenant}/reception-cases`,headers:{authorization:'Bearer owner'},payload});
+    const [first,replay]=await Promise.all([
+      app.inject({method:'POST',url:`/v1/workshop/tenants/${ids.tenant}/reception-cases`,headers:{authorization:'Bearer owner'},payload}),
+      app.inject({method:'POST',url:`/v1/workshop/tenants/${ids.tenant}/reception-cases`,headers:{authorization:'Bearer owner'},payload})]);
     const conflict=await app.inject({method:'POST',url:`/v1/workshop/tenants/${ids.tenant}/reception-cases`,headers:{authorization:'Bearer owner'},payload:{...payload,summary:'Texto distinto'}});
-    expect(replay.statusCode).toBe(200);expect(replay.json().data.id).toBe(first.json().data.id);expect(conflict.statusCode).toBe(409);expect(conflict.json().error).toBe('CASE_IDEMPOTENCY_CONFLICT');await app.close();
+    expect([first.statusCode,replay.statusCode].sort()).toEqual([200,201]);expect(replay.json().data.id).toBe(first.json().data.id);
+    expect([first.json().replay,replay.json().replay].sort()).toEqual([false,true]);
+    expect(conflict.statusCode).toBe(409);expect(conflict.json().error).toBe('CASE_IDEMPOTENCY_CONFLICT');
+    expect((await pool.query('SELECT count(*)::int count FROM reception_cases WHERE tenant_id=$1 AND idempotency_key=$2',[ids.tenant,idempotencyKey])).rows[0].count).toBe(1);await app.close();
   });
 
   it('persists automation into the same table and lifecycle updates are audited',async()=>{
@@ -137,4 +159,3 @@ describe('Reception Case Foundation',()=>{
     await app.close();
   });
 });
-
