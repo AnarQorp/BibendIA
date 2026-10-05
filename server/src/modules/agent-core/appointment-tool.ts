@@ -8,6 +8,7 @@ import { assertTenantMutationAtPool, assertTenantOperation } from '../tenant-con
 import type { PiiProtection } from '../../security/pii-protection.js';
 import { normalizeSpanishPlate } from '../../security/pii-protection.js';
 import { resolveCanonicalReceptionContext } from './reception-lifecycle-tools.js';
+import { resolveCapacityRequirements } from '../scheduling/workshop-capacity-policy.js';
 
 type VerifiedIdentity = {
   resolution: 'verified'; vehicleId: string; customerId: string;
@@ -25,6 +26,7 @@ export const appointmentToolInput = z.object({
   estimatedDurationMinutes: z.number().int().min(15).max(480).optional(),
   slotToken: z.string().min(1).max(200), explicitConfirmation: z.literal(true),
   confirmationTranscript: z.string().max(1000).refine((value) => value.trim().length > 0),
+  customerWaitMode: z.enum(['DROP_OFF','WAIT_ON_SITE']).default('DROP_OFF'),
 });
 export type AppointmentToolInput = z.infer<typeof appointmentToolInput>;
 const tenantPolicySchema = z.object({
@@ -134,11 +136,16 @@ export async function executeAppointmentTool(pool: pg.Pool, context: TenantConte
        VALUES($1,'voice_agent',$2,'policy_evaluated','reception_case',$3,$4,$5)`,
       [tenantId,context.actor.id,caseRow.rows[0].id,correlationId,`policy:${policy.policyVersion}:${policy.effect}`],
     );
-    return { callId:callRow.id,conversationId:callRow.conversation_id,caseId:caseRow.rows[0].id,policy };
+    const workshop = await client.query<{ capacity_policy: unknown }>(
+      'SELECT capacity_policy FROM workshops WHERE tenant_id=$1 AND id=$2', [tenantId, context.workshopId],
+    );
+    if (workshop.rowCount !== 1) throw new Error('WORKSHOP_NOT_FOUND');
+    return { callId:callRow.id,conversationId:callRow.conversation_id,caseId:caseRow.rows[0].id,policy,
+      capacityRequirements: resolveCapacityRequirements(workshop.rows[0].capacity_policy, input.serviceIntent) };
   });
   if(chain.policy.effect!=='allow') return {ok:false,code:'POLICY_BLOCKED',safeMessage:'Necesito revisión humana antes de crear la cita.'};
   const actionContext:TenantContext={...context,correlationId};
   const identity = { resolution: 'verified' as const, customerId: canonicalIdentity.customerId, vehicleId: canonicalIdentity.vehicleId };
-  const receipt=await createAppointmentTransactional(pool,actionContext,{slotToken:input.slotToken,caseId:chain.caseId,identity,serviceRequest:{intent:input.serviceIntent,symptoms:input.symptoms,notes:input.notes,estimatedDurationMinutes:input.estimatedDurationMinutes,capacityRequirements:[{resourceType:'mechanic',quantity:1}]},confirmationEvidenceRef:`voice:${chain.callId}:explicit-confirmation`,idempotencyKey:input.idempotencyKey},pii);
+  const receipt=await createAppointmentTransactional(pool,actionContext,{slotToken:input.slotToken,caseId:chain.caseId,identity,serviceRequest:{intent:input.serviceIntent,symptoms:input.symptoms,notes:input.notes,estimatedDurationMinutes:input.estimatedDurationMinutes,capacityRequirements:chain.capacityRequirements},customerWaitMode:input.customerWaitMode,confirmationEvidenceRef:`voice:${chain.callId}:explicit-confirmation`,idempotencyKey:input.idempotencyKey},pii);
   return {ok:receipt.outcome==='succeeded'&&Boolean(receipt.evidenceRef),code:'APPOINTMENT_CREATED',safeMessage:'La cita ha quedado confirmada.',receipt,callId:chain.callId,conversationId:chain.conversationId,caseId:chain.caseId};
 }

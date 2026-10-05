@@ -30,12 +30,13 @@ import { localIsoDateTime } from './provider-local-time.js';
 import { resolveServiceDuration, ServiceDurationPolicyError, serviceIntentSchema } from '../modules/scheduling/service-duration-policy.js';
 import { registerRepairKnowledgeRoutes } from './repair-knowledge-routes.js';
 import { registerVehicleCatalogRoutes } from './vehicle-catalog-routes.js';
-import { registerWorkshopOperationsRoutes } from './workshop-operations-routes.js';
+import { registerWorkshopOperationsRoutes, WorkshopOperationsError } from './workshop-operations-routes.js';
 import { registerReceptionCaseRoutes } from './reception-case-routes.js';
 import { registerReceptionLifecycleTools, type ConfirmationEvidenceVerifier } from '../modules/agent-core/reception-lifecycle-tools.js';
 import { issueProviderCapability, loadProviderCapability,
   ProviderCapabilityError } from '../modules/agent-core/provider-capabilities.js';
 import { inTenantTransaction } from '../persistence/pool.js';
+import { resolveCapacityRequirements, WorkshopCapacityError } from '../modules/scheduling/workshop-capacity-policy.js';
 
 export type ApiSecurityOptions = {
   authentication?: AuthenticationAdapter;
@@ -102,6 +103,12 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
     if (error instanceof PlatformAdminError) {
       return reply.code(error.code === 'ENTITY_NOT_FOUND' ? 404 : 409).send({ error:error.code,correlationId:request.id });
     }
+    if (error instanceof WorkshopOperationsError) {
+      return reply.code(error.code === 'WORKSHOP_NOT_FOUND' ? 404 : 409).send({ error:error.code,correlationId:request.id });
+    }
+    if (error instanceof ServiceDurationPolicyError || error instanceof WorkshopCapacityError) {
+      return reply.code(422).send({ error: error.code, correlationId: request.id });
+    }
     if (error instanceof z.ZodError) return reply.code(400).send({ error: 'INVALID_PROVIDER_PAYLOAD' });
     request.log.error({ ...safeErrorAttributes(error), correlationId: request.id }, 'request failed');
     return reply.code(500).send({ error: 'INTERNAL_ERROR' });
@@ -133,7 +140,7 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
         `SELECT a.id,a.tenant_id,a.workshop_id,a.case_id,a.customer_id,a.vehicle_id,a.identity_resolution_status,
           a.identity_claim_ciphertext,a.identity_claim_nonce,a.identity_claim_auth_tag,a.identity_claim_key_id,a.service_request,
           a.sensitive_details_ciphertext,a.sensitive_details_nonce,a.sensitive_details_auth_tag,a.sensitive_details_key_id,
-          a.start_at,a.end_at,a.status,a.confirmation_evidence_ref,a.version,a.origin,
+          a.start_at,a.end_at,a.status,a.customer_wait_mode,a.confirmation_evidence_ref,a.version,a.origin,
           c.display_name_ciphertext AS customer_name_ciphertext,c.display_name_nonce AS customer_name_nonce,
           c.display_name_auth_tag AS customer_name_auth_tag,c.display_name_key_id AS customer_name_key_id,
           v.plate_ciphertext AS vehicle_plate_ciphertext,v.plate_nonce AS vehicle_plate_nonce,
@@ -340,13 +347,14 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
         externalEventId: `tool:find-slots:${input.providerCallId}:${input.requestId}`,
         rawBody: canonicalJson(request.body),
       });
-      const workshop = await client.query<{ timezone: string; service_duration_policy: unknown }>(
-        'SELECT timezone,service_duration_policy FROM workshops WHERE tenant_id=$1 AND id=$2',
+      const workshop = await client.query<{ timezone: string; service_duration_policy: unknown; capacity_policy: unknown }>(
+        'SELECT timezone,service_duration_policy,capacity_policy FROM workshops WHERE tenant_id=$1 AND id=$2',
         [tenantContext.tenantId, tenantContext.workshopId],
       );
       if (workshop.rowCount !== 1) throw new ProviderAuthorizationError('ENDPOINT_NOT_RESOLVED');
       return { context: tenantContext, timezone: workshop.rows[0].timezone,
-        durationPolicy: workshop.rows[0].service_duration_policy, disposition };
+        durationPolicy: workshop.rows[0].service_duration_policy,
+        capacityPolicy: workshop.rows[0].capacity_policy, disposition };
     });
     try {
       const duration = resolveServiceDuration({
@@ -355,13 +363,14 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
         legacyDurationMinutes: input.durationMinutes,
       });
       const safeWindow = providerSlotWindow(input, duration.estimatedDurationMinutes);
+      const capacityRequirements = resolveCapacityRequirements(authorized.capacityPolicy, input.serviceIntent);
       const slots = await findSlots(pool, authorized.context, {
         window: safeWindow, limit: input.limit,
         serviceIntent: input.serviceIntent,
         durationPolicySource: duration.source,
         serviceRequest: {
           estimatedDurationMinutes: duration.estimatedDurationMinutes,
-          capacityRequirements: [{ resourceType: 'mechanic', quantity: 1 }],
+          capacityRequirements,
         },
       });
       const capabilitySlots = slots.map((slot) => ({
@@ -389,7 +398,7 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
         durationPolicySource: slot.durationPolicySource,
       })), correlationId };
     } catch (error) {
-      if (error instanceof ServiceDurationPolicyError) {
+      if (error instanceof ServiceDurationPolicyError || error instanceof WorkshopCapacityError) {
         return reply.code(422).send({ ok: false, code: error.code, correlationId });
       }
       if (error instanceof TenantControlError) throw error;
@@ -578,7 +587,7 @@ type ProtectedAppointmentRow = {
   customer_name_ciphertext: Buffer | null; customer_name_nonce: Buffer | null; customer_name_auth_tag: Buffer | null; customer_name_key_id: string | null;
   vehicle_plate_ciphertext: Buffer | null; vehicle_plate_nonce: Buffer | null; vehicle_plate_auth_tag: Buffer | null; vehicle_plate_key_id: string | null;
   vehicle_make?: string | null; vehicle_model?: string | null;
-  start_at: Date; end_at: Date; status: string; confirmation_evidence_ref: string | null; version: number; origin?: string;
+  start_at: Date; end_at: Date; status: string; customer_wait_mode: 'DROP_OFF' | 'WAIT_ON_SITE'; confirmation_evidence_ref: string | null; version: number; origin?: string;
 };
 
 function revealWorkshopAppointment(row: ProtectedAppointmentRow, pii: PiiProtection) {
@@ -627,7 +636,7 @@ function revealWorkshopAppointment(row: ProtectedAppointmentRow, pii: PiiProtect
     id: row.id, tenant_id: row.tenant_id, workshop_id: row.workshop_id, case_id: row.case_id,
     customer_id: row.customer_id, vehicle_id: row.vehicle_id, identity_resolution: row.identity_resolution_status,
     service_request: { ...row.service_request, symptoms: sensitive.symptoms, notes: sensitive.notes },
-    start_at: row.start_at, end_at: row.end_at, status: row.status,
+    start_at: row.start_at, end_at: row.end_at, status: row.status, customer_wait_mode: row.customer_wait_mode,
     confirmation_evidence_ref: row.confirmation_evidence_ref, version: row.version,
     origin: row.origin ?? 'voice_phone',
     customer_name: customerName,

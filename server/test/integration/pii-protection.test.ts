@@ -9,6 +9,7 @@ import { createPool, inTenantTransaction } from '../../src/persistence/pool.js';
 import { insertProtectedCustomer, insertProtectedVehicle } from '../../src/security/protected-records.js';
 import { normalizeSpanishPlate } from '../../src/security/pii-protection.js';
 import { testPiiProtection } from '../support/test-pii.js';
+import { testWorkshopCapacityPolicy } from '../support/workshop-capacity.js';
 
 const pool = createPool('migrator');
 const pii = testPiiProtection();
@@ -48,7 +49,7 @@ beforeAll(async () => {
   await pool.query("INSERT INTO tenant_memberships(user_id,tenant_id,role) VALUES($1,$2,'OWNER')", [ids.workshopUser, ids.tenantA]);
   await pool.query("INSERT INTO platform_access_grants(user_id,role,scope_type,tenant_id) VALUES($1,'SUPPORT_READONLY','tenant',$2)", [ids.supportUser, ids.tenantA]);
   await inTenantTransaction(pool, ids.tenantA, async (client) => {
-    await client.query("INSERT INTO workshops(id,tenant_id,name) VALUES($1,$2,'Workshop A')", [ids.workshopA, ids.tenantA]);
+    await client.query("INSERT INTO workshops(id,tenant_id,name,capacity_policy) VALUES($1,$2,'Workshop A',$3)", [ids.workshopA, ids.tenantA, JSON.stringify(testWorkshopCapacityPolicy)]);
     await insertProtectedCustomer(client, pii, { id: ids.customerA, tenantId: ids.tenantA, displayName: customerName });
     await insertProtectedVehicle(client, pii, { id: ids.vehicleA, tenantId: ids.tenantA, plate });
     await client.query('INSERT INTO customer_vehicle_roles(tenant_id,customer_id,vehicle_id) VALUES($1,$2,$3)', [ids.tenantA, ids.customerA, ids.vehicleA]);
@@ -57,7 +58,7 @@ beforeAll(async () => {
     await client.query("INSERT INTO slot_holds(tenant_id,workshop_id,slot_token,start_at,end_at,capacity_requirements,expires_at) VALUES($1,$2,$3,now()+interval '1 day',now()+interval '1 day 1 hour','[]',now()+interval '1 hour')", [ids.tenantA, ids.workshopA, slot]);
   });
   await inTenantTransaction(pool, ids.tenantB, async (client) => {
-    await client.query("INSERT INTO workshops(id,tenant_id,name) VALUES($1,$2,'Workshop B')", [ids.workshopB, ids.tenantB]);
+    await client.query("INSERT INTO workshops(id,tenant_id,name,capacity_policy) VALUES($1,$2,'Workshop B',$3)", [ids.workshopB, ids.tenantB, JSON.stringify(testWorkshopCapacityPolicy)]);
     await insertProtectedCustomer(client, pii, { id: ids.customerB, tenantId: ids.tenantB, displayName: customerName });
     await insertProtectedVehicle(client, pii, { id: ids.vehicleB, tenantId: ids.tenantB, plate });
   });

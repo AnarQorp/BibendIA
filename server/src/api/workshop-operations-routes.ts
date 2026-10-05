@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type pg from 'pg';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { inAuthorizedTenantTransaction } from '../auth/tenant-authorization.js';
 import { assertTenantOperation } from '../modules/tenant-control/tenant-control.js';
@@ -15,10 +15,41 @@ import {
   revealVehicleRow,
   normalizeSpanishOrE164Phone,
 } from '../security/protected-records.js';
+import { workshopServiceDurationPolicySchema, resolveServiceDuration, serviceIntentSchema } from '../modules/scheduling/service-duration-policy.js';
+import {
+  assertWorkshopCapacity, resolveCapacityRequirements, vehiclesCurrentlyOnSite, workshopCapacityPolicySchema,
+} from '../modules/scheduling/workshop-capacity-policy.js';
+
+export class WorkshopOperationsError extends Error {
+  constructor(readonly code: 'WORKSHOP_NOT_FOUND' | 'VERSION_CONFLICT' | 'IDEMPOTENCY_CONFLICT') { super(code); }
+}
 
 const tenantParams = z.object({ tenantId: z.string().uuid() });
 const customerParams = z.object({ tenantId: z.string().uuid(), customerId: z.string().uuid() });
 const vehicleParams = z.object({ tenantId: z.string().uuid(), vehicleId: z.string().uuid() });
+const workshopParams = z.object({ tenantId: z.string().uuid(), workshopId: z.string().uuid() });
+const appointmentParams = z.object({ tenantId: z.string().uuid(), appointmentId: z.string().uuid() });
+const appointmentOperationalStatusSchema = z.object({
+  status: z.enum(['awaiting_arrival','on_site','in_progress','waiting','completed','delivered','cancelled']),
+  expectedVersion: z.number().int().positive(),
+  idempotencyKey: z.string().min(8).max(200),
+}).strict();
+const allowedAppointmentTransitions: Record<string, readonly string[]> = {
+  tentative: ['held','cancelled'], held: ['confirmed','cancelled'],
+  confirmed: ['awaiting_arrival','on_site','cancelled'], awaiting_arrival: ['on_site','cancelled'],
+  on_site: ['in_progress','waiting','completed'], in_progress: ['waiting','completed'],
+  waiting: ['in_progress','completed'], completed: ['delivered'], delivered: [], cancelled: [],
+};
+
+const workshopCapacityPatchSchema = z.object({
+  openingHours: z.record(z.string(), z.unknown()).optional(),
+  serviceDurationPolicy: workshopServiceDurationPolicySchema.optional(),
+  capacityPolicy: workshopCapacityPolicySchema.optional(),
+  expectedVersion: z.number().int().positive(),
+  idempotencyKey: z.string().min(8).max(200),
+}).strict().refine((value) => value.openingHours !== undefined || value.serviceDurationPolicy !== undefined || value.capacityPolicy !== undefined, {
+  message: 'At least one policy must be updated',
+});
 
 const customerQuerySchema = z.object({
   search: z.string().trim().max(100).optional(),
@@ -95,6 +126,7 @@ const createManualAppointmentSchema = z.object({
   endAt: z.string().datetime({ offset: true }).optional(),
   durationMinutes: z.number().int().min(15).max(480).default(60),
   serviceIntent: z.string().trim().min(1).max(200),
+  customerWaitMode: z.enum(['DROP_OFF','WAIT_ON_SITE']).default('DROP_OFF'),
   notes: z.string().trim().max(2000).optional(),
   customerId: z.string().uuid().nullable().optional(),
   vehicleId: z.string().uuid().nullable().optional(),
@@ -114,6 +146,81 @@ const createManualAppointmentSchema = z.object({
 
 export function registerWorkshopOperationsRoutes(app: FastifyInstance, pool: pg.Pool, pii: PiiProtection): void {
   const auth = { config: { auth: { mode: 'authenticated' as const, audience: 'workshop' as const, principalKinds: ['workshop_user' as const] } } };
+
+  app.get('/v1/workshop/tenants/:tenantId/workshops/:workshopId/capacity', auth, async (request, reply) => {
+    const params = workshopParams.safeParse(request.params);
+    if (!params.success) return reply.code(400).send({ error: 'INVALID_WORKSHOP_SELECTOR', correlationId: request.id });
+    if (!request.principal) return reply.code(401).send({ error: 'AUTHENTICATION_REQUIRED' });
+    const data = await inAuthorizedTenantTransaction(pool, {
+      principal: request.principal, requestedTenantId: params.data.tenantId,
+      capability: 'workshop:configuration:read', correlationId: request.id,
+    }, async (client, context) => {
+      await assertTenantOperation(client, context.tenantId, 'workshop_read');
+      const result = await client.query(
+        `SELECT id,tenant_id,opening_hours,service_duration_policy,capacity_policy,version,updated_at
+         FROM workshops WHERE tenant_id=$1 AND id=$2`, [context.tenantId, params.data.workshopId],
+      );
+      if (result.rowCount !== 1) throw new WorkshopOperationsError('WORKSHOP_NOT_FOUND');
+      return { ...result.rows[0], vehiclesCurrentlyOnSite: await vehiclesCurrentlyOnSite(client, context.tenantId, params.data.workshopId) };
+    });
+    return { data, correlationId: request.id };
+  });
+
+  app.patch('/v1/workshop/tenants/:tenantId/workshops/:workshopId/capacity', auth, async (request, reply) => {
+    const params = workshopParams.safeParse(request.params);
+    const body = workshopCapacityPatchSchema.safeParse(request.body);
+    if (!params.success || !body.success) return reply.code(400).send({ error: 'INVALID_WORKSHOP_CAPACITY_PAYLOAD', correlationId: request.id });
+    if (!request.principal || request.principal.kind !== 'workshop_user') return reply.code(401).send({ error: 'AUTHENTICATION_REQUIRED' });
+    const data = await inAuthorizedTenantTransaction(pool, {
+      principal: request.principal, requestedTenantId: params.data.tenantId,
+      capability: 'workshop:configuration:update', correlationId: request.id,
+    }, async (client, context) => {
+      await assertTenantOperation(client, context.tenantId, 'domain_mutation');
+      const actorId = request.principal!.kind === 'workshop_user' ? request.principal!.userId : '';
+      const payloadHash = createHash('sha256').update(JSON.stringify(body.data)).digest('hex');
+      const replay = await client.query(
+        `SELECT workshop_id,operation,payload_hash,after_jsonb FROM workshop_command_receipts
+         WHERE tenant_id=$1 AND actor_id=$2 AND idempotency_key=$3`,
+        [context.tenantId, actorId, body.data.idempotencyKey],
+      );
+      if (replay.rowCount) {
+        if (replay.rows[0].workshop_id !== params.data.workshopId || replay.rows[0].operation !== 'workshop.capacity.update'
+          || replay.rows[0].payload_hash !== payloadHash) throw new WorkshopOperationsError('IDEMPOTENCY_CONFLICT');
+        return replay.rows[0].after_jsonb;
+      }
+      const before = await client.query(
+        `SELECT id,tenant_id,opening_hours,service_duration_policy,capacity_policy,version,updated_at
+         FROM workshops WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, [context.tenantId, params.data.workshopId],
+      );
+      if (before.rowCount !== 1) throw new WorkshopOperationsError('WORKSHOP_NOT_FOUND');
+      const updated = await client.query(
+        `UPDATE workshops SET opening_hours=COALESCE($3,opening_hours),
+           service_duration_policy=COALESCE($4,service_duration_policy),capacity_policy=COALESCE($5,capacity_policy),
+           version=version+1,updated_at=now()
+         WHERE tenant_id=$1 AND id=$2 AND version=$6
+         RETURNING id,tenant_id,opening_hours,service_duration_policy,capacity_policy,version,updated_at`,
+        [context.tenantId, params.data.workshopId, body.data.openingHours ?? null,
+          body.data.serviceDurationPolicy ?? null, body.data.capacityPolicy ?? null, body.data.expectedVersion],
+      );
+      if (updated.rowCount !== 1) throw new WorkshopOperationsError('VERSION_CONFLICT');
+      const after = updated.rows[0];
+      await client.query(
+        `INSERT INTO workshop_command_receipts
+         (tenant_id,workshop_id,operation,actor_id,idempotency_key,payload_hash,before_jsonb,after_jsonb,correlation_id)
+         VALUES($1,$2,'workshop.capacity.update',$3,$4,$5,$6,$7,$8)`,
+        [context.tenantId, params.data.workshopId, actorId, body.data.idempotencyKey, payloadHash,
+          before.rows[0], after, request.id],
+      );
+      await client.query(
+        `INSERT INTO audit_events(tenant_id,actor_type,actor_id,event_type,entity_type,entity_id,correlation_id,evidence_ref)
+         VALUES($1,'human',$2,'workshop_capacity_updated','workshop',$3,$4,$5)`,
+        [context.tenantId, actorId, params.data.workshopId, request.id,
+          `postgres:workshop-command:${body.data.idempotencyKey}`],
+      );
+      return after;
+    });
+    return { data, correlationId: request.id };
+  });
 
   // 1. Customers: List
   app.get('/v1/workshop/tenants/:tenantId/customers', auth, async (request, reply) => {
@@ -1150,7 +1257,7 @@ export function registerWorkshopOperationsRoutes(app: FastifyInstance, pool: pg.
                a.identity_claim_ciphertext, a.identity_claim_nonce, a.identity_claim_auth_tag, a.identity_claim_key_id,
                a.service_request,
                a.sensitive_details_ciphertext, a.sensitive_details_nonce, a.sensitive_details_auth_tag, a.sensitive_details_key_id,
-               a.start_at, a.end_at, a.status, a.confirmation_evidence_ref, a.version, a.origin,
+               a.start_at, a.end_at, a.status, a.customer_wait_mode, a.confirmation_evidence_ref, a.version, a.origin,
                c.display_name_ciphertext AS customer_name_ciphertext, c.display_name_nonce AS customer_name_nonce,
                c.display_name_auth_tag AS customer_name_auth_tag, c.display_name_key_id AS customer_name_key_id,
                v.plate_ciphertext AS vehicle_plate_ciphertext, v.plate_nonce AS vehicle_plate_nonce,
@@ -1167,12 +1274,24 @@ export function registerWorkshopOperationsRoutes(app: FastifyInstance, pool: pg.
       }
 
       // Resolve workshop ID
-      const wsResult = await client.query<{ id: string }>('SELECT id FROM workshops WHERE tenant_id = $1 LIMIT 1', [context.tenantId]);
+      const wsResult = await client.query<{ id: string; timezone: string; service_duration_policy: unknown; capacity_policy: unknown }>(
+        'SELECT id,timezone,service_duration_policy,capacity_policy FROM workshops WHERE tenant_id = $1 ORDER BY id LIMIT 1', [context.tenantId],
+      );
       if (!wsResult.rowCount) throw new Error('WORKSHOP_NOT_FOUND');
       const workshopId = wsResult.rows[0].id;
+      await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 314159))", [workshopId]);
 
       const startAt = new Date(body.data.startAt);
-      const endAt = body.data.endAt ? new Date(body.data.endAt) : new Date(startAt.getTime() + body.data.durationMinutes * 60_000);
+      const parsedIntent = serviceIntentSchema.safeParse(body.data.serviceIntent);
+      const serviceIntent = parsedIntent.success ? parsedIntent.data : 'generic_fault';
+      const duration = resolveServiceDuration({ policy: wsResult.rows[0].service_duration_policy, serviceIntent });
+      const endAt = new Date(startAt.getTime() + duration.estimatedDurationMinutes * 60_000);
+      if (body.data.endAt && new Date(body.data.endAt).getTime() !== endAt.getTime()) throw new Error('APPOINTMENT_DURATION_MISMATCH');
+      const capacityRequirements = resolveCapacityRequirements(wsResult.rows[0].capacity_policy, serviceIntent);
+      await assertWorkshopCapacity(client, {
+        tenantId: context.tenantId, workshopId, startAt, endAt, requirements: capacityRequirements,
+        policy: workshopCapacityPolicySchema.parse(wsResult.rows[0].capacity_policy), timezone: wsResult.rows[0].timezone,
+      });
 
       // Sensitive details
       const protectedSensitive = pii.protect(context.tenantId, 'appointment.sensitive_details', JSON.stringify({
@@ -1191,10 +1310,10 @@ export function registerWorkshopOperationsRoutes(app: FastifyInstance, pool: pg.
       }
 
       const serviceRequest = {
-        intent: body.data.serviceIntent,
+        intent: serviceIntent,
         notes: body.data.notes,
-        estimatedDurationMinutes: body.data.durationMinutes,
-        capacityRequirements: [{ resourceType: 'mechanic', quantity: 1 }],
+        estimatedDurationMinutes: duration.estimatedDurationMinutes,
+        capacityRequirements,
       };
 
       const inserted = await client.query(`
@@ -1205,14 +1324,14 @@ export function registerWorkshopOperationsRoutes(app: FastifyInstance, pool: pg.
           sensitive_details_ciphertext, sensitive_details_nonce, sensitive_details_auth_tag,
           sensitive_details_key_id, pii_migration_state, estimated_duration_minutes,
           capacity_requirements, start_at, end_at, status, confirmation_evidence_ref,
-          idempotency_key, origin
+          idempotency_key, origin, customer_wait_mode
         ) VALUES (
           $1, $2, NULL, $3, $4,
           'workshop_manual', $5, $6, $7, $8,
           $9, '{}'::text[], NULL,
           $10, $11, $12, $13, 'protected', $14,
           $15, $16, $17, 'confirmed', NULL,
-          $18, 'workshop_manual'
+          $18, 'workshop_manual', $19
         )
         RETURNING id, tenant_id, workshop_id, case_id, customer_id, vehicle_id,
                   identity_resolution_status, start_at, end_at, status,
@@ -1222,8 +1341,8 @@ export function registerWorkshopOperationsRoutes(app: FastifyInstance, pool: pg.
         identityClaim?.ciphertext ?? null, identityClaim?.nonce ?? null, identityClaim?.authTag ?? null, identityClaim?.keyId ?? null,
         JSON.stringify(serviceRequest),
         protectedSensitive.ciphertext, protectedSensitive.nonce, protectedSensitive.authTag, protectedSensitive.keyId,
-        body.data.durationMinutes, JSON.stringify(serviceRequest.capacityRequirements),
-        startAt, endAt, body.data.idempotencyKey,
+        duration.estimatedDurationMinutes, JSON.stringify(serviceRequest.capacityRequirements),
+        startAt, endAt, body.data.idempotencyKey, body.data.customerWaitMode,
       ]);
 
       const appointmentId = inserted.rows[0].id;
@@ -1234,7 +1353,7 @@ export function registerWorkshopOperationsRoutes(app: FastifyInstance, pool: pg.
                a.identity_claim_ciphertext, a.identity_claim_nonce, a.identity_claim_auth_tag, a.identity_claim_key_id,
                a.service_request,
                a.sensitive_details_ciphertext, a.sensitive_details_nonce, a.sensitive_details_auth_tag, a.sensitive_details_key_id,
-               a.start_at, a.end_at, a.status, a.confirmation_evidence_ref, a.version, a.origin,
+               a.start_at, a.end_at, a.status, a.customer_wait_mode, a.confirmation_evidence_ref, a.version, a.origin,
                c.display_name_ciphertext AS customer_name_ciphertext, c.display_name_nonce AS customer_name_nonce,
                c.display_name_auth_tag AS customer_name_auth_tag, c.display_name_key_id AS customer_name_key_id,
                v.plate_ciphertext AS vehicle_plate_ciphertext, v.plate_nonce AS vehicle_plate_nonce,
@@ -1250,6 +1369,47 @@ export function registerWorkshopOperationsRoutes(app: FastifyInstance, pool: pg.
     });
 
     return reply.code(201).send({ data: appointment, correlationId: request.id });
+  });
+
+  app.patch('/v1/workshop/tenants/:tenantId/appointments/:appointmentId/status', auth, async (request, reply) => {
+    const params = appointmentParams.safeParse(request.params);
+    const body = appointmentOperationalStatusSchema.safeParse(request.body);
+    if (!params.success || !body.success) return reply.code(400).send({ error: 'INVALID_APPOINTMENT_STATUS_PAYLOAD', correlationId: request.id });
+    if (!request.principal || request.principal.kind !== 'workshop_user') return reply.code(401).send({ error: 'AUTHENTICATION_REQUIRED' });
+    const actorId = request.principal.userId;
+    try {
+      const data = await inAuthorizedTenantTransaction(pool, {
+        principal: request.principal, requestedTenantId: params.data.tenantId,
+        capability: 'workshop:appointments:create', correlationId: request.id,
+      }, async (client, context) => {
+        await assertTenantOperation(client, context.tenantId, 'domain_mutation');
+        const current = await client.query<{ id: string; workshop_id: string; status: string; version: number }>(
+          'SELECT id,workshop_id,status,version FROM appointments WHERE tenant_id=$1 AND id=$2 FOR UPDATE',
+          [context.tenantId, params.data.appointmentId],
+        );
+        if (current.rowCount !== 1) throw new Error('APPOINTMENT_NOT_FOUND');
+        if (!allowedAppointmentTransitions[current.rows[0].status]?.includes(body.data.status)) throw new Error('INVALID_APPOINTMENT_STATUS_TRANSITION');
+        const updated = await client.query(
+          `UPDATE appointments SET status=$3,version=version+1
+           WHERE tenant_id=$1 AND id=$2 AND version=$4 RETURNING id,workshop_id,status,customer_wait_mode,version`,
+          [context.tenantId, params.data.appointmentId, body.data.status, body.data.expectedVersion],
+        );
+        if (updated.rowCount !== 1) throw new Error('VERSION_CONFLICT');
+        await client.query(
+          `INSERT INTO audit_events(tenant_id,actor_type,actor_id,event_type,entity_type,entity_id,correlation_id,evidence_ref)
+           VALUES($1,'human',$2,'appointment_status_updated','appointment',$3,$4,$5)`,
+          [context.tenantId, actorId, params.data.appointmentId, request.id,
+            `postgres:appointment-status:${body.data.idempotencyKey}`],
+        );
+        return updated.rows[0];
+      });
+      return { data, correlationId: request.id };
+    } catch (error) {
+      const code = error instanceof Error ? error.message : 'APPOINTMENT_STATUS_UPDATE_FAILED';
+      if (code === 'APPOINTMENT_NOT_FOUND') return reply.code(404).send({ error: code, correlationId: request.id });
+      if (code === 'INVALID_APPOINTMENT_STATUS_TRANSITION' || code === 'VERSION_CONFLICT') return reply.code(409).send({ error: code, correlationId: request.id });
+      throw error;
+    }
   });
 }
 
@@ -1315,6 +1475,7 @@ function revealAppointment(row: any, pii: PiiProtection) {
     start_at: row.start_at,
     end_at: row.end_at,
     status: row.status,
+    customer_wait_mode: row.customer_wait_mode,
     confirmation_evidence_ref: row.confirmation_evidence_ref,
     version: row.version,
     origin: row.origin,

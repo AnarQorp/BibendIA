@@ -5,6 +5,7 @@ import { createPool, inTenantTransaction } from '../../src/persistence/pool.js';
 import type { TenantContext } from '../../src/domain/ids.js';
 import { insertProtectedCustomer, insertProtectedVehicle } from '../../src/security/protected-records.js';
 import { testPiiProtection } from '../support/test-pii.js';
+import { testWorkshopCapacityPolicy } from '../support/workshop-capacity.js';
 
 const pool = createPool();
 const pii = testPiiProtection();
@@ -29,7 +30,7 @@ async function prepare() {
 beforeAll(async () => {
   await pool.query("INSERT INTO tenants(id,name,operating_mode,lifecycle_status) VALUES($1,'Voice V2','pilot_supervised','pilot')", [ids.tenant]);
   await inTenantTransaction(pool, ids.tenant, async (client) => {
-    await client.query("INSERT INTO workshops(id,tenant_id,name) VALUES($1,$2,'Voice workshop')", [ids.workshop, ids.tenant]);
+    await client.query("INSERT INTO workshops(id,tenant_id,name,capacity_policy) VALUES($1,$2,'Voice workshop',$3)", [ids.workshop, ids.tenant, JSON.stringify(testWorkshopCapacityPolicy)]);
     await client.query("INSERT INTO channel_endpoints(tenant_id,workshop_id,provider,external_account_id,called_endpoint) VALUES($1,$2,'elevenlabs',$3,'web-gate')", [ids.tenant, ids.workshop, accountId]);
     await insertProtectedCustomer(client, pii, { id: ids.customer, tenantId: ids.tenant, displayName: 'Aitor Etxeberria' });
     await insertProtectedVehicle(client, pii, { id: ids.vehicle, tenantId: ids.tenant, plate: '1489 KMR' });

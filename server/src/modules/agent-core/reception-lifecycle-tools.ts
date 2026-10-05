@@ -12,6 +12,7 @@ import { safeErrorAttributes } from '../../security/safe-logging.js';
 import { assertTenantOperation, TenantControlError } from '../tenant-control/tenant-control.js';
 import { loadProviderCapability, ProviderCapabilityError } from './provider-capabilities.js';
 import type { TenantContext } from '../../domain/ids.js';
+import { assertWorkshopCapacity, parseWorkshopCapacityPolicy } from '../scheduling/workshop-capacity-policy.js';
 
 const base = z.object({
   providerConversationId: z.string().min(1).max(200),
@@ -379,10 +380,18 @@ async function reschedule(pool: pg.Pool, pii: PiiProtection, context: Context,
       AND slot_token=$3 AND expires_at>now() AND consumed_at IS NULL FOR UPDATE`,
     [context.tenantId, context.workshopId, value.slotToken]);
     if (!hold.rowCount) fail('SLOT_NOT_AVAILABLE');
-    const conflict = await client.query(`SELECT 1 FROM appointments WHERE tenant_id=$1 AND workshop_id=$2 AND id<>$3
-      AND status<>'cancelled' AND start_at<$5 AND end_at>$4 LIMIT 1`,
-    [context.tenantId, context.workshopId, value.appointmentId, hold.rows[0].start_at, hold.rows[0].end_at]);
-    if (conflict.rowCount) fail('SLOT_NOT_AVAILABLE');
+    const workshop = await client.query<{ timezone: string; capacity_policy: unknown }>(
+      'SELECT timezone,capacity_policy FROM workshops WHERE tenant_id=$1 AND id=$2',
+      [context.tenantId, context.workshopId],
+    );
+    if (workshop.rowCount !== 1) fail('SLOT_NOT_AVAILABLE');
+    await assertWorkshopCapacity(client, {
+      tenantId: context.tenantId, workshopId: context.workshopId,
+      startAt: hold.rows[0].start_at as Date, endAt: hold.rows[0].end_at as Date,
+      requirements: hold.rows[0].capacity_requirements as import('../scheduling/model.js').CapacityRequirement[],
+      policy: parseWorkshopCapacityPolicy(workshop.rows[0].capacity_policy), timezone: workshop.rows[0].timezone,
+      excludeHoldId: hold.rows[0].id as string, excludeAppointmentId: value.appointmentId as string,
+    });
     const intent = await client.query<{ id: string }>(`INSERT INTO action_intents
       (tenant_id,case_id,tool_name,input_jsonb,status,idempotency_key,requested_by_type)
       VALUES($1,$2,'reschedule_appointment',$3,'executing',$4,$5) RETURNING id`,

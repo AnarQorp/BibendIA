@@ -6,6 +6,7 @@ import { buildApi } from '../../src/api/app.js';
 import { createPool, inTenantTransaction } from '../../src/persistence/pool.js';
 import { insertProtectedVehicle } from '../../src/security/protected-records.js';
 import { testPiiProtection } from '../support/test-pii.js';
+import { testWorkshopCapacityPolicy } from '../support/workshop-capacity.js';
 
 const pool = createPool('migrator');
 const pii = testPiiProtection();
@@ -53,7 +54,8 @@ const authentication: AuthenticationAdapter = {
 
 beforeAll(async () => {
   await pool.query("INSERT INTO tenants(id,name,lifecycle_status) VALUES($1,'Manual Ops Tenant','pilot'),($2,'Other Tenant','pilot')", [ids.tenant, ids.otherTenant]);
-  await pool.query("INSERT INTO workshops(id,tenant_id,name) VALUES($1,$2,'Taller Central'),($3,$4,'Taller Secundario')", [ids.workshop, ids.tenant, ids.otherWorkshop, ids.otherTenant]);
+  const durationPolicy = JSON.stringify({ version: 'test-v1', rules: { generic_fault: 45 }, fallbackMinutes: 60 });
+  await pool.query("INSERT INTO workshops(id,tenant_id,name,service_duration_policy,capacity_policy) VALUES($1,$2,'Taller Central',$5,$6),($3,$4,'Taller Secundario',$5,$6)", [ids.workshop, ids.tenant, ids.otherWorkshop, ids.otherTenant, durationPolicy, JSON.stringify(testWorkshopCapacityPolicy)]);
   await pool.query("INSERT INTO users(id,status) VALUES($1,'active'),($2,'active')", [ids.user, ids.otherUser]);
   await pool.query("INSERT INTO tenant_memberships(user_id,tenant_id,role,status) VALUES($1,$2,'OWNER','active'),($3,$4,'OWNER','active')", [ids.user, ids.tenant, ids.otherUser, ids.otherTenant]);
   await inTenantTransaction(pool, ids.tenant, (client) => insertProtectedVehicle(client, pii,
@@ -453,7 +455,8 @@ describe('Manual Operations Foundation Integration Tests', () => {
           idempotencyKey,
           startAt,
           durationMinutes: 45,
-          serviceIntent: 'Ruido metálico en baches',
+          serviceIntent: 'generic_fault',
+          customerWaitMode: 'WAIT_ON_SITE',
           notes: 'Cliente avisa que sólo puede dejarlo por la mañana',
           customerSnapshot: { name: 'Lucía Fernández', phone: '677889900' },
           vehicleSnapshot: { plate: '5566 JKL', make: 'Ford', model: 'Fiesta' },
@@ -463,6 +466,7 @@ describe('Manual Operations Foundation Integration Tests', () => {
       expect(createRes.statusCode).toBe(201);
       const appt = createRes.json().data;
       expect(appt.origin).toBe('workshop_manual');
+      expect(appt.customer_wait_mode).toBe('WAIT_ON_SITE');
       expect(appt.confirmation_evidence_ref).toBeNull();
       expect(appt.identity_resolution).toBe('workshop_manual');
       expect(appt.customer_name).toBe('Lucía Fernández');
@@ -474,6 +478,7 @@ describe('Manual Operations Foundation Integration Tests', () => {
       expect(rawAppt.rows[0].case_id).toBeNull();
       expect(rawAppt.rows[0].confirmation_evidence_ref).toBeNull();
       expect(rawAppt.rows[0].origin).toBe('workshop_manual');
+      expect(rawAppt.rows[0].customer_wait_mode).toBe('WAIT_ON_SITE');
       expect(rawAppt.rows[0].sensitive_details_ciphertext).not.toBeNull();
 
       // Query appointments list

@@ -9,6 +9,7 @@ import { assertTenantOperation } from '../tenant-control/tenant-control.js';
 import type { PiiProtection } from '../../security/pii-protection.js';
 import { normalizeSpanishPlate } from '../../security/pii-protection.js';
 import { insertProtectedCustomer, insertProtectedVehicle } from '../../security/protected-records.js';
+import { assertWorkshopCapacity, parseWorkshopCapacityPolicy, WorkshopCapacityError } from './workshop-capacity-policy.js';
 
 const CANDIDATE_TTL_SECONDS = 10 * 60;
 const MAX_WINDOW_DAYS = 31;
@@ -70,11 +71,12 @@ export async function findSlots(
 
   return inTenantTransaction(pool, context.tenantId, async (client) => {
     await assertTenantOperation(client, context.tenantId, 'domain_mutation', 'share');
-    const workshop = await client.query<{ timezone: string; opening_hours: unknown }>(
-      'SELECT timezone,opening_hours FROM workshops WHERE tenant_id=$1 AND id=$2',
+    const workshop = await client.query<{ timezone: string; opening_hours: unknown; capacity_policy: unknown }>(
+      'SELECT timezone,opening_hours,capacity_policy FROM workshops WHERE tenant_id=$1 AND id=$2',
       [context.tenantId, context.workshopId],
     );
     if (workshop.rowCount !== 1) throw new Error('WORKSHOP_NOT_FOUND');
+    const capacityPolicy = parseWorkshopCapacityPolicy(workshop.rows[0].capacity_policy);
 
     // A candidate is only a short-lived offer. Once its linked hold expires or is consumed it
     // may be offered again, but only after availability is recalculated below.
@@ -89,39 +91,42 @@ export async function findSlots(
 
     const candidates = await client.query<{ start_at: Date; end_at: Date }>(
       `WITH generated AS (
-         SELECT s AS start_at, s + ($4::int * interval '1 minute') AS end_at
-         FROM generate_series($2::timestamptz,$3::timestamptz - ($4::int * interval '1 minute'),
-           $5::int * interval '1 minute') s
+         SELECT s AS start_at, s + ($3::int * interval '1 minute') AS end_at
+         FROM generate_series($1::timestamptz,$2::timestamptz - ($3::int * interval '1 minute'),
+           $4::int * interval '1 minute') s
        )
        SELECT g.start_at,g.end_at
        FROM generated g
        WHERE EXISTS (
          SELECT 1
          FROM jsonb_array_elements(COALESCE(
-           $6::jsonb -> (extract(isodow FROM g.start_at AT TIME ZONE $7)::int)::text,'[]'::jsonb
+           $5::jsonb -> (extract(isodow FROM g.start_at AT TIME ZONE $6)::int)::text,'[]'::jsonb
          )) hours
-         WHERE (g.start_at AT TIME ZONE $7)::time >= (hours->>'start')::time
-           AND (g.end_at AT TIME ZONE $7)::time <= (hours->>'end')::time
-           AND (g.start_at AT TIME ZONE $7)::date = (g.end_at AT TIME ZONE $7)::date
-       )
-       AND NOT EXISTS (
-         SELECT 1 FROM appointments a
-         WHERE a.tenant_id=$1 AND a.workshop_id=$8 AND a.status <> 'cancelled'
-           AND a.start_at < g.end_at AND a.end_at > g.start_at
-       )
-       AND NOT EXISTS (
-         SELECT 1 FROM slot_holds h
-         WHERE h.tenant_id=$1 AND h.workshop_id=$8 AND h.expires_at > now() AND h.consumed_at IS NULL
-           AND h.start_at < g.end_at AND h.end_at > g.start_at
+         WHERE (g.start_at AT TIME ZONE $6)::time >= (hours->>'start')::time
+           AND (g.end_at AT TIME ZONE $6)::time <= (hours->>'end')::time
+           AND (g.start_at AT TIME ZONE $6)::date = (g.end_at AT TIME ZONE $6)::date
        )
        ORDER BY g.start_at
-       LIMIT $9`,
-      [context.tenantId, from.toISOString(), to.toISOString(), duration, SLOT_INCREMENT_MINUTES,
-        JSON.stringify(workshop.rows[0].opening_hours), workshop.rows[0].timezone, context.workshopId, limit],
+       LIMIT $7`,
+      [from.toISOString(), to.toISOString(), duration, SLOT_INCREMENT_MINUTES,
+        JSON.stringify(workshop.rows[0].opening_hours), workshop.rows[0].timezone, 500],
     );
 
     const slots: import('./model.js').AppointmentSlot[] = [];
     for (const candidate of candidates.rows) {
+      try {
+        await assertWorkshopCapacity(client, {
+          tenantId: context.tenantId, workshopId: context.workshopId,
+          startAt: candidate.start_at, endAt: candidate.end_at,
+          requirements: query.serviceRequest.capacityRequirements,
+          policy: capacityPolicy, timezone: workshop.rows[0].timezone,
+        });
+      } catch (error) {
+        if (error instanceof WorkshopCapacityError && [
+          'WORKSHOP_CAPACITY_EXCEEDED','WORKSHOP_INTAKE_CAPACITY_EXCEEDED','WORKSHOP_SITE_CAPACITY_EXCEEDED',
+        ].includes(error.code)) continue;
+        throw error;
+      }
       const token = randomUUID();
       const inserted = await client.query<SlotRow>(
         `INSERT INTO slot_candidates
@@ -153,6 +158,7 @@ export async function findSlots(
           query.serviceIntent ?? null, query.durationPolicySource ?? 'legacy_client_supplied'],
       );
       slots.push(toSlot(inserted.rows[0]));
+      if (slots.length >= limit) break;
     }
     return slots;
   });
@@ -170,6 +176,12 @@ export async function holdSlot(
   return inTenantTransaction(pool, context.tenantId, async (client) => {
     await assertTenantOperation(client, context.tenantId, 'domain_mutation', 'share');
     await lockWorkshop(client, context.workshopId);
+    const workshop = await client.query<{ timezone: string; capacity_policy: unknown }>(
+      'SELECT timezone,capacity_policy FROM workshops WHERE tenant_id=$1 AND id=$2',
+      [context.tenantId, context.workshopId],
+    );
+    if (workshop.rowCount !== 1) throw new Error('WORKSHOP_NOT_FOUND');
+    const capacityPolicy = parseWorkshopCapacityPolicy(workshop.rows[0].capacity_policy);
     const candidate = await client.query<{
       id: string; workshop_id: string; start_at: Date; end_at: Date; capacity_requirements: unknown;
       expires_at: Date; held_at: Date | null; hold_id: string | null;
@@ -197,17 +209,12 @@ export async function holdSlot(
       // after the workshop lock and a fresh conflict check below.
       await client.query('UPDATE slot_candidates SET held_at=NULL,hold_id=NULL WHERE id=$1', [selected.id]);
     }
-    const conflict = await client.query(
-      `SELECT 1 FROM appointments
-         WHERE tenant_id=$1 AND workshop_id=$2 AND status <> 'cancelled' AND start_at < $4 AND end_at > $3
-       UNION ALL
-       SELECT 1 FROM slot_holds
-         WHERE tenant_id=$1 AND workshop_id=$2 AND expires_at > now() AND consumed_at IS NULL
-           AND start_at < $4 AND end_at > $3
-       LIMIT 1`,
-      [context.tenantId, context.workshopId, selected.start_at, selected.end_at],
-    );
-    if (conflict.rowCount) throw new Error('SLOT_NOT_AVAILABLE');
+    await assertWorkshopCapacity(client, {
+      tenantId: context.tenantId, workshopId: context.workshopId,
+      startAt: selected.start_at, endAt: selected.end_at,
+      requirements: selected.capacity_requirements as import('./model.js').CapacityRequirement[],
+      policy: capacityPolicy, timezone: workshop.rows[0].timezone,
+    });
     const holdToken = randomUUID();
     const hold = await client.query<SlotRow & { id: string }>(
       `INSERT INTO slot_holds
@@ -231,7 +238,7 @@ interface AppointmentRow {
   service_request: Omit<Appointment['serviceRequest'], 'symptoms' | 'notes'>;
   sensitive_details_ciphertext: Buffer; sensitive_details_nonce: Buffer; sensitive_details_auth_tag: Buffer;
   sensitive_details_key_id: string; start_at: Date; end_at: Date; status: Appointment['status'];
-  confirmation_evidence_ref: string; version: number;
+  confirmation_evidence_ref: string; customer_wait_mode: Appointment['customerWaitMode']; version: number;
 }
 
 function toAppointment(row: AppointmentRow, pii: PiiProtection): Appointment {
@@ -245,7 +252,8 @@ function toAppointment(row: AppointmentRow, pii: PiiProtection): Appointment {
     identityResolution: row.identity_resolution_status,
     serviceRequest: { ...row.service_request, symptoms: sensitive.symptoms, notes: sensitive.notes },
     startAt: row.start_at.toISOString(), endAt: row.end_at.toISOString(),
-    status: row.status, confirmationEvidenceRef: row.confirmation_evidence_ref, version: row.version,
+    status: row.status, customerWaitMode: row.customer_wait_mode,
+    confirmationEvidenceRef: row.confirmation_evidence_ref, version: row.version,
   };
 }
 
@@ -289,12 +297,18 @@ export async function createAppointmentTransactional(
     if (hold.rows[0].service_intent && hold.rows[0].service_intent !== command.serviceRequest.intent) {
       throw new Error('SLOT_SERVICE_INTENT_MISMATCH');
     }
-    const overlap = await client.query(
-      `SELECT 1 FROM appointments WHERE tenant_id=$1 AND workshop_id=$2 AND status <> 'cancelled'
-       AND start_at < $4 AND end_at > $3 LIMIT 1`,
-      [context.tenantId, context.workshopId, hold.rows[0].start_at, hold.rows[0].end_at],
+    const workshop = await client.query<{ timezone: string; capacity_policy: unknown }>(
+      'SELECT timezone,capacity_policy FROM workshops WHERE tenant_id=$1 AND id=$2',
+      [context.tenantId, context.workshopId],
     );
-    if (overlap.rowCount) throw new Error('SLOT_NOT_AVAILABLE');
+    if (workshop.rowCount !== 1) throw new Error('WORKSHOP_NOT_FOUND');
+    await assertWorkshopCapacity(client, {
+      tenantId: context.tenantId, workshopId: context.workshopId,
+      startAt: hold.rows[0].start_at, endAt: hold.rows[0].end_at,
+      requirements: hold.rows[0].capacity_requirements as import('./model.js').CapacityRequirement[],
+      policy: parseWorkshopCapacityPolicy(workshop.rows[0].capacity_policy), timezone: workshop.rows[0].timezone,
+      excludeHoldId: hold.rows[0].id,
+    });
 
     let identityResolution = command.identity.resolution;
     let customerId: string | null = command.identity.resolution === 'verified' ? command.identity.customerId : null;
@@ -357,8 +371,8 @@ export async function createAppointmentTransactional(
         identity_claim_ciphertext,identity_claim_nonce,identity_claim_auth_tag,identity_claim_key_id,
         service_request,symptoms,notes,
         sensitive_details_ciphertext,sensitive_details_nonce,sensitive_details_auth_tag,sensitive_details_key_id,pii_migration_state,
-        estimated_duration_minutes,capacity_requirements,start_at,end_at,confirmation_evidence_ref,idempotency_key)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'{}',NULL,$12,$13,$14,$15,'protected',$16,$17,$18,$19,$20,$21)
+        estimated_duration_minutes,capacity_requirements,start_at,end_at,confirmation_evidence_ref,idempotency_key,customer_wait_mode)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'{}',NULL,$12,$13,$14,$15,'protected',$16,$17,$18,$19,$20,$21,$22)
        RETURNING *`,
       [context.tenantId, context.workshopId, command.caseId, customerId, vehicleId, identityResolution,
        identityClaim?.ciphertext ?? null, identityClaim?.nonce ?? null, identityClaim?.authTag ?? null, identityClaim?.keyId ?? null,
@@ -366,7 +380,7 @@ export async function createAppointmentTransactional(
          capacityRequirements: request.capacityRequirements }),
        protectedDetails.ciphertext, protectedDetails.nonce, protectedDetails.authTag, protectedDetails.keyId,
        request.estimatedDurationMinutes, JSON.stringify(request.capacityRequirements), hold.rows[0].start_at,
-       hold.rows[0].end_at, command.confirmationEvidenceRef, command.idempotencyKey],
+       hold.rows[0].end_at, command.confirmationEvidenceRef, command.idempotencyKey, command.customerWaitMode ?? 'DROP_OFF'],
     );
     if (identityResolution === 'provisional_new') {
       await client.query(

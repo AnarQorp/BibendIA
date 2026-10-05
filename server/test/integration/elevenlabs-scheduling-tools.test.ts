@@ -4,6 +4,7 @@ import { buildApi } from '../../src/api/app.js';
 import { createPool, inTenantTransaction } from '../../src/persistence/pool.js';
 import { insertProtectedCustomer, insertProtectedVehicle } from '../../src/security/protected-records.js';
 import { testPiiProtection } from '../support/test-pii.js';
+import { testWorkshopCapacityPolicy } from '../support/workshop-capacity.js';
 
 const pool = createPool('migrator');
 const pii = testPiiProtection();
@@ -28,7 +29,7 @@ function window() {
 beforeAll(async () => {
   await pool.query("INSERT INTO tenants(id,name,lifecycle_status,operating_mode,policy_version) VALUES($1,'VS02.2','pilot','pilot_supervised','tenant-policy-v2')", [ids.tenant]);
   await inTenantTransaction(pool, ids.tenant, async (client) => {
-    await client.query("INSERT INTO workshops(id,tenant_id,name,timezone,opening_hours,service_duration_policy) VALUES($1,$2,'VS02.2 workshop','Europe/Madrid',$3,$4)", [ids.workshop, ids.tenant, JSON.stringify(openingHours), JSON.stringify(durationPolicy)]);
+    await client.query("INSERT INTO workshops(id,tenant_id,name,timezone,opening_hours,service_duration_policy,capacity_policy) VALUES($1,$2,'VS02.2 workshop','Europe/Madrid',$3,$4,$5)", [ids.workshop, ids.tenant, JSON.stringify(openingHours), JSON.stringify(durationPolicy), JSON.stringify(testWorkshopCapacityPolicy)]);
     await client.query("INSERT INTO channel_endpoints(id,tenant_id,workshop_id,provider,external_account_id,called_endpoint) VALUES($1,$2,$3,'elevenlabs',$4,'agent-binding')", [ids.endpoint, ids.tenant, ids.workshop, agent]);
     await insertProtectedCustomer(client, pii, { id: ids.customer, tenantId: ids.tenant, displayName: 'Aitor Etxeberria', phone });
     await insertProtectedVehicle(client, pii, { id: ids.vehicle, tenantId: ids.tenant, plate: '1489 KMR' });
@@ -201,7 +202,7 @@ describe('VS02.2 authenticated ElevenLabs scheduling tools', () => {
     const other = { tenant: randomUUID(), workshop: randomUUID(), endpoint: randomUUID() };
     await pool.query("INSERT INTO tenants(id,name,lifecycle_status) VALUES($1,'Ambiguous','pilot')", [other.tenant]);
     await inTenantTransaction(pool, other.tenant, async (client) => {
-      await client.query("INSERT INTO workshops(id,tenant_id,name,timezone,opening_hours) VALUES($1,$2,'Ambiguous','UTC',$3)", [other.workshop, other.tenant, JSON.stringify(openingHours)]);
+      await client.query("INSERT INTO workshops(id,tenant_id,name,timezone,opening_hours,capacity_policy) VALUES($1,$2,'Ambiguous','UTC',$3,$4)", [other.workshop, other.tenant, JSON.stringify(openingHours), JSON.stringify(testWorkshopCapacityPolicy)]);
       await client.query("INSERT INTO channel_endpoints(id,tenant_id,workshop_id,provider,external_account_id,called_endpoint) VALUES($1,$2,$3,'elevenlabs',$4,'other-binding')", [other.endpoint, other.tenant, other.workshop, agent]);
     });
     await pool.query('INSERT INTO provider_bindings(service_principal_id,tenant_id,workshop_id,channel_endpoint_id) VALUES($1,$2,$3,$4)', [ids.principal, other.tenant, other.workshop, other.endpoint]);
@@ -217,7 +218,7 @@ describe('VS02.2 authenticated ElevenLabs scheduling tools', () => {
     const secretB = `secret-${randomUUID()}`;
     await pool.query("INSERT INTO tenants(id,name,lifecycle_status,operating_mode,policy_version) VALUES($1,'Tenant B','pilot','standard','tenant-policy-B')", [b.tenant]);
     await inTenantTransaction(pool, b.tenant, async (client) => {
-      await client.query("INSERT INTO workshops(id,tenant_id,name,timezone,opening_hours,service_duration_policy) VALUES($1,$2,'B','UTC',$3,$4)", [b.workshop, b.tenant, JSON.stringify(openingHours), JSON.stringify({ version: 'tenant-b-v1', rules: { inspection: 90 }, fallbackMinutes: null })]);
+      await client.query("INSERT INTO workshops(id,tenant_id,name,timezone,opening_hours,service_duration_policy,capacity_policy) VALUES($1,$2,'B','UTC',$3,$4,$5)", [b.workshop, b.tenant, JSON.stringify(openingHours), JSON.stringify({ version: 'tenant-b-v1', rules: { inspection: 90 }, fallbackMinutes: null }), JSON.stringify(testWorkshopCapacityPolicy)]);
       await client.query("INSERT INTO channel_endpoints(id,tenant_id,workshop_id,provider,external_account_id,called_endpoint) VALUES($1,$2,$3,'elevenlabs',$4,'b-binding')", [b.endpoint, b.tenant, b.workshop, agentB]);
       await insertProtectedCustomer(client, pii, { id: b.customer, tenantId: b.tenant, displayName: 'Bea Bilbao', phone: '+34600999888' });
       await insertProtectedVehicle(client, pii, { id: b.vehicle, tenantId: b.tenant, plate: '1234 BBB' });

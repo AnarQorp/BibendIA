@@ -10,6 +10,7 @@ import type { ServiceRequest } from '../../src/modules/scheduling/model.js';
 import { createPool, inTenantTransaction } from '../../src/persistence/pool.js';
 import { insertProtectedCustomer, insertProtectedVehicle } from '../../src/security/protected-records.js';
 import { testPiiProtection } from '../support/test-pii.js';
+import { testWorkshopCapacityPolicy } from '../support/workshop-capacity.js';
 
 const pool = createPool('migrator');
 const pii = testPiiProtection();
@@ -31,6 +32,7 @@ const serviceRequest: ServiceRequest = {
   capacityRequirements: [{ resourceType: 'mechanic', quantity: 1 }],
 };
 const openingHours = Object.fromEntries(Array.from({ length: 7 }, (_, index) => [String(index + 1), [{ start: '00:00', end: '23:59' }]]));
+const singleLaneCapacityPolicy = { ...testWorkshopCapacityPolicy, concurrentTechnicians: 1 };
 const window = () => {
   const from = new Date(Date.now() + 48 * 60 * 60_000);
   from.setUTCMinutes(Math.ceil(from.getUTCMinutes() / 15) * 15, 0, 0);
@@ -63,15 +65,15 @@ beforeAll(async () => {
   await pool.query("INSERT INTO users(id,status) VALUES($1,'active')", [ids.user]);
   await pool.query("INSERT INTO tenant_memberships(user_id,tenant_id,role) VALUES($1,$2,'OWNER')", [ids.user, ids.tenantA]);
   await inTenantTransaction(pool, ids.tenantA, async (client) => {
-    await client.query("INSERT INTO workshops(id,tenant_id,name,timezone,opening_hours) VALUES($1,$2,'A','UTC',$3)", [ids.workshopA, ids.tenantA, JSON.stringify(openingHours)]);
+    await client.query("INSERT INTO workshops(id,tenant_id,name,timezone,opening_hours,capacity_policy) VALUES($1,$2,'A','UTC',$3,$4)", [ids.workshopA, ids.tenantA, JSON.stringify(openingHours), JSON.stringify(singleLaneCapacityPolicy)]);
     await client.query("INSERT INTO channel_endpoints(tenant_id,workshop_id,provider,external_account_id,called_endpoint) VALUES($1,$2,'elevenlabs',$3,'vs02')", [ids.tenantA, ids.workshopA, actorId]);
     await insertProtectedCustomer(client, pii, { id: ids.customer, tenantId: ids.tenantA, displayName: 'Aitor Etxeberria' });
     await insertProtectedVehicle(client, pii, { id: ids.vehicle, tenantId: ids.tenantA, plate: '1489 KMR' });
     await client.query('INSERT INTO customer_vehicle_roles(tenant_id,customer_id,vehicle_id) VALUES($1,$2,$3)', [ids.tenantA, ids.customer, ids.vehicle]);
   });
   await inTenantTransaction(pool, ids.tenantB, (client) => client.query(
-    "INSERT INTO workshops(id,tenant_id,name,timezone,opening_hours) VALUES($1,$2,'B','UTC',$3)",
-    [ids.workshopB, ids.tenantB, JSON.stringify(openingHours)],
+    "INSERT INTO workshops(id,tenant_id,name,timezone,opening_hours,capacity_policy) VALUES($1,$2,'B','UTC',$3,$4)",
+    [ids.workshopB, ids.tenantB, JSON.stringify(openingHours), JSON.stringify(testWorkshopCapacityPolicy)],
   ));
   await app.ready();
 });

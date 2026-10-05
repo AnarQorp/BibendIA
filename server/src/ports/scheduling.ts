@@ -19,6 +19,7 @@ export interface CreateAppointmentCommand {
     | { resolution: 'provisional_new' | 'provisional_ambiguous'; customerName: string; plate: string };
   serviceRequest: Omit<ServiceRequest, 'estimatedDurationMinutes'> & { estimatedDurationMinutes?: number };
   confirmationEvidenceRef: string;
+  customerWaitMode?: 'DROP_OFF' | 'WAIT_ON_SITE';
   idempotencyKey: string;
 }
 

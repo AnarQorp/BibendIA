@@ -63,6 +63,7 @@ async function assertLinks(client: pg.PoolClient, tenantId: string, command: Cre
 export async function createReceptionCase(client: pg.PoolClient, pii: PiiProtection, tenantId: string,
   actor: { type: string; id: string }, correlationId: string, command: CreateCase) {
   const requestHash=createHash('sha256').update(canonical(command)).digest('hex');
+  await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 161803))", [`${tenantId}:${command.idempotencyKey}`]);
   const existing=await client.query<{id:string;provenance:{requestHash?:string}}>(
     'SELECT id,provenance FROM reception_cases WHERE tenant_id=$1 AND idempotency_key=$2 FOR UPDATE',[tenantId,command.idempotencyKey]);
   if(existing.rowCount){
@@ -172,4 +173,3 @@ export async function getReceptionCaseHistory(client: pg.PoolClient, tenantId: s
     occurredAt: r.occurred_at.toISOString(),
   }));
 }
-

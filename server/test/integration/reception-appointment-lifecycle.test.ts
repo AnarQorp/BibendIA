@@ -4,6 +4,7 @@ import { buildApi } from '../../src/api/app.js';
 import { createPool, inTenantTransaction } from '../../src/persistence/pool.js';
 import { insertProtectedCustomer, insertProtectedVehicle } from '../../src/security/protected-records.js';
 import { testPiiProtection } from '../support/test-pii.js';
+import { testWorkshopCapacityPolicy } from '../support/workshop-capacity.js';
 import { resolveCanonicalReceptionContext } from '../../src/modules/agent-core/reception-lifecycle-tools.js';
 import { loadProviderCapability } from '../../src/modules/agent-core/provider-capabilities.js';
 
@@ -57,8 +58,8 @@ async function createAppointment(providerConversationId: string, receptionContex
 beforeAll(async () => {
   await pool.query("INSERT INTO tenants(id,name,lifecycle_status,operating_mode,policy_version) VALUES($1,'Reception lifecycle','pilot','standard','reception-v2')", [ids.tenant]);
   await inTenantTransaction(pool, ids.tenant, async (client) => {
-    await client.query("INSERT INTO workshops(id,tenant_id,name,timezone,opening_hours,service_duration_policy) VALUES($1,$2,'Reception','Europe/Madrid',$3,$4)",
-      [ids.workshop, ids.tenant, JSON.stringify(openingHours), JSON.stringify({ version: 'v1', rules: { brakes_or_noise: 60 }, fallbackMinutes: 60 })]);
+    await client.query("INSERT INTO workshops(id,tenant_id,name,timezone,opening_hours,service_duration_policy,capacity_policy) VALUES($1,$2,'Reception','Europe/Madrid',$3,$4,$5)",
+      [ids.workshop, ids.tenant, JSON.stringify(openingHours), JSON.stringify({ version: 'v1', rules: { brakes_or_noise: 60 }, fallbackMinutes: 60 }), JSON.stringify(testWorkshopCapacityPolicy)]);
     await client.query("INSERT INTO channel_endpoints(id,tenant_id,workshop_id,provider,external_account_id,called_endpoint) VALUES($1,$2,$3,'elevenlabs',$4,'binding')",
       [ids.endpoint, ids.tenant, ids.workshop, agent]);
     await insertProtectedCustomer(client, pii, { id: ids.customer, tenantId: ids.tenant, displayName: 'Ane Arrieta', phone });

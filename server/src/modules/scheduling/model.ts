@@ -25,7 +25,8 @@ export interface Appointment {
   serviceRequest: ServiceRequest;
   startAt: string;
   endAt: string;
-  status: 'tentative' | 'held' | 'confirmed' | 'cancelled';
+  status: 'tentative' | 'held' | 'confirmed' | 'awaiting_arrival' | 'on_site' | 'in_progress' | 'waiting' | 'completed' | 'delivered' | 'cancelled';
+  customerWaitMode: 'DROP_OFF' | 'WAIT_ON_SITE';
   confirmationEvidenceRef?: string;
   version: number;
 }

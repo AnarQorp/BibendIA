@@ -99,6 +99,8 @@ export function registerReceptionCaseRoutes(app:FastifyInstance,pool:pg.Pool,pii
     const canonical=input.receptionContextToken?await resolveCanonicalReceptionContext(pool,pii,authorized.context,input.receptionContextToken,input.providerConversationId):null;
     try{const result=await inTenantTransaction(pool,authorized.context.tenantId,async(client)=>{
       await assertTenantOperation(client,authorized.context.tenantId,'domain_mutation');
+      const caseIdempotencyKey=`voice-case:${service.serviceId}:${input.providerConversationId}:${input.requestId}`;
+      await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 161803))", [`${authorized.context.tenantId}:${caseIdempotencyKey}`]);
       let conversationId=canonical?.conversationId??null;
       if(!conversationId){const call=await client.query<{conversation_id:string}>("SELECT conversation_id FROM calls WHERE tenant_id=$1 AND provider='elevenlabs' AND provider_call_id=$2",[authorized.context.tenantId,input.providerConversationId]);
         if(call.rowCount)conversationId=call.rows[0].conversation_id; else {conversationId=randomUUID();await client.query('INSERT INTO conversations(id,tenant_id,workshop_id) VALUES($1,$2,$3)',[conversationId,authorized.context.tenantId,authorized.context.workshopId]);
@@ -106,7 +108,7 @@ export function registerReceptionCaseRoutes(app:FastifyInstance,pool:pg.Pool,pii
       return createReceptionCase(client,pii,authorized.context.tenantId,authorized.context.actor,correlationId,{workshopId:authorized.context.workshopId,
         channel:'PHONE',callerType:input.callerType,category:input.category,summary:input.summary,detail:input.detail,priority:input.priority,
         customerId:canonical?.customerId??null,vehicleId:canonical?.vehicleId??null,contactContext:input.contactContext,
-        idempotencyKey:`voice-case:${service.serviceId}:${input.providerConversationId}:${input.requestId}`,conversationId,
+        idempotencyKey:caseIdempotencyKey,conversationId,
         providerConversationId:input.providerConversationId,provenance:{source:'elevenlabs_tool',provider:'elevenlabs',servicePrincipalId:service.serviceId,requestId:input.requestId}});
     }); return reply.code(result.replay?200:201).send({ok:true,code:callbackOnly?'HUMAN_CONTACT_REQUESTED':'RECEPTION_CASE_CREATED',
       disposition:authorized.disposition,replay:result.replay,case:result.case,correlationId});}catch(error){return fail(reply,error,correlationId);}

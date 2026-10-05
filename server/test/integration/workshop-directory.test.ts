@@ -5,6 +5,7 @@ import type { PrincipalContext } from '../../src/auth/principal.js';
 import { buildApi } from '../../src/api/app.js';
 import { createPool, inTenantTransaction } from '../../src/persistence/pool.js';
 import { testPiiProtection } from '../support/test-pii.js';
+import { testWorkshopCapacityPolicy } from '../support/workshop-capacity.js';
 
 const pool = createPool('migrator');
 const pii = testPiiProtection();
@@ -51,7 +52,8 @@ const authentication: AuthenticationAdapter = {
 
 beforeAll(async () => {
   await pool.query("INSERT INTO tenants(id,name,lifecycle_status) VALUES($1,'Directorio Tenant','pilot'),($2,'Other Tenant','pilot')", [ids.tenant, ids.otherTenant]);
-  await pool.query("INSERT INTO workshops(id,tenant_id,name) VALUES($1,$2,'Taller Directorio'),($3,$4,'Taller Secundario')", [ids.workshop, ids.tenant, ids.otherWorkshop, ids.otherTenant]);
+  const durationPolicy = JSON.stringify({ version: 'test-v1', rules: {}, fallbackMinutes: 60 });
+  await pool.query("INSERT INTO workshops(id,tenant_id,name,service_duration_policy,capacity_policy) VALUES($1,$2,'Taller Directorio',$5,$6),($3,$4,'Taller Secundario',$5,$6)", [ids.workshop, ids.tenant, ids.otherWorkshop, ids.otherTenant, durationPolicy, JSON.stringify(testWorkshopCapacityPolicy)]);
   await pool.query("INSERT INTO users(id,status) VALUES($1,'active'),($2,'active')", [ids.user, ids.otherUser]);
   await pool.query("INSERT INTO tenant_memberships(user_id,tenant_id,role,status) VALUES($1,$2,'OWNER','active'),($3,$4,'OWNER','active')", [ids.user, ids.tenant, ids.otherUser, ids.otherTenant]);
 });
@@ -427,7 +429,7 @@ describe('Workshop Directory Integration Tests', () => {
         headers: { authorization: 'Bearer workshop-owner' },
       });
       expect(cFicha.json().data.activity.appointments).toHaveLength(1);
-      expect(cFicha.json().data.activity.appointments[0].serviceIntent).toBe('Cambio de aceite y filtros');
+      expect(cFicha.json().data.activity.appointments[0].serviceIntent).toBe('generic_fault');
 
       // Verify vehicle ficha activity
       const vFicha = await app.inject({
@@ -436,7 +438,7 @@ describe('Workshop Directory Integration Tests', () => {
         headers: { authorization: 'Bearer workshop-owner' },
       });
       expect(vFicha.json().data.activity.appointments).toHaveLength(1);
-      expect(vFicha.json().data.activity.appointments[0].serviceIntent).toBe('Cambio de aceite y filtros');
+      expect(vFicha.json().data.activity.appointments[0].serviceIntent).toBe('generic_fault');
     });
 
     it('creates a manual estimate draft, reflects derived provenance (manual) and displays in both fichas', async () => {

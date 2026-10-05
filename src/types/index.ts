@@ -197,6 +197,7 @@ export interface WorkshopAppointmentResponse {
   start_at: string;
   end_at: string;
   status: string;
+  customer_wait_mode?: 'DROP_OFF' | 'WAIT_ON_SITE';
   confirmation_evidence_ref: string | null;
   version: number;
   customer_name: string;
@@ -576,6 +577,7 @@ export interface WorkshopAppointmentSummary {
   endAt: string;
   serviceIntent: string;
   status: string;
+  customerWaitMode?: 'DROP_OFF' | 'WAIT_ON_SITE';
   origin?: string;
   vehicleId?: string | null;
   vehiclePlate?: string | null;
@@ -635,6 +637,7 @@ export interface CreateWorkshopAppointmentCommand {
   endAt?: string;
   durationMinutes: number;
   serviceIntent: string;
+  customerWaitMode?: 'DROP_OFF' | 'WAIT_ON_SITE';
   notes?: string;
   customerId?: string | null;
   vehicleId?: string | null;

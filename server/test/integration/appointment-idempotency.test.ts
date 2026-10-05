@@ -6,6 +6,7 @@ import type { TenantContext } from '../../src/domain/ids.js';
 import type { CreateAppointmentCommand } from '../../src/ports/scheduling.js';
 import { insertProtectedCustomer, insertProtectedVehicle } from '../../src/security/protected-records.js';
 import { testPiiProtection } from '../support/test-pii.js';
+import { testWorkshopCapacityPolicy } from '../support/workshop-capacity.js';
 
 const pool = createPool();
 const pii = testPiiProtection();
@@ -19,7 +20,7 @@ const slotToken = `slot-${randomUUID()}`;
 beforeAll(async () => {
   await pool.query("INSERT INTO tenants (id,name,lifecycle_status) VALUES ($1,'Integration tenant','pilot')", [ids.tenant]);
   await inTenantTransaction(pool, ids.tenant, async (client) => {
-    await client.query("INSERT INTO workshops (id,tenant_id,name) VALUES ($1,$2,'Test workshop')", [ids.workshop, ids.tenant]);
+    await client.query("INSERT INTO workshops (id,tenant_id,name,capacity_policy) VALUES ($1,$2,'Test workshop',$3)", [ids.workshop, ids.tenant, JSON.stringify(testWorkshopCapacityPolicy)]);
     await insertProtectedCustomer(client, pii, { id: ids.customer, tenantId: ids.tenant, displayName: 'Aitor Etxeberria' });
     await insertProtectedVehicle(client, pii, { id: ids.vehicle, tenantId: ids.tenant, plate: '1489 KMR' });
     await client.query("INSERT INTO conversations (id,tenant_id,workshop_id) VALUES ($1,$2,$3)", [ids.conversation, ids.tenant, ids.workshop]);
