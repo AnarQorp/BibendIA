@@ -87,5 +87,102 @@ describe('Workshop capacity configuration contract', () => {
     const capacity = await app.inject({ url: `/v1/workshop/tenants/${ids.tenant}/workshops/${ids.workshop}/capacity`,
       headers: { authorization: 'Bearer owner' } });
     expect(capacity.json().data.vehiclesCurrentlyOnSite).toBe(1);
+
+    // Complete lifecycle: in_progress -> completed -> delivered
+    const inProgress = await app.inject({
+      method: 'PATCH',
+      url: `/v1/workshop/tenants/${ids.tenant}/appointments/${appointment.id}/status`,
+      headers: { authorization: 'Bearer manager' },
+      payload: { status: 'in_progress', expectedVersion: 2, idempotencyKey: `status-${randomUUID()}` }
+    });
+    expect(inProgress.statusCode).toBe(200);
+
+    const completed = await app.inject({
+      method: 'PATCH',
+      url: `/v1/workshop/tenants/${ids.tenant}/appointments/${appointment.id}/status`,
+      headers: { authorization: 'Bearer manager' },
+      payload: { status: 'completed', expectedVersion: 3, idempotencyKey: `status-${randomUUID()}` }
+    });
+    expect(completed.statusCode).toBe(200);
+
+    const delivered = await app.inject({
+      method: 'PATCH',
+      url: `/v1/workshop/tenants/${ids.tenant}/appointments/${appointment.id}/status`,
+      headers: { authorization: 'Bearer manager' },
+      payload: { status: 'delivered', expectedVersion: 4, idempotencyKey: `status-${randomUUID()}` }
+    });
+    expect(delivered.statusCode).toBe(200);
+
+    // Live occupancy must now drop to 0
+    const finalCapacity = await app.inject({
+      url: `/v1/workshop/tenants/${ids.tenant}/workshops/${ids.workshop}/capacity`,
+      headers: { authorization: 'Bearer owner' }
+    });
+    expect(finalCapacity.json().data.vehiclesCurrentlyOnSite).toBe(0);
+  });
+
+  it('exposes GET /v1/workshop/tenants/:tenantId/workshops for workshop audience', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/v1/workshop/tenants/${ids.tenant}/workshops`,
+      headers: { authorization: 'Bearer manager' }
+    });
+    expect(res.statusCode).toBe(200);
+    const json = res.json();
+    expect(Array.isArray(json.data)).toBe(true);
+    expect(json.data.length).toBeGreaterThanOrEqual(1);
+    expect(json.data[0].id).toBe(ids.workshop);
+    expect(json.data[0].name).toBe('Configured');
+    expect(json.data[0].capacity_policy).toBeDefined();
+  });
+
+  it('rejects appointment creation with 422 when maxVehicleIntakesPerHour or capacity is exceeded', async () => {
+    // Settle policy with maxVehicleIntakesPerHour: 1
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: `/v1/workshop/tenants/${ids.tenant}/workshops/${ids.workshop}/capacity`,
+      headers: { authorization: 'Bearer owner' },
+      payload: {
+        expectedVersion: 2,
+        idempotencyKey: `cap-limit-${randomUUID()}`,
+        capacityPolicy: { ...testWorkshopCapacityPolicy, maxVehicleIntakesPerHour: 1 }
+      }
+    });
+    expect(patchRes.statusCode).toBe(200);
+
+    const slotStart = new Date(Date.now() + 5 * 86_400_000);
+    slotStart.setUTCMinutes(0, 0, 0);
+
+    // First appointment in that hour succeeds
+    const appt1 = await app.inject({
+      method: 'POST',
+      url: `/v1/workshop/tenants/${ids.tenant}/appointments`,
+      headers: { authorization: 'Bearer manager' },
+      payload: {
+        idempotencyKey: `appt-intake-1-${randomUUID()}`,
+        startAt: slotStart.toISOString(),
+        serviceIntent: 'oil_service',
+        customerId: ids.customer,
+        vehicleId: ids.vehicle
+      }
+    });
+    expect(appt1.statusCode).toBe(201);
+
+    // Second appointment in same hour fails closed with 422
+    const slotStart2 = new Date(slotStart.getTime() + 15 * 60_000);
+    const appt2 = await app.inject({
+      method: 'POST',
+      url: `/v1/workshop/tenants/${ids.tenant}/appointments`,
+      headers: { authorization: 'Bearer manager' },
+      payload: {
+        idempotencyKey: `appt-intake-2-${randomUUID()}`,
+        startAt: slotStart2.toISOString(),
+        serviceIntent: 'oil_service',
+        customerId: ids.customer,
+        vehicleId: ids.vehicle
+      }
+    });
+    expect(appt2.statusCode).toBe(422);
+    expect(appt2.json().error).toBe('WORKSHOP_INTAKE_CAPACITY_EXCEEDED');
   });
 });

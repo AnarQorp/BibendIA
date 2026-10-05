@@ -282,11 +282,22 @@ export function formatAppointmentSource(source?: string | null): {
   }
 }
 
-export type CanonicalAppointmentStatus = 'tentative' | 'held' | 'confirmed' | 'cancelled';
+export type CanonicalAppointmentStatus =
+  | 'tentative'
+  | 'held'
+  | 'confirmed'
+  | 'awaiting_arrival'
+  | 'on_site'
+  | 'in_progress'
+  | 'waiting'
+  | 'completed'
+  | 'delivered'
+  | 'cancelled';
 
 /**
  * Translates canonical appointment status to human-readable workshop terminology and badge styling.
- * Strictly consumes backend authority: tentative, held, confirmed, cancelled.
+ * Strictly consumes backend authority:
+ * tentative, held, confirmed, awaiting_arrival, on_site, in_progress, waiting, completed, delivered, cancelled.
  */
 export function formatAppointmentStatus(status?: string | null): {
   label: string;
@@ -296,14 +307,6 @@ export function formatAppointmentStatus(status?: string | null): {
   dotColor: string;
 } {
   switch (status?.toLowerCase()) {
-    case 'confirmed':
-      return {
-        label: 'Confirmada',
-        bg: 'bg-emerald-50',
-        text: 'text-emerald-800',
-        border: 'border-emerald-200',
-        dotColor: 'bg-emerald-500'
-      };
     case 'tentative':
       return {
         label: 'Tentativa',
@@ -318,6 +321,62 @@ export function formatAppointmentStatus(status?: string | null): {
         bg: 'bg-slate-100',
         text: 'text-slate-700',
         border: 'border-slate-300',
+        dotColor: 'bg-slate-400'
+      };
+    case 'confirmed':
+      return {
+        label: 'Confirmada',
+        bg: 'bg-emerald-50',
+        text: 'text-emerald-800',
+        border: 'border-emerald-200',
+        dotColor: 'bg-emerald-500'
+      };
+    case 'awaiting_arrival':
+      return {
+        label: 'Pendiente de llegada',
+        bg: 'bg-blue-50',
+        text: 'text-blue-800',
+        border: 'border-blue-200',
+        dotColor: 'bg-blue-500'
+      };
+    case 'on_site':
+      return {
+        label: 'En taller',
+        bg: 'bg-cyan-50',
+        text: 'text-cyan-800',
+        border: 'border-cyan-200',
+        dotColor: 'bg-cyan-500'
+      };
+    case 'in_progress':
+      return {
+        label: 'En trabajo',
+        bg: 'bg-indigo-50',
+        text: 'text-indigo-800',
+        border: 'border-indigo-200',
+        dotColor: 'bg-indigo-500'
+      };
+    case 'waiting':
+      return {
+        label: 'En espera',
+        bg: 'bg-amber-50',
+        text: 'text-amber-800',
+        border: 'border-amber-200',
+        dotColor: 'bg-amber-500'
+      };
+    case 'completed':
+      return {
+        label: 'Lista',
+        bg: 'bg-emerald-50',
+        text: 'text-emerald-800',
+        border: 'border-emerald-200',
+        dotColor: 'bg-emerald-500'
+      };
+    case 'delivered':
+      return {
+        label: 'Entregada',
+        bg: 'bg-slate-100',
+        text: 'text-slate-600',
+        border: 'border-slate-200',
         dotColor: 'bg-slate-400'
       };
     case 'cancelled':
@@ -337,6 +396,35 @@ export function formatAppointmentStatus(status?: string | null): {
         dotColor: 'bg-slate-400'
       };
   }
+}
+
+export type CustomerWaitMode = 'DROP_OFF' | 'WAIT_ON_SITE';
+
+/**
+ * Translates canonical customer wait mode to human-readable workshop terminology.
+ * DROP_OFF -> Deja el coche
+ * WAIT_ON_SITE -> Espera
+ */
+export function formatCustomerWaitMode(mode?: 'DROP_OFF' | 'WAIT_ON_SITE' | string | null): {
+  label: string;
+  bg: string;
+  text: string;
+  border: string;
+} {
+  if (mode === 'WAIT_ON_SITE') {
+    return {
+      label: 'Espera',
+      bg: 'bg-indigo-50',
+      text: 'text-indigo-700',
+      border: 'border-indigo-200',
+    };
+  }
+  return {
+    label: 'Deja el coche',
+    bg: 'bg-slate-100',
+    text: 'text-slate-700',
+    border: 'border-slate-200',
+  };
 }
 
 

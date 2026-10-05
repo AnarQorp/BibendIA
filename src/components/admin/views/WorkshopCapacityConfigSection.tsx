@@ -7,21 +7,27 @@ import {
   Save,
   Plus,
   Trash2,
-  Lock,
-  Layers
+  Layers,
+  Car,
+  ShieldAlert
 } from 'lucide-react';
 import type {
   PlatformWorkshopRow,
+  WorkshopCapacityData,
+  WorkshopCapacityPolicy,
   WorkshopOpeningHours,
   WorkshopServiceDurationPolicy,
   WorkshopTimeSlot
 } from '../../../types';
 import { patchPlatformWorkshop } from '../../../services/platformAdmin';
+import { getWorkshopCapacity, patchWorkshopCapacity } from '../../../services/workshopOperations';
 
 export interface WorkshopCapacityConfigSectionProps {
   tenantId: string;
-  workshop: PlatformWorkshopRow;
-  onWorkshopUpdated: () => void;
+  workshop?: PlatformWorkshopRow | WorkshopCapacityData;
+  workshopId?: string;
+  surface?: 'workshop' | 'admin';
+  onWorkshopUpdated?: () => void;
 }
 
 interface DayState {
@@ -41,9 +47,14 @@ const DAYS = [
 
 export const WorkshopCapacityConfigSection: React.FC<WorkshopCapacityConfigSectionProps> = ({
   tenantId,
-  workshop,
+  workshop: propWorkshop,
+  workshopId: propWorkshopId,
+  surface = 'workshop',
   onWorkshopUpdated,
 }) => {
+  const [internalWorkshop, setInternalWorkshop] = useState<PlatformWorkshopRow | WorkshopCapacityData | null>(propWorkshop || null);
+  const effectiveWorkshopId = propWorkshop?.id || propWorkshopId || internalWorkshop?.id || '';
+
   // Parse opening_hours safely into day states
   const parseSchedule = (raw: unknown): Record<string, DayState> => {
     const hours = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
@@ -68,10 +79,12 @@ export const WorkshopCapacityConfigSection: React.FC<WorkshopCapacityConfigSecti
     return result;
   };
 
-  const [schedule, setSchedule] = useState<Record<string, DayState>>(() => parseSchedule(workshop.opening_hours));
+  const [schedule, setSchedule] = useState<Record<string, DayState>>(() =>
+    parseSchedule(propWorkshop?.opening_hours)
+  );
 
   // Service Duration Policy state
-  const policy = workshop.service_duration_policy;
+  const policy = propWorkshop?.service_duration_policy;
   const [durationRules, setDurationRules] = useState({
     inspection: policy?.rules?.inspection ?? 45,
     oil_service: policy?.rules?.oil_service ?? 45,
@@ -80,22 +93,86 @@ export const WorkshopCapacityConfigSection: React.FC<WorkshopCapacityConfigSecti
     fallbackMinutes: policy?.fallbackMinutes ?? 60,
   });
 
+  // Physical capacity resources state (canonical capacity_policy)
+  const capPolicy = (propWorkshop as any)?.capacity_policy as WorkshopCapacityPolicy | undefined;
+  const [liftCount, setLiftCount] = useState<number>(capPolicy?.liftCount ?? 2);
+  const [nonLiftBayCount, setNonLiftBayCount] = useState<number>(capPolicy?.nonLiftBayCount ?? 1);
+  const [concurrentTechnicians, setConcurrentTechnicians] = useState<number>(capPolicy?.concurrentTechnicians ?? 3);
+  const [maxVehiclesOnSite, setMaxVehiclesOnSite] = useState<number>(capPolicy?.maxVehiclesOnSite ?? 8);
+  const [maxVehicleIntakesPerHour, setMaxVehicleIntakesPerHour] = useState<number>(capPolicy?.maxVehicleIntakesPerHour ?? 2);
+
+  // Read-only vehicles currently on site metric from backend authority
+  const [vehiclesCurrentlyOnSite, setVehiclesCurrentlyOnSite] = useState<number | null>(
+    typeof (propWorkshop as any)?.vehiclesCurrentlyOnSite === 'number'
+      ? (propWorkshop as any).vehiclesCurrentlyOnSite
+      : null
+  );
+
   const [isSaving, setIsSaving] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | 'warning'; message: string } | null>(null);
 
-  // Sync state when workshop prop changes (e.g. reload after conflict)
+  // Fetch or refresh capacity from backend if needed
+  const loadCapacityFromBackend = async (targetId: string) => {
+    if (!tenantId || !targetId) return;
+    setIsLoading(true);
+    const res = await getWorkshopCapacity(tenantId, targetId);
+    setIsLoading(false);
+    if (res.status === 'success' && res.data) {
+      setInternalWorkshop(res.data);
+      setSchedule(parseSchedule(res.data.opening_hours));
+      const p = res.data.service_duration_policy;
+      setDurationRules({
+        inspection: p?.rules?.inspection ?? 45,
+        oil_service: p?.rules?.oil_service ?? 45,
+        brakes_or_noise: p?.rules?.brakes_or_noise ?? 45,
+        generic_fault: p?.rules?.generic_fault ?? 60,
+        fallbackMinutes: p?.fallbackMinutes ?? 60,
+      });
+      const c = res.data.capacity_policy;
+      if (c) {
+        setLiftCount(c.liftCount ?? 2);
+        setNonLiftBayCount(c.nonLiftBayCount ?? 1);
+        setConcurrentTechnicians(c.concurrentTechnicians ?? 3);
+        setMaxVehiclesOnSite(c.maxVehiclesOnSite ?? 8);
+        setMaxVehicleIntakesPerHour(c.maxVehicleIntakesPerHour ?? 2);
+      }
+      setVehiclesCurrentlyOnSite(typeof res.data.vehiclesCurrentlyOnSite === 'number' ? res.data.vehiclesCurrentlyOnSite : 0);
+    } else if (res.status === 'unauthorized') {
+      setFeedback({
+        type: 'error',
+        message: 'No autorizado. Solo los roles OWNER y MANAGER pueden acceder a la configuración operativa del taller.',
+      });
+    }
+  };
+
   useEffect(() => {
-    setSchedule(parseSchedule(workshop.opening_hours));
-    const p = workshop.service_duration_policy;
-    setDurationRules({
-      inspection: p?.rules?.inspection ?? 45,
-      oil_service: p?.rules?.oil_service ?? 45,
-      brakes_or_noise: p?.rules?.brakes_or_noise ?? 45,
-      generic_fault: p?.rules?.generic_fault ?? 60,
-      fallbackMinutes: p?.fallbackMinutes ?? 60,
-    });
-    setFeedback(null);
-  }, [workshop.id, workshop.version]);
+    if (propWorkshop) {
+      setInternalWorkshop(propWorkshop);
+      setSchedule(parseSchedule(propWorkshop.opening_hours));
+      const p = propWorkshop.service_duration_policy;
+      setDurationRules({
+        inspection: p?.rules?.inspection ?? 45,
+        oil_service: p?.rules?.oil_service ?? 45,
+        brakes_or_noise: p?.rules?.brakes_or_noise ?? 45,
+        generic_fault: p?.rules?.generic_fault ?? 60,
+        fallbackMinutes: p?.fallbackMinutes ?? 60,
+      });
+      const c = (propWorkshop as any).capacity_policy as WorkshopCapacityPolicy | undefined;
+      if (c) {
+        setLiftCount(c.liftCount ?? 2);
+        setNonLiftBayCount(c.nonLiftBayCount ?? 1);
+        setConcurrentTechnicians(c.concurrentTechnicians ?? 3);
+        setMaxVehiclesOnSite(c.maxVehiclesOnSite ?? 8);
+        setMaxVehicleIntakesPerHour(c.maxVehicleIntakesPerHour ?? 2);
+      }
+      if (typeof (propWorkshop as any).vehiclesCurrentlyOnSite === 'number') {
+        setVehiclesCurrentlyOnSite((propWorkshop as any).vehiclesCurrentlyOnSite);
+      }
+    } else if (propWorkshopId) {
+      loadCapacityFromBackend(propWorkshopId);
+    }
+  }, [propWorkshop, propWorkshopId]);
 
   // Handle Day toggle
   const toggleDayOpen = (dayKey: string) => {
@@ -154,6 +231,12 @@ export const WorkshopCapacityConfigSection: React.FC<WorkshopCapacityConfigSecti
 
   // Handle Save
   const handleSave = async () => {
+    const targetWorkshop = internalWorkshop || propWorkshop;
+    if (!targetWorkshop && !effectiveWorkshopId) {
+      setFeedback({ type: 'error', message: 'No se encontró identificador de taller válido.' });
+      return;
+    }
+
     setIsSaving(true);
     setFeedback(null);
 
@@ -172,7 +255,7 @@ export const WorkshopCapacityConfigSection: React.FC<WorkshopCapacityConfigSecti
     }
 
     const cleanDurationPolicy: WorkshopServiceDurationPolicy = {
-      version: workshop.service_duration_policy?.version || 'v1',
+      version: targetWorkshop?.service_duration_policy?.version || 'v1',
       rules: {
         inspection: Number(durationRules.inspection) || 45,
         oil_service: Number(durationRules.oil_service) || 45,
@@ -182,38 +265,83 @@ export const WorkshopCapacityConfigSection: React.FC<WorkshopCapacityConfigSecti
       fallbackMinutes: Number(durationRules.fallbackMinutes) || 60,
     };
 
+    const cleanCapacityPolicy: WorkshopCapacityPolicy = {
+      version: (targetWorkshop as any)?.capacity_policy?.version || 'v1',
+      liftCount: Math.max(1, Number(liftCount) || 1),
+      nonLiftBayCount: Math.max(1, Number(nonLiftBayCount) || 1),
+      concurrentTechnicians: Math.max(1, Number(concurrentTechnicians) || 1),
+      maxVehiclesOnSite: Math.max(1, Number(maxVehiclesOnSite) || 1),
+      maxVehicleIntakesPerHour: Math.max(1, Number(maxVehicleIntakesPerHour) || 1),
+      resourceRequirements: (targetWorkshop as any)?.capacity_policy?.resourceRequirements || {
+        rules: {
+          inspection: { mechanic: 1, lift: 0, genericBay: 1 },
+          oil_service: { mechanic: 1, lift: 1, genericBay: 0 },
+          brakes_or_noise: { mechanic: 1, lift: 1, genericBay: 0 },
+          generic_fault: { mechanic: 1, lift: 0, genericBay: 1 },
+        },
+        fallback: { mechanic: 1, lift: 0, genericBay: 0 },
+      },
+    };
+
+    const expectedVersion = targetWorkshop?.version ?? 1;
     const idempotencyKey = `workshop-cfg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
-    const res = await patchPlatformWorkshop(tenantId, workshop.id, {
-      expectedVersion: workshop.version,
-      idempotencyKey,
-      openingHours: cleanOpeningHours,
-      serviceDurationPolicy: cleanDurationPolicy,
-    });
+    let saveResult: { ok: boolean; status: string; message?: string };
+
+    if (surface === 'admin') {
+      const res = await patchPlatformWorkshop(tenantId, effectiveWorkshopId, {
+        expectedVersion,
+        idempotencyKey,
+        openingHours: cleanOpeningHours,
+        serviceDurationPolicy: cleanDurationPolicy,
+      });
+      saveResult = { ok: res.ok, status: res.status, message: res.message };
+    } else {
+      const res = await patchWorkshopCapacity(tenantId, effectiveWorkshopId, {
+        expectedVersion,
+        idempotencyKey,
+        openingHours: cleanOpeningHours,
+        serviceDurationPolicy: cleanDurationPolicy,
+        capacityPolicy: cleanCapacityPolicy,
+      });
+      saveResult = { ok: res.status === 'success', status: res.status, message: res.message };
+      if (res.status === 'success' && res.data) {
+        setInternalWorkshop(res.data);
+      }
+    }
 
     setIsSaving(false);
 
-    if (res.status === 'success' && res.receipt) {
+    if (saveResult.ok) {
       setFeedback({
         type: 'success',
-        message: 'Configuración de taller guardada y confirmada en backend (recibo registrado).'
+        message: 'Configuración de capacidad y horarios guardada con éxito en backend.'
       });
-      // Refrescar workshop vía GET de autoridad backend
-      onWorkshopUpdated();
+      if (onWorkshopUpdated) onWorkshopUpdated();
+      else loadCapacityFromBackend(effectiveWorkshopId);
       setTimeout(() => setFeedback(null), 5000);
-    } else if (res.status === 'version_conflict') {
+    } else if (saveResult.status === 'unauthorized') {
+      setFeedback({
+        type: 'error',
+        message: 'Acceso denegado: solo usuarios con rol OWNER o MANAGER pueden modificar la capacidad del taller.',
+      });
+    } else if (saveResult.status === 'version_conflict') {
       setFeedback({
         type: 'warning',
-        message: 'Conflicto de versiones: otro usuario actualizó el taller. Los datos más recientes se han cargado.',
+        message: 'Conflicto de versiones: otro usuario actualizó la configuración. Los datos más recientes se han recargado.',
       });
-      onWorkshopUpdated();
+      if (onWorkshopUpdated) onWorkshopUpdated();
+      else loadCapacityFromBackend(effectiveWorkshopId);
     } else {
       setFeedback({
         type: 'error',
-        message: res.message || 'Error al persistir la configuración en backend.',
+        message: saveResult.message || 'Error al persistir la configuración en backend.',
       });
     }
   };
+
+  const workshopName = (internalWorkshop as any)?.name || (propWorkshop as any)?.name || effectiveWorkshopId;
+  const currentVersion = internalWorkshop?.version ?? propWorkshop?.version ?? 1;
 
   return (
     <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-6">
@@ -223,18 +351,19 @@ export const WorkshopCapacityConfigSection: React.FC<WorkshopCapacityConfigSecti
           <div className="flex items-center gap-2">
             <h3 className="text-sm font-extrabold text-slate-900 tracking-tight">Capacidad y Agenda</h3>
             <span className="text-[11px] font-mono bg-blue-50 text-blue-700 px-2 py-0.5 rounded border border-blue-200">
-              {workshop.name || workshop.id} (v{workshop.version})
+              {workshopName} (v{currentVersion})
             </span>
           </div>
           <p className="text-xs text-slate-500 pt-0.5">
-            Configuración operativa de horarios de apertura, duración de trabajos y parámetros de capacidad.
+            Configuración operativa de horarios de apertura, duración de trabajos y recursos físicos del taller.
           </p>
         </div>
 
         <button
+          type="button"
           onClick={handleSave}
-          disabled={isSaving}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl transition shadow-xs disabled:opacity-50 self-start sm:self-auto"
+          disabled={isSaving || isLoading}
+          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl transition shadow-xs disabled:opacity-50 self-start sm:self-auto cursor-pointer min-h-[44px]"
         >
           {isSaving ? (
             <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -257,98 +386,218 @@ export const WorkshopCapacityConfigSection: React.FC<WorkshopCapacityConfigSecti
         >
           {feedback.type === 'success' ? (
             <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-          ) : (
+          ) : feedback.type === 'warning' ? (
             <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+          ) : (
+            <ShieldAlert className="w-4 h-4 text-red-600 shrink-0" />
           )}
           <span>{feedback.message}</span>
         </div>
       )}
 
-      {/* A1. Horario */}
+      {/* Aforo en vivo (Vehículos actualmente en taller) - Read-only backend authority */}
+      <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+            <Car className="w-5 h-5" />
+          </div>
+          <div>
+            <span className="text-[11px] font-bold text-slate-500 uppercase block tracking-wider">Aforo de Vehículos en Vivo</span>
+            <p className="text-sm font-extrabold text-slate-900 mt-0.5">
+              Vehículos en taller: <span className="font-mono text-blue-700">{vehiclesCurrentlyOnSite ?? 0}</span> / <span className="font-mono text-slate-600">{maxVehiclesOnSite}</span>
+            </p>
+          </div>
+        </div>
+        <div className="text-right sm:text-right">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-white border border-slate-200 text-slate-600">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            Métrica autoritativa en tiempo real
+          </span>
+        </div>
+      </div>
+
+      {/* A1. Horarios de Apertura */}
       <div className="space-y-3">
         <div className="flex items-center gap-2">
           <Clock className="w-4 h-4 text-blue-600" />
-          <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800">Horario de Taller</h4>
+          <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800">Horarios de Apertura Semanales</h4>
         </div>
         <p className="text-xs text-slate-500">
-          Define las franjas de disponibilidad operativa para cada día de la semana. Se admiten hasta 2 tramos por día (jornada partida).
+          Define las franjas horarias en las que el taller acepta entradas de vehículos.
         </p>
 
-        <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden bg-slate-50/50">
+        <div className="space-y-2">
           {DAYS.map((day) => {
-            const current = schedule[day.key] || { isOpen: false, slots: [] };
+            const state = schedule[day.key] || { isOpen: false, slots: [] };
             return (
-              <div key={day.key} className="p-3 flex flex-col md:flex-row md:items-center justify-between gap-3">
-                <div className="flex items-center gap-3 w-40 shrink-0">
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={current.isOpen}
-                      onChange={() => toggleDayOpen(day.key)}
-                      className="sr-only peer"
-                    />
-                    <div className="w-8 h-4 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600"></div>
-                  </label>
-                  <span className={`text-xs font-bold ${current.isOpen ? 'text-slate-900' : 'text-slate-400'}`}>
-                    {day.name}
-                  </span>
-                  {!current.isOpen && (
-                    <span className="text-[10px] uppercase font-bold text-slate-400 bg-slate-200/60 px-1.5 py-0.5 rounded">
-                      Cerrado
-                    </span>
+              <div
+                key={day.key}
+                className={`p-3 rounded-xl border transition-all ${
+                  state.isOpen
+                    ? 'bg-slate-50/50 border-slate-200'
+                    : 'bg-slate-100/40 border-slate-200/60 opacity-60'
+                }`}
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 w-32 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => toggleDayOpen(day.key)}
+                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
+                        state.isOpen ? 'bg-blue-600' : 'bg-slate-300'
+                      }`}
+                      aria-label={`Alternar apertura de ${day.name}`}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                          state.isOpen ? 'translate-x-4' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                    <span className="text-xs font-bold text-slate-800">{day.name}</span>
+                  </div>
+
+                  {state.isOpen ? (
+                    <div className="flex flex-wrap items-center gap-3 flex-1">
+                      {state.slots.map((slot, sIdx) => (
+                        <div key={sIdx} className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg p-1.5 shadow-2xs">
+                          <input
+                            type="time"
+                            value={slot.start}
+                            onChange={(e) => handleSlotChange(day.key, sIdx, 'start', e.target.value)}
+                            className="text-xs font-mono font-medium text-slate-800 bg-transparent focus:outline-hidden"
+                          />
+                          <span className="text-xs text-slate-400">a</span>
+                          <input
+                            type="time"
+                            value={slot.end}
+                            onChange={(e) => handleSlotChange(day.key, sIdx, 'end', e.target.value)}
+                            className="text-xs font-mono font-medium text-slate-800 bg-transparent focus:outline-hidden"
+                          />
+                          {state.slots.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => removeSlot(day.key, sIdx)}
+                              className="p-1 text-slate-400 hover:text-red-600 transition cursor-pointer"
+                              title="Eliminar tramo"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+
+                      {state.slots.length < 2 && (
+                        <button
+                          type="button"
+                          onClick={() => addSlot(day.key)}
+                          className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50 border border-dashed border-blue-300 rounded-lg transition cursor-pointer"
+                        >
+                          <Plus className="w-3 h-3" />
+                          <span>Turno partido</span>
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex-1 text-xs text-slate-400 italic">Cerrado</div>
                   )}
                 </div>
-
-                {current.isOpen ? (
-                  <div className="flex flex-wrap items-center gap-3 flex-1">
-                    {current.slots.map((slot, sIdx) => (
-                      <div key={sIdx} className="flex items-center gap-1.5 bg-white border border-slate-200 px-2.5 py-1 rounded-lg shadow-2xs">
-                        <span className="text-[10px] text-slate-400 font-bold uppercase">
-                          {sIdx === 0 ? 'Tramo 1' : 'Tramo 2'}:
-                        </span>
-                        <input
-                          type="time"
-                          value={slot.start}
-                          onChange={(e) => handleSlotChange(day.key, sIdx, 'start', e.target.value)}
-                          className="text-xs font-mono font-semibold text-slate-800 bg-transparent border-none p-0 focus:ring-0"
-                        />
-                        <span className="text-xs text-slate-400">–</span>
-                        <input
-                          type="time"
-                          value={slot.end}
-                          onChange={(e) => handleSlotChange(day.key, sIdx, 'end', e.target.value)}
-                          className="text-xs font-mono font-semibold text-slate-800 bg-transparent border-none p-0 focus:ring-0"
-                        />
-                        {sIdx === 1 && (
-                          <button
-                            type="button"
-                            onClick={() => removeSlot(day.key, sIdx)}
-                            className="p-1 text-slate-400 hover:text-red-600 transition"
-                            title="Eliminar segundo tramo"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
-                        )}
-                      </div>
-                    ))}
-
-                    {current.slots.length < 2 && (
-                      <button
-                        type="button"
-                        onClick={() => addSlot(day.key)}
-                        className="flex items-center gap-1 text-[11px] font-bold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2 py-1 rounded-lg transition"
-                      >
-                        <Plus className="w-3 h-3" />
-                        <span>Añadir 2º tramo</span>
-                      </button>
-                    )}
-                  </div>
-                ) : (
-                  <div className="text-xs text-slate-400 italic">No hay actividad planificada para este día</div>
-                )}
               </div>
             );
           })}
+        </div>
+      </div>
+
+      {/* A2. Recursos Físicos del Taller (Capacidad Operativa) - Activo para OWNER/MANAGER */}
+      <div className="space-y-3 pt-3 border-t border-slate-100">
+        <div className="flex items-center gap-2">
+          <Layers className="w-4 h-4 text-blue-600" />
+          <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800">Recursos Físicos del Taller</h4>
+        </div>
+        <p className="text-xs text-slate-500">
+          Parámetros físicos y aforo aplicados por el motor de scheduling backend para validar disponibilidad en agenda.
+        </p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-1">
+            <label className="text-xs font-bold text-slate-800 block">Elevadores disponibles</label>
+            <p className="text-[11px] text-slate-500 leading-tight">Puestos con elevador utilizables simultáneamente.</p>
+            <div className="flex items-center gap-2 pt-1">
+              <input
+                type="number"
+                min={1}
+                max={500}
+                value={liftCount}
+                onChange={(e) => setLiftCount(Math.max(1, Number(e.target.value) || 1))}
+                className="w-20 px-2.5 py-1 text-xs font-mono font-bold bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-hidden focus:border-blue-500"
+              />
+              <span className="text-xs text-slate-500 font-medium">elevadores</span>
+            </div>
+          </div>
+
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-1">
+            <label className="text-xs font-bold text-slate-800 block">Otros puestos de trabajo</label>
+            <p className="text-[11px] text-slate-500 leading-tight">Puestos donde puede trabajarse sin ocupar un elevador.</p>
+            <div className="flex items-center gap-2 pt-1">
+              <input
+                type="number"
+                min={1}
+                max={500}
+                value={nonLiftBayCount}
+                onChange={(e) => setNonLiftBayCount(Math.max(1, Number(e.target.value) || 1))}
+                className="w-20 px-2.5 py-1 text-xs font-mono font-bold bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-hidden focus:border-blue-500"
+              />
+              <span className="text-xs text-slate-500 font-medium">puestos</span>
+            </div>
+          </div>
+
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-1">
+            <label className="text-xs font-bold text-slate-800 block">Técnicos simultáneos</label>
+            <p className="text-[11px] text-slate-500 leading-tight">Número de mecánicos/técnicos disponibles al mismo tiempo.</p>
+            <div className="flex items-center gap-2 pt-1">
+              <input
+                type="number"
+                min={1}
+                max={500}
+                value={concurrentTechnicians}
+                onChange={(e) => setConcurrentTechnicians(Math.max(1, Number(e.target.value) || 1))}
+                className="w-20 px-2.5 py-1 text-xs font-mono font-bold bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-hidden focus:border-blue-500"
+              />
+              <span className="text-xs text-slate-500 font-medium">técnicos</span>
+            </div>
+          </div>
+
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-1">
+            <label className="text-xs font-bold text-slate-800 block">Máximo de vehículos en taller</label>
+            <p className="text-[11px] text-slate-500 leading-tight">Aforo máximo de vehículos que pueden permanecer en el taller.</p>
+            <div className="flex items-center gap-2 pt-1">
+              <input
+                type="number"
+                min={1}
+                max={500}
+                value={maxVehiclesOnSite}
+                onChange={(e) => setMaxVehiclesOnSite(Math.max(1, Number(e.target.value) || 1))}
+                className="w-20 px-2.5 py-1 text-xs font-mono font-bold bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-hidden focus:border-blue-500"
+              />
+              <span className="text-xs text-slate-500 font-medium">vehículos</span>
+            </div>
+          </div>
+
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-1">
+            <label className="text-xs font-bold text-slate-800 block">Máximo de entradas por hora</label>
+            <p className="text-[11px] text-slate-500 leading-tight">Límite de citas programables en la misma hora.</p>
+            <div className="flex items-center gap-2 pt-1">
+              <input
+                type="number"
+                min={1}
+                max={500}
+                value={maxVehicleIntakesPerHour}
+                onChange={(e) => setMaxVehicleIntakesPerHour(Math.max(1, Number(e.target.value) || 1))}
+                className="w-20 px-2.5 py-1 text-xs font-mono font-bold bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-hidden focus:border-blue-500"
+              />
+              <span className="text-xs text-slate-500 font-medium">entradas/h</span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -444,82 +693,6 @@ export const WorkshopCapacityConfigSection: React.FC<WorkshopCapacityConfigSecti
           </div>
         </div>
       </div>
-
-      {/* A2. Recursos del taller (Capacidad física) - Solo en entorno de desarrollo hasta integración canónica de naQor */}
-      {Boolean((import.meta as any).env?.DEV) && (
-        <div className="space-y-3 pt-3 border-t border-slate-100 opacity-80">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <Layers className="w-4 h-4 text-slate-500" />
-              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">Recursos Físicos del Taller (Entorno de Desarrollo)</h4>
-            </div>
-            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-600 bg-slate-100 border border-slate-200 px-2.5 py-0.5 rounded-full">
-              <Lock className="w-3 h-3 text-slate-500" />
-              Próximamente
-            </span>
-          </div>
-          <p className="text-xs text-slate-500">
-            Límites físicos y de puestos de trabajo del taller. En preparación para próxima versión operativa.
-          </p>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          <div className="bg-slate-50/70 border border-slate-200 rounded-xl p-3 space-y-1">
-            <label className="text-xs font-bold text-slate-600 block">Elevadores disponibles</label>
-            <p className="text-[11px] text-slate-400 leading-tight">Puestos con elevador que pueden utilizarse simultáneamente.</p>
-            <input
-              type="number"
-              disabled
-              value={2}
-              className="w-20 px-2.5 py-1 text-xs font-mono font-bold bg-slate-100 border border-slate-300 rounded-lg text-slate-400 cursor-not-allowed"
-            />
-          </div>
-
-          <div className="bg-slate-50/70 border border-slate-200 rounded-xl p-3 space-y-1">
-            <label className="text-xs font-bold text-slate-600 block">Otros puestos de trabajo</label>
-            <p className="text-[11px] text-slate-400 leading-tight">Puestos donde puede trabajarse sin ocupar un elevador.</p>
-            <input
-              type="number"
-              disabled
-              value={1}
-              className="w-20 px-2.5 py-1 text-xs font-mono font-bold bg-slate-100 border border-slate-300 rounded-lg text-slate-400 cursor-not-allowed"
-            />
-          </div>
-
-          <div className="bg-slate-50/70 border border-slate-200 rounded-xl p-3 space-y-1">
-            <label className="text-xs font-bold text-slate-600 block">Técnicos trabajando simultáneamente</label>
-            <p className="text-[11px] text-slate-400 leading-tight">Número habitual de mecánicos/técnicos disponibles al mismo tiempo.</p>
-            <input
-              type="number"
-              disabled
-              value={2}
-              className="w-20 px-2.5 py-1 text-xs font-mono font-bold bg-slate-100 border border-slate-300 rounded-lg text-slate-400 cursor-not-allowed"
-            />
-          </div>
-
-          <div className="bg-slate-50/70 border border-slate-200 rounded-xl p-3 space-y-1">
-            <label className="text-xs font-bold text-slate-600 block">Máximo de vehículos en el taller</label>
-            <p className="text-[11px] text-slate-400 leading-tight">Cuántos vehículos pueden permanecer simultáneamente en las instalaciones.</p>
-            <input
-              type="number"
-              disabled
-              value={6}
-              className="w-20 px-2.5 py-1 text-xs font-mono font-bold bg-slate-100 border border-slate-300 rounded-lg text-slate-400 cursor-not-allowed"
-            />
-          </div>
-
-          <div className="bg-slate-50/70 border border-slate-200 rounded-xl p-3 space-y-1">
-            <label className="text-xs font-bold text-slate-600 block">Máximo de entradas por hora</label>
-            <p className="text-[11px] text-slate-400 leading-tight">Evita concentrar demasiadas entregas de vehículos en la misma franja.</p>
-            <input
-              type="number"
-              disabled
-              value={2}
-              className="w-20 px-2.5 py-1 text-xs font-mono font-bold bg-slate-100 border border-slate-300 rounded-lg text-slate-400 cursor-not-allowed"
-            />
-          </div>
-        </div>
-      </div>
-      )}
     </div>
   );
 };

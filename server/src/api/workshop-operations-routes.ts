@@ -147,6 +147,34 @@ const createManualAppointmentSchema = z.object({
 export function registerWorkshopOperationsRoutes(app: FastifyInstance, pool: pg.Pool, pii: PiiProtection): void {
   const auth = { config: { auth: { mode: 'authenticated' as const, audience: 'workshop' as const, principalKinds: ['workshop_user' as const] } } };
 
+  app.get('/v1/workshop/tenants/:tenantId/workshops', auth, async (request, reply) => {
+    const params = tenantParams.safeParse(request.params);
+    if (!params.success) return reply.code(400).send({ error: 'INVALID_TENANT_SELECTOR', correlationId: request.id });
+    if (!request.principal) return reply.code(401).send({ error: 'AUTHENTICATION_REQUIRED' });
+    const data = await inAuthorizedTenantTransaction(pool, {
+      principal: request.principal, requestedTenantId: params.data.tenantId,
+      capability: 'workshop:configuration:read', correlationId: request.id,
+    }, async (client, context) => {
+      await assertTenantOperation(client, context.tenantId, 'workshop_read');
+      const result = await client.query<{
+        id: string;
+        tenant_id: string;
+        name: string;
+        timezone: string;
+        opening_hours: unknown;
+        service_duration_policy: unknown;
+        capacity_policy: unknown;
+        version: number;
+        updated_at: string;
+      }>(
+        'SELECT id,tenant_id,name,timezone,opening_hours,service_duration_policy,capacity_policy,version,updated_at FROM workshops WHERE tenant_id=$1 ORDER BY name',
+        [context.tenantId],
+      );
+      return result.rows;
+    });
+    return { data, correlationId: request.id };
+  });
+
   app.get('/v1/workshop/tenants/:tenantId/workshops/:workshopId/capacity', auth, async (request, reply) => {
     const params = workshopParams.safeParse(request.params);
     if (!params.success) return reply.code(400).send({ error: 'INVALID_WORKSHOP_SELECTOR', correlationId: request.id });

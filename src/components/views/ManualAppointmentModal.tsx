@@ -6,7 +6,7 @@ import { listWorkshopCustomers, listWorkshopVehicles, createWorkshopAppointment 
 export interface ManualAppointmentModalProps {
   isOpen: boolean;
   onClose: () => void;
-  tenantId: string;
+  tenantId: string | null;
   onAppointmentCreated: (appt: WorkshopAppointmentResponse) => void;
   initialDate?: string;
   initialTime?: string;
@@ -28,6 +28,7 @@ export const ManualAppointmentModal: React.FC<ManualAppointmentModalProps> = ({
   const [time, setTime] = useState(initialTime || '09:00');
   const [durationMinutes, setDurationMinutes] = useState(60);
   const [serviceIntent, setServiceIntent] = useState('Revisión periódica y diagnosis');
+  const [customerWaitMode, setCustomerWaitMode] = useState<'DROP_OFF' | 'WAIT_ON_SITE'>('DROP_OFF');
   const [notes, setNotes] = useState('');
 
   const [customerMode, setCustomerMode] = useState<'existing' | 'new'>(initialCustomerId ? 'existing' : 'new');
@@ -72,6 +73,10 @@ export const ManualAppointmentModal: React.FC<ManualAppointmentModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!tenantId) {
+      setErrorMessage('Se requiere un identificador de taller activo para persistir la cita.');
+      return;
+    }
     setErrorMessage(null);
     setIsSubmitting(true);
 
@@ -87,6 +92,7 @@ export const ManualAppointmentModal: React.FC<ManualAppointmentModalProps> = ({
         startAt: startAtIso,
         durationMinutes,
         serviceIntent: serviceIntent.trim() || 'Intervención de taller',
+        customerWaitMode,
         notes: notes.trim() || undefined,
         customerId: customerMode === 'existing' && selectedCustomerId ? selectedCustomerId : undefined,
         vehicleId: vehicleMode === 'existing' && selectedVehicleId ? selectedVehicleId : undefined,
@@ -106,10 +112,20 @@ export const ManualAppointmentModal: React.FC<ManualAppointmentModalProps> = ({
         onAppointmentCreated(res.data);
         onClose();
       } else {
-        setErrorMessage(res.message || 'Error al agendar la cita.');
+        const msg = res.message || '';
+        if (msg.includes('capacidad') || msg.includes('CAPACITY') || msg.includes('422')) {
+          setErrorMessage('No hay capacidad disponible a esa hora.');
+        } else {
+          setErrorMessage(msg || 'Error al agendar la cita.');
+        }
       }
     } catch (err: any) {
-      setErrorMessage(err?.message || 'Error inesperado al crear la cita.');
+      const msg = err?.message || '';
+      if (msg.includes('capacidad') || msg.includes('CAPACITY') || msg.includes('422')) {
+        setErrorMessage('No hay capacidad disponible a esa hora.');
+      } else {
+        setErrorMessage(msg || 'Error inesperado al crear la cita.');
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -197,6 +213,37 @@ export const ManualAppointmentModal: React.FC<ManualAppointmentModalProps> = ({
                 placeholder="Ej: Cambio de aceite, ruidos en frenos..."
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:border-blue-500 text-xs"
               />
+            </div>
+          </div>
+
+          {/* Modo de Espera del Cliente */}
+          <div>
+            <label className="block font-bold text-slate-700 mb-1">Modo de estancia del cliente</label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setCustomerWaitMode('DROP_OFF')}
+                className={`px-3 py-2 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer ${
+                  customerWaitMode === 'DROP_OFF'
+                    ? 'bg-blue-50 border-blue-400 text-blue-800 shadow-2xs'
+                    : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                <span className={`w-2 h-2 rounded-full ${customerWaitMode === 'DROP_OFF' ? 'bg-blue-600' : 'bg-slate-300'}`} />
+                <span>Deja el coche</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setCustomerWaitMode('WAIT_ON_SITE')}
+                className={`px-3 py-2 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer ${
+                  customerWaitMode === 'WAIT_ON_SITE'
+                    ? 'bg-indigo-50 border-indigo-400 text-indigo-800 shadow-2xs'
+                    : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                <span className={`w-2 h-2 rounded-full ${customerWaitMode === 'WAIT_ON_SITE' ? 'bg-indigo-600' : 'bg-slate-300'}`} />
+                <span>Espera en taller</span>
+              </button>
             </div>
           </div>
 
