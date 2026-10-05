@@ -16,17 +16,17 @@ The canonical policy is `workshops.capacity_policy`. All counts are non-negative
   "maxVehicleIntakesPerHour": 2,
   "resourceRequirements": {
     "rules": {
-      "inspection": { "technicians": 1, "workplace": "NON_LIFT_BAY" },
-      "oil_service": { "technicians": 1, "workplace": "LIFT" },
-      "brakes_or_noise": { "technicians": 1, "workplace": "LIFT" },
-      "generic_fault": { "technicians": 1, "workplace": "ANY_BAY" }
+      "inspection": { "mechanic": 1, "lift": 0, "genericBay": 1 },
+      "oil_service": { "mechanic": 1, "lift": 1, "genericBay": 0 },
+      "brakes_or_noise": { "mechanic": 1, "lift": 1, "genericBay": 0 },
+      "generic_fault": { "mechanic": 1, "lift": 0, "genericBay": 1 }
     },
-    "fallback": { "technicians": 1, "workplace": "ANY_BAY" }
+    "fallback": { "mechanic": 1, "lift": 0, "genericBay": 1 }
   }
 }
 ```
 
-`workplace` is `LIFT`, `NON_LIFT_BAY`, or `ANY_BAY`. The contract is intentionally extensible without coupling Scheduling to Repair Knowledge. Missing or invalid configuration fails closed; the API never invents zero-cost work or capacity.
+This baseline is owned by backend migration 025 and is the default for new Workshops. The contract is intentionally extensible without coupling Scheduling to Repair Knowledge. Missing or invalid configuration fails closed; the API never invents zero-cost work or capacity.
 
 Opening hours remain in `workshops.opening_hours`, and durations remain in `workshops.service_duration_policy`. The server resolves duration and resource requirements from `serviceIntent`; frontend values are not authoritative.
 
@@ -34,8 +34,11 @@ Opening hours remain in `workshops.opening_hours`, and durations remain in `work
 
 - `GET /v1/workshop/tenants/:tenantId/workshops/:workshopId/capacity`
 - `PATCH /v1/workshop/tenants/:tenantId/workshops/:workshopId/capacity`
+- `GET /v1/workshop/tenants/:tenantId/workshops`
 
-The read response contains `openingHours`, `serviceDurationPolicy`, `capacityPolicy`, `vehiclesCurrentlyOnSite`, and `version`. `vehiclesCurrentlyOnSite` is derived from canonical appointments in `on_site`, `in_progress`, `waiting`, or `completed`; it is never writable configuration.
+Capacity read/write uses one stable transport shape: `opening_hours`, `service_duration_policy`, `capacity_policy`, `vehiclesCurrentlyOnSite`, and `version`. `vehiclesCurrentlyOnSite` is derived from canonical appointments in `on_site`, `in_progress`, `waiting`, or `completed`; it is never writable configuration. Request bodies use `openingHours`, `serviceDurationPolicy`, and `capacityPolicy`.
+
+The Workshop list is an appointment-read discovery endpoint for Agenda, including Reception. It returns only `id`, `tenant_id`, `name`, `timezone`, and `version`; policy details remain on the capacity endpoint.
 
 The patch accepts `idempotencyKey`, `expectedVersion`, and any changed canonical policies. It is restricted to Workshop `OWNER`/`MANAGER`, is tenant scoped, uses optimistic concurrency, deterministic replay, payload-conflict rejection, and audit receipts. `RECEPTION` is not authorized.
 

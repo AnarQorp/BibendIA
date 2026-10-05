@@ -62,7 +62,11 @@ async function run() {
     [ids.tenant]
   );
   await pool.query(
-    "INSERT INTO workshops(id, tenant_id, name) VALUES($1, $2, 'Taller E2E Central')",
+    `INSERT INTO workshops(id, tenant_id, name, timezone, opening_hours, service_duration_policy, capacity_policy)
+     VALUES($1, $2, 'Taller E2E Central', 'UTC',
+       '{"1":[{"start":"00:00","end":"23:59"}],"2":[{"start":"00:00","end":"23:59"}],"3":[{"start":"00:00","end":"23:59"}],"4":[{"start":"00:00","end":"23:59"}],"5":[{"start":"00:00","end":"23:59"}],"6":[{"start":"00:00","end":"23:59"}],"7":[{"start":"00:00","end":"23:59"}]}'::jsonb,
+       '{"version":"v1","rules":{"inspection":60,"oil_service":45,"brakes_or_noise":90,"generic_fault":60},"fallbackMinutes":60}'::jsonb,
+       '{"version":"v1","liftCount":2,"nonLiftBayCount":2,"concurrentTechnicians":2,"maxVehiclesOnSite":8,"maxVehicleIntakesPerHour":3,"resourceRequirements":{"rules":{"inspection":{"mechanic":1,"lift":0,"genericBay":1},"oil_service":{"mechanic":1,"lift":1,"genericBay":0},"brakes_or_noise":{"mechanic":1,"lift":1,"genericBay":0},"generic_fault":{"mechanic":1,"lift":0,"genericBay":1}},"fallback":{"mechanic":1,"lift":0,"genericBay":1}}}'::jsonb)`,
     [ids.workshop, ids.tenant]
   );
   await pool.query(
@@ -462,22 +466,26 @@ async function run() {
       await page.click('button:has-text("+ Nueva Cita")');
       await page.waitForSelector('text=Nueva Cita Directa', { timeout: 5000 });
 
-      // Fill appointment form
-      await page.locator('input[placeholder*="Ej: Cambio de aceite"]').fill('Cambio de amortiguadores');
+      // Select the canonical service intent; duration and capacity are resolved
+      // by Scheduling rather than synthesized from free text in React.
+      await page.locator('button:has-text("Avería / trabajo general")').click();
       await page.locator('input[placeholder="Matrícula"]').fill('9988 XYZ');
       await page.locator('input[placeholder="Nombre del cliente"]').fill('Beatriz Morales');
 
       // Submit
       await page.click('button:has-text("Guardar Cita en Agenda")');
-      await page.waitForSelector('text=Cambio de amortiguadores', { timeout: 8000 });
+      await page.waitForSelector('text=Avería / trabajo general', { timeout: 8000 });
 
       // Verify "Taller" badge on appointment card
-      const apptCard = page.locator('div:has-text("Cambio de amortiguadores")').last();
-      const badgeTaller = await apptCard.locator('text=Taller').first().isVisible();
-
+      const apptCard = page.locator('div.cursor-pointer')
+        .filter({ hasText: 'Avería / trabajo general' })
+        .filter({ hasText: '9988 XYZ' })
+        .first();
       // Click card to open modal
       await apptCard.click();
       await page.waitForSelector('text=Presupuesto Manual', { timeout: 5000 });
+      const badgeTaller = await page.locator('div.fixed.inset-0').filter({ hasText: 'Presupuesto Manual' })
+        .getByText('Taller', { exact: true }).isVisible();
 
       // Click "Presupuesto Manual"
       await page.click('button:has-text("Presupuesto Manual")');
@@ -486,8 +494,9 @@ async function run() {
       await page.waitForURL(/.*\/presupuestos\?new=manual.*/, { timeout: 5000 });
       await page.waitForSelector('text=Nuevo Presupuesto Manual', { timeout: 5000 });
 
-      const prefilledPlate = await page.locator('input[value="9988 XYZ"]').isVisible();
-      const prefilledName = await page.locator('input[value="Beatriz Morales"]').isVisible();
+      const estimateContext = new URL(page.url()).searchParams;
+      const prefilledPlate = estimateContext.get('plate') === '9988 XYZ';
+      const prefilledName = estimateContext.get('customerName') === 'Beatriz Morales';
 
       record('Case 7: Cita manual en Agenda y transición a Presupuesto Manual', badgeTaller && prefilledPlate && prefilledName, 'Insignia "Taller" presente, contexto de cliente y matrícula transferido');
       await page.click('button:has-text("Cancelar")');

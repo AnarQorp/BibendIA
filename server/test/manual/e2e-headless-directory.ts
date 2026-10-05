@@ -60,7 +60,11 @@ async function run() {
     [ids.tenant]
   );
   await pool.query(
-    "INSERT INTO workshops(id, tenant_id, name) VALUES($1, $2, 'Taller Directorio Central')",
+    `INSERT INTO workshops(id, tenant_id, name, timezone, opening_hours, service_duration_policy, capacity_policy)
+     VALUES($1, $2, 'Taller Directorio Central', 'UTC',
+       '{"1":[{"start":"00:00","end":"23:59"}],"2":[{"start":"00:00","end":"23:59"}],"3":[{"start":"00:00","end":"23:59"}],"4":[{"start":"00:00","end":"23:59"}],"5":[{"start":"00:00","end":"23:59"}],"6":[{"start":"00:00","end":"23:59"}],"7":[{"start":"00:00","end":"23:59"}]}'::jsonb,
+       '{"version":"v1","rules":{"inspection":60,"oil_service":45,"brakes_or_noise":90,"generic_fault":60},"fallbackMinutes":60}'::jsonb,
+       '{"version":"v1","liftCount":2,"nonLiftBayCount":2,"concurrentTechnicians":2,"maxVehiclesOnSite":8,"maxVehicleIntakesPerHour":3,"resourceRequirements":{"rules":{"inspection":{"mechanic":1,"lift":0,"genericBay":1},"oil_service":{"mechanic":1,"lift":1,"genericBay":0},"brakes_or_noise":{"mechanic":1,"lift":1,"genericBay":0},"generic_fault":{"mechanic":1,"lift":0,"genericBay":1}},"fallback":{"mechanic":1,"lift":0,"genericBay":1}}}'::jsonb)`,
     [ids.workshop, ids.tenant]
   );
   await pool.query(
@@ -424,9 +428,9 @@ async function run() {
       await apptModal.locator('select').last().locator(`option[value="${createdVehicleId}"]`).waitFor({ state: 'attached', timeout: 5000 });
       await apptModal.locator('select').last().selectOption(createdVehicleId!);
 
-      // Service intent
-      const intentInput = apptModal.locator('input[placeholder*="Cambio de aceite"]');
-      await intentInput.fill('Revisión 60.000 km');
+      // Canonical service intent. The backend remains authoritative for duration
+      // and capacity requirements; the UI no longer accepts a free-text intent.
+      await apptModal.locator('button:has-text("Revisión / inspección")').click();
 
       // Click "Guardar Cita en Agenda"
       await apptModal.locator('button:has-text("Guardar Cita en Agenda")').click();
@@ -438,7 +442,7 @@ async function run() {
       await page.locator('text=Laura Sánchez').first().click();
       await page.waitForSelector('text=Historial de Citas (1)', { timeout: 5000 });
 
-      const apptVisible = await page.locator('text=Revisión 60.000 km').isVisible();
+      const apptVisible = await page.locator('text=inspection').isVisible();
       const apptPlateVisible = await page.locator('text=7788BBB').first().isVisible();
 
       // Close drawer

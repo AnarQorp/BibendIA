@@ -29,6 +29,16 @@ export const workshopCapacityPolicySchema = z.object({
 
 export type WorkshopCapacityPolicy = z.infer<typeof workshopCapacityPolicySchema>;
 
+export const CANONICAL_WORKSHOP_RESOURCE_REQUIREMENTS_V1: WorkshopCapacityPolicy['resourceRequirements'] = {
+  rules: {
+    inspection: { mechanic: 1, lift: 0, genericBay: 1 },
+    oil_service: { mechanic: 1, lift: 1, genericBay: 0 },
+    brakes_or_noise: { mechanic: 1, lift: 1, genericBay: 0 },
+    generic_fault: { mechanic: 1, lift: 0, genericBay: 1 },
+  },
+  fallback: { mechanic: 1, lift: 0, genericBay: 1 },
+};
+
 export class WorkshopCapacityError extends Error {
   constructor(readonly code:
     | 'WORKSHOP_CAPACITY_POLICY_INVALID'

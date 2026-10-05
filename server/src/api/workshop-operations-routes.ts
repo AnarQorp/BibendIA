@@ -153,7 +153,7 @@ export function registerWorkshopOperationsRoutes(app: FastifyInstance, pool: pg.
     if (!request.principal) return reply.code(401).send({ error: 'AUTHENTICATION_REQUIRED' });
     const data = await inAuthorizedTenantTransaction(pool, {
       principal: request.principal, requestedTenantId: params.data.tenantId,
-      capability: 'workshop:configuration:read', correlationId: request.id,
+      capability: 'workshop:appointments:read', correlationId: request.id,
     }, async (client, context) => {
       await assertTenantOperation(client, context.tenantId, 'workshop_read');
       const result = await client.query<{
@@ -161,13 +161,9 @@ export function registerWorkshopOperationsRoutes(app: FastifyInstance, pool: pg.
         tenant_id: string;
         name: string;
         timezone: string;
-        opening_hours: unknown;
-        service_duration_policy: unknown;
-        capacity_policy: unknown;
         version: number;
-        updated_at: string;
       }>(
-        'SELECT id,tenant_id,name,timezone,opening_hours,service_duration_policy,capacity_policy,version,updated_at FROM workshops WHERE tenant_id=$1 ORDER BY name',
+        'SELECT id,tenant_id,name,timezone,version FROM workshops WHERE tenant_id=$1 ORDER BY name,id',
         [context.tenantId],
       );
       return result.rows;
