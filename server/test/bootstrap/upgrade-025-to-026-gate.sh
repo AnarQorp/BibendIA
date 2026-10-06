@@ -42,6 +42,8 @@ migration_043="server/dist/migrations/043_repair_knowledge_brakes_03_nonvag.sql"
 pending_043="server/dist/migrations/043_repair_knowledge_brakes_03_nonvag.pending"
 migration_044="server/dist/migrations/044_repair_knowledge_service_filters_02_vag.sql"
 pending_044="server/dist/migrations/044_repair_knowledge_service_filters_02_vag.pending"
+migration_045="server/dist/migrations/045_repair_knowledge_service_filters_03_vag.sql"
+pending_045="server/dist/migrations/045_repair_knowledge_service_filters_03_vag.pending"
 
 cleanup() {
   if [ -f "$pending" ]; then mv "$pending" "$migration"; fi
@@ -63,6 +65,7 @@ cleanup() {
   if [ -f "$pending_042" ]; then mv "$pending_042" "$migration_042"; fi
   if [ -f "$pending_043" ]; then mv "$pending_043" "$migration_043"; fi
   if [ -f "$pending_044" ]; then mv "$pending_044" "$migration_044"; fi
+  if [ -f "$pending_045" ]; then mv "$pending_045" "$migration_045"; fi
   docker rm -f "$container" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT INT TERM
@@ -88,7 +91,7 @@ port="$(docker port "$container" 5432/tcp | sed 's/.*://')"
 export NODE_ENV=production
 export MIGRATOR_DATABASE_URL="postgresql://bibendia_migrator_login:$migrator_password@127.0.0.1:$port/bibendia"
 
-# Stop at the exact production state: schema 025 applied, 026/027/028/029/030/031/032/033/034/035/036/037/038/039/040/041/042/043/044 not yet present.
+# Stop at the exact production state: schema 025 applied, 026/027/028/029/030/031/032/033/034/035/036/037/038/039/040/041/042/043/044/045 not yet present.
 mv "$migration" "$pending"
 mv "$migration_027" "$pending_027"
 mv "$migration_028" "$pending_028"
@@ -108,6 +111,7 @@ mv "$migration_041" "$pending_041"
 mv "$migration_042" "$pending_042"
 mv "$migration_043" "$pending_043"
 mv "$migration_044" "$pending_044"
+mv "$migration_045" "$pending_045"
 node server/dist/src/persistence/migrate.js
 
 placeholder='{"version":"v1","liftCount":2,"nonLiftBayCount":2,"concurrentTechnicians":2,"maxVehiclesOnSite":8,"maxVehicleIntakesPerHour":3,"resourceRequirements":{"rules":{},"fallback":null}}'
@@ -273,4 +277,11 @@ node server/dist/src/persistence/migrate.js
 applied_044="$(docker exec "$container" psql -At -U postgres -d bibendia -c "SELECT count(*) FROM schema_migrations WHERE name='044_repair_knowledge_service_filters_02_vag.sql'")"
 [ "$applied_044" = '1' ] || { echo "expected one 044 migration record, found $applied_044" >&2; exit 1; }
 
-echo '025 to 026 to 027 to 028 to 029 to 030 to 031 to 032 to 033 to 034 to 035 to 036 to 037 to 038 to 039 to 040 to 041 to 042 to 043 to 044 upgrade gate: PASS'
+# Then prove broader VAG service filters coverage 03 applies as the next production migration.
+mv "$pending_045" "$migration_045"
+node server/dist/src/persistence/migrate.js
+node server/dist/src/persistence/migrate.js
+applied_045="$(docker exec "$container" psql -At -U postgres -d bibendia -c "SELECT count(*) FROM schema_migrations WHERE name='045_repair_knowledge_service_filters_03_vag.sql'")"
+[ "$applied_045" = '1' ] || { echo "expected one 045 migration record, found $applied_045" >&2; exit 1; }
+
+echo '025 to 026 to 027 to 028 to 029 to 030 to 031 to 032 to 033 to 034 to 035 to 036 to 037 to 038 to 039 to 040 to 041 to 042 to 043 to 044 to 045 upgrade gate: PASS'
