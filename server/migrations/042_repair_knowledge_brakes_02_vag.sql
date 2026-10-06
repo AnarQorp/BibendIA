@@ -1,7 +1,7 @@
 -- 042: Repair Knowledge brakes coverage 02 — VAG expansion.
 -- Scope: extend JOB_BRAKE_DISCS_PADS_FRONT across already-covered RK vehicles.
 -- Brake PR-code / diameter variants are explicit. No engine-family brake inference.
--- New APP_BRK2_/EDGE_BRK2_ prefixes preserve historical RK039 regression counts.
+-- New APP_BRAKE2_/EDGE_BRAKE2_ prefixes preserve historical RK039 regression counts.
 
 CREATE OR REPLACE FUNCTION apply_repair_knowledge_brakes_02()
 RETURNS void
@@ -16,81 +16,81 @@ DECLARE
 BEGIN
   FOR item IN
     SELECT * FROM (VALUES
-      ('APP_BRK2_GOLF7_CRMB_PR1ZE_288','Volkswagen','Golf VII','5G1/BQ1/BE1/BE2','2.0 TDI CRMB — PR 1ZE/1ZP — 288 mm','CRMB','PR 1ZE/1ZP; 288x25 mm ventilated front disc; TRW front pad set','09.9145.11','288x25 mm ventilated','P 85 126','TRW; electric wear indicator','https://www.bremboparts.com/europe/en/catalogue/vw-golf-vii-5g1-bq1-be1-be2-2-0-tdi/000056147-1'),
+      ('APP_BRAKE2_GOLF7_CRMB_PR1ZE_288','Volkswagen','Golf VII','5G1/BQ1/BE1/BE2','2.0 TDI CRMB — PR 1ZE/1ZP — 288 mm','CRMB','PR 1ZE/1ZP; 288x25 mm ventilated front disc; TRW front pad set','09.9145.11','288x25 mm ventilated','P 85 126','TRW; electric wear indicator','https://www.bremboparts.com/europe/en/catalogue/vw-golf-vii-5g1-bq1-be1-be2-2-0-tdi/000056147-1'),
 
-      ('APP_BRK2_GOLF7_CRMB_PR1ZA_312','Volkswagen','Golf VII','5G1/BQ1/BE1/BE2','2.0 TDI CRMB — PR 1ZA/1ZB/1ZD — 312 mm','CRMB','PR 1ZA/1ZB/1ZD; 312x25 mm ventilated front disc; TRW front pad set','09.9772.11','312x25 mm ventilated','P 85 126','TRW; electric wear indicator','https://www.bremboparts.com/europe/en/catalogue/vw-golf-vii-5g1-bq1-be1-be2-2-0-tdi/000056147-1'),
+      ('APP_BRAKE2_GOLF7_CRMB_PR1ZA_312','Volkswagen','Golf VII','5G1/BQ1/BE1/BE2','2.0 TDI CRMB — PR 1ZA/1ZB/1ZD — 312 mm','CRMB','PR 1ZA/1ZB/1ZD; 312x25 mm ventilated front disc; TRW front pad set','09.9772.11','312x25 mm ventilated','P 85 126','TRW; electric wear indicator','https://www.bremboparts.com/europe/en/catalogue/vw-golf-vii-5g1-bq1-be1-be2-2-0-tdi/000056147-1'),
 
-      ('APP_BRK2_LEON5F_CRMB_PR1ZE_288','Seat','León 5F','5F1','2.0 TDI CRMB — PR 1ZE — 288 mm','CRMB','PR 1ZE; 288x25 mm ventilated front disc; TRW front pad set','09.9145.11','288x25 mm ventilated','P 85 126','TRW; electric wear indicator','https://www.bremboparts.com/europe/es/catalogue/seat-leon-5f1-2-0-tdi/000057594-1'),
+      ('APP_BRAKE2_LEON5F_CRMB_PR1ZE_288','Seat','León 5F','5F1','2.0 TDI CRMB — PR 1ZE — 288 mm','CRMB','PR 1ZE; 288x25 mm ventilated front disc; TRW front pad set','09.9145.11','288x25 mm ventilated','P 85 126','TRW; electric wear indicator','https://www.bremboparts.com/europe/es/catalogue/seat-leon-5f1-2-0-tdi/000057594-1'),
 
-      ('APP_BRK2_LEON5F_CRMB_PR1ZA_312','Seat','León 5F','5F1','2.0 TDI CRMB — PR 1ZA — 312 mm','CRMB','PR 1ZA; 312x25 mm ventilated front disc; TRW front pad set','09.9772.11','312x25 mm ventilated','P 85 126','TRW; electric wear indicator','https://www.bremboparts.com/europe/es/catalogue/seat-leon-5f1-2-0-tdi/000057594-1'),
+      ('APP_BRAKE2_LEON5F_CRMB_PR1ZA_312','Seat','León 5F','5F1','2.0 TDI CRMB — PR 1ZA — 312 mm','CRMB','PR 1ZA; 312x25 mm ventilated front disc; TRW front pad set','09.9772.11','312x25 mm ventilated','P 85 126','TRW; electric wear indicator','https://www.bremboparts.com/europe/es/catalogue/seat-leon-5f1-2-0-tdi/000057594-1'),
 
-      ('APP_BRK2_OCTAVIA3_CRMB_PR1ZE_288','Skoda','Octavia III','5E3/NL3/NR3','2.0 TDI CRMB — PR 1ZE — 288 mm','CRMB','PR 1ZE; 288x25 mm ventilated front disc; TRW front pad set','09.9145.11','288x25 mm ventilated','P 85 126','TRW; electric wear indicator','https://www.bremboparts.com/europe/es/catalogue/skoda-octavia-iii-5e3-nl3-nr3-2-0-tdi/000058761-1'),
+      ('APP_BRAKE2_OCTAVIA3_CRMB_PR1ZE_288','Skoda','Octavia III','5E3/NL3/NR3','2.0 TDI CRMB — PR 1ZE — 288 mm','CRMB','PR 1ZE; 288x25 mm ventilated front disc; TRW front pad set','09.9145.11','288x25 mm ventilated','P 85 126','TRW; electric wear indicator','https://www.bremboparts.com/europe/es/catalogue/skoda-octavia-iii-5e3-nl3-nr3-2-0-tdi/000058761-1'),
 
-      ('APP_BRK2_OCTAVIA3_CRMB_PR1ZA_312','Skoda','Octavia III','5E3/NL3/NR3','2.0 TDI CRMB — PR 1ZA/1ZB — 312 mm','CRMB','PR 1ZA/1ZB; 312x25 mm ventilated front disc; TRW front pad set','09.9772.11','312x25 mm ventilated','P 85 126','TRW; electric wear indicator','https://www.bremboparts.com/europe/es/catalogue/skoda-octavia-iii-5e3-nl3-nr3-2-0-tdi/000058761-1'),
+      ('APP_BRAKE2_OCTAVIA3_CRMB_PR1ZA_312','Skoda','Octavia III','5E3/NL3/NR3','2.0 TDI CRMB — PR 1ZA/1ZB — 312 mm','CRMB','PR 1ZA/1ZB; 312x25 mm ventilated front disc; TRW front pad set','09.9772.11','312x25 mm ventilated','P 85 126','TRW; electric wear indicator','https://www.bremboparts.com/europe/es/catalogue/skoda-octavia-iii-5e3-nl3-nr3-2-0-tdi/000058761-1'),
 
-      ('APP_BRK2_A3_8P_CAYC_PR1ZF_280','Audi','A3 Sportback 8P','8PA','1.6 TDI CAYC — PR 1ZF/1ZM — 280 mm','CAYC','PR 1ZF/1ZM; 280x22 mm ventilated front disc; Teves front pad set','09.9167.11','280x22 mm ventilated','P 85 072','Teves; electric wear indicator','https://www.bremboparts.com/europe/en/catalogue/audi-a3-8p1-1-6-tdi/000031317-1'),
+      ('APP_BRAKE2_A3_8P_CAYC_PR1ZF_280','Audi','A3 Sportback 8P','8PA','1.6 TDI CAYC — PR 1ZF/1ZM — 280 mm','CAYC','PR 1ZF/1ZM; 280x22 mm ventilated front disc; Teves front pad set','09.9167.11','280x22 mm ventilated','P 85 072','Teves; electric wear indicator','https://www.bremboparts.com/europe/en/catalogue/audi-a3-8p1-1-6-tdi/000031317-1'),
 
-      ('APP_BRK2_A3_8P_CAYC_PR1ZE_288','Audi','A3 Sportback 8P','8PA','1.6 TDI CAYC — PR 1ZE — 288 mm','CAYC','PR 1ZE; 288x25 mm ventilated front disc; Teves front pad set','09.9145.11','288x25 mm ventilated','P 85 075','Teves; electric wear indicator','https://www.bremboparts.com/europe/en/catalogue/audi-a3-8p1-1-6-tdi/000031317-1'),
+      ('APP_BRAKE2_A3_8P_CAYC_PR1ZE_288','Audi','A3 Sportback 8P','8PA','1.6 TDI CAYC — PR 1ZE — 288 mm','CAYC','PR 1ZE; 288x25 mm ventilated front disc; Teves front pad set','09.9145.11','288x25 mm ventilated','P 85 075','Teves; electric wear indicator','https://www.bremboparts.com/europe/en/catalogue/audi-a3-8p1-1-6-tdi/000031317-1'),
 
-      ('APP_BRK2_LEON2_CAYC_PR1ZF_280','Seat','León II','1P1','1.6 TDI CAYC — PR 1ZF/1ZM — 280 mm','CAYC','PR 1ZF/1ZM; 280x22 mm ventilated front disc; Teves front pad set','09.9167.11','280x22 mm ventilated','P 85 072','Teves; electric wear indicator','https://www.bremboparts.com/europe/en/catalogue/seat-leon-1p1-1-6-tdi/000000762-1'),
+      ('APP_BRAKE2_LEON2_CAYC_PR1ZF_280','Seat','León II','1P1','1.6 TDI CAYC — PR 1ZF/1ZM — 280 mm','CAYC','PR 1ZF/1ZM; 280x22 mm ventilated front disc; Teves front pad set','09.9167.11','280x22 mm ventilated','P 85 072','Teves; electric wear indicator','https://www.bremboparts.com/europe/en/catalogue/seat-leon-1p1-1-6-tdi/000000762-1'),
 
-      ('APP_BRK2_LEON2_CAYC_PR1ZE_288','Seat','León II','1P1','1.6 TDI CAYC — PR 1ZE — 288 mm','CAYC','PR 1ZE; 288x25 mm ventilated front disc; Teves front pad set','09.9145.11','288x25 mm ventilated','P 85 075','Teves; electric wear indicator','https://www.bremboparts.com/europe/en/catalogue/seat-leon-1p1-1-6-tdi/000000762-1'),
+      ('APP_BRAKE2_LEON2_CAYC_PR1ZE_288','Seat','León II','1P1','1.6 TDI CAYC — PR 1ZE — 288 mm','CAYC','PR 1ZE; 288x25 mm ventilated front disc; Teves front pad set','09.9145.11','288x25 mm ventilated','P 85 075','Teves; electric wear indicator','https://www.bremboparts.com/europe/en/catalogue/seat-leon-1p1-1-6-tdi/000000762-1'),
 
-      ('APP_BRK2_OCTAVIA2_CAYC_PR1ZF_280','Skoda','Octavia II','1Z3','1.6 TDI CAYC — PR 1ZF/1ZM — 280 mm','CAYC','PR 1ZF/1ZM; 280x22 mm ventilated front disc; Teves front pad set','09.9167.11','280x22 mm ventilated','P 85 072','Teves; electric wear indicator','https://www.bremboparts.com/europe/es/catalogue/skoda-octavia-ii-1z3-1-6-tdi/000031590-1'),
+      ('APP_BRAKE2_OCTAVIA2_CAYC_PR1ZF_280','Skoda','Octavia II','1Z3','1.6 TDI CAYC — PR 1ZF/1ZM — 280 mm','CAYC','PR 1ZF/1ZM; 280x22 mm ventilated front disc; Teves front pad set','09.9167.11','280x22 mm ventilated','P 85 072','Teves; electric wear indicator','https://www.bremboparts.com/europe/es/catalogue/skoda-octavia-ii-1z3-1-6-tdi/000031590-1'),
 
-      ('APP_BRK2_OCTAVIA2_CAYC_PR1ZE_288','Skoda','Octavia II','1Z3','1.6 TDI CAYC — PR 1ZE — 288 mm','CAYC','PR 1ZE; 288x25 mm ventilated front disc; Teves front pad set','09.9145.11','288x25 mm ventilated','P 85 075','Teves; electric wear indicator','https://www.bremboparts.com/europe/es/catalogue/skoda-octavia-ii-1z3-1-6-tdi/000031590-1'),
+      ('APP_BRAKE2_OCTAVIA2_CAYC_PR1ZE_288','Skoda','Octavia II','1Z3','1.6 TDI CAYC — PR 1ZE — 288 mm','CAYC','PR 1ZE; 288x25 mm ventilated front disc; Teves front pad set','09.9145.11','288x25 mm ventilated','P 85 075','Teves; electric wear indicator','https://www.bremboparts.com/europe/es/catalogue/skoda-octavia-ii-1z3-1-6-tdi/000031590-1'),
 
-      ('APP_BRK2_ALTEA_CAYC_PR1ZF_280','Seat','Altea','5P1','1.6 TDI CAYC — PR 1ZF — 280 mm','CAYC','PR 1ZF; 280x22 mm ventilated front disc; Teves front pad set','09.9167.11','280x22 mm ventilated','P 85 072','Teves; electric wear indicator','https://www.bremboparts.com/europe/en/catalogue/seat-altea-5p1-1-6-tdi/000032744-1'),
+      ('APP_BRAKE2_ALTEA_CAYC_PR1ZF_280','Seat','Altea','5P1','1.6 TDI CAYC — PR 1ZF — 280 mm','CAYC','PR 1ZF; 280x22 mm ventilated front disc; Teves front pad set','09.9167.11','280x22 mm ventilated','P 85 072','Teves; electric wear indicator','https://www.bremboparts.com/europe/en/catalogue/seat-altea-5p1-1-6-tdi/000032744-1'),
 
-      ('APP_BRK2_ALTEA_CAYC_PR1ZE_288','Seat','Altea','5P1','1.6 TDI CAYC — PR 1ZE — 288 mm','CAYC','PR 1ZE; 288x25 mm ventilated front disc; Teves front pad set','09.9145.11','288x25 mm ventilated','P 85 075','Teves; electric wear indicator','https://www.bremboparts.com/europe/en/catalogue/seat-altea-5p1-1-6-tdi/000032744-1'),
+      ('APP_BRAKE2_ALTEA_CAYC_PR1ZE_288','Seat','Altea','5P1','1.6 TDI CAYC — PR 1ZE — 288 mm','CAYC','PR 1ZE; 288x25 mm ventilated front disc; Teves front pad set','09.9145.11','288x25 mm ventilated','P 85 075','Teves; electric wear indicator','https://www.bremboparts.com/europe/en/catalogue/seat-altea-5p1-1-6-tdi/000032744-1'),
 
-      ('APP_BRK2_ROOMSTER_CAYC_PR1LQ_256','Skoda','Roomster','5J7','1.6 TDI CAYC — PR 1LQ/1LR/1ZG — 256 mm','CAYC','PR 1LQ/1LR/1ZG; 256x22 mm ventilated front disc; ATE/Teves front pad set','09.7011.11','256x22 mm ventilated','P 85 041','ATE/Teves; no wear contact','https://www.bremboparts.com/europe/es/catalogue/skoda-roomster-5j7-1-6-tdi/000033321-1'),
+      ('APP_BRAKE2_ROOMSTER_CAYC_PR1LQ_256','Skoda','Roomster','5J7','1.6 TDI CAYC — PR 1LQ/1LR/1ZG — 256 mm','CAYC','PR 1LQ/1LR/1ZG; 256x22 mm ventilated front disc; ATE/Teves front pad set','09.7011.11','256x22 mm ventilated','P 85 041','ATE/Teves; no wear contact','https://www.bremboparts.com/europe/es/catalogue/skoda-roomster-5j7-1-6-tdi/000033321-1'),
 
-      ('APP_BRK2_ROOMSTER_CAYC_PR1ZC_288','Skoda','Roomster','5J7','1.6 TDI CAYC — PR 1ZC — 288 mm','CAYC','PR 1ZC; 288x25 mm ventilated front disc; Teves front pad set','09.7010.21','288x25 mm ventilated','P 85 075','Teves; electric wear indicator','https://www.bremboparts.com/europe/es/catalogue/skoda-roomster-5j7-1-6-tdi/000033321-1'),
+      ('APP_BRAKE2_ROOMSTER_CAYC_PR1ZC_288','Skoda','Roomster','5J7','1.6 TDI CAYC — PR 1ZC — 288 mm','CAYC','PR 1ZC; 288x25 mm ventilated front disc; Teves front pad set','09.7010.21','288x25 mm ventilated','P 85 075','Teves; electric wear indicator','https://www.bremboparts.com/europe/es/catalogue/skoda-roomster-5j7-1-6-tdi/000033321-1'),
 
-      ('APP_BRK2_TOURAN1T3_CAYC_PR1ZP_288','Volkswagen','Touran','1T3','1.6 TDI CAYC — PR 1ZP — 288 mm','CAYC','PR 1ZP; 288x25 mm ventilated front disc; Teves front pad set','09.9145.11','288x25 mm ventilated','P 85 146','Teves; electric wear indicator','https://www.bremboparts.com/europe/en/catalogue/vw-touran-1t3-1-6-tdi/000055508-1'),
+      ('APP_BRAKE2_TOURAN1T3_CAYC_PR1ZP_288','Volkswagen','Touran','1T3','1.6 TDI CAYC — PR 1ZP — 288 mm','CAYC','PR 1ZP; 288x25 mm ventilated front disc; Teves front pad set','09.9145.11','288x25 mm ventilated','P 85 146','Teves; electric wear indicator','https://www.bremboparts.com/europe/en/catalogue/vw-touran-1t3-1-6-tdi/000055508-1'),
 
-      ('APP_BRK2_GOLF5_BKC_PR1ZF_280','Volkswagen','Golf V','1K1','1.9 TDI BKC — PR 1ZF/1ZM — 280 mm','BKC','PR 1ZF/1ZM; 280x22 mm ventilated front disc; Teves front pad set','09.9167.11','280x22 mm ventilated','P 85 072','Teves; electric wear indicator','https://www.bremboparts.com/europe/en/catalogue/vw-golf-v-1k1-1-9-tdi/000017484-1'),
+      ('APP_BRAKE2_GOLF5_BKC_PR1ZF_280','Volkswagen','Golf V','1K1','1.9 TDI BKC — PR 1ZF/1ZM — 280 mm','BKC','PR 1ZF/1ZM; 280x22 mm ventilated front disc; Teves front pad set','09.9167.11','280x22 mm ventilated','P 85 072','Teves; electric wear indicator','https://www.bremboparts.com/europe/en/catalogue/vw-golf-v-1k1-1-9-tdi/000017484-1'),
 
-      ('APP_BRK2_GOLF5_BKC_PR1ZE_288','Volkswagen','Golf V','1K1','1.9 TDI BKC — PR 1ZE/1ZP — 288 mm','BKC','PR 1ZE/1ZP; 288x25 mm ventilated front disc; Teves front pad set','09.9145.11','288x25 mm ventilated','P 85 146','Teves; electric wear indicator','https://www.bremboparts.com/europe/en/catalogue/vw-golf-v-1k1-1-9-tdi/000017484-1'),
+      ('APP_BRAKE2_GOLF5_BKC_PR1ZE_288','Volkswagen','Golf V','1K1','1.9 TDI BKC — PR 1ZE/1ZP — 288 mm','BKC','PR 1ZE/1ZP; 288x25 mm ventilated front disc; Teves front pad set','09.9145.11','288x25 mm ventilated','P 85 146','Teves; electric wear indicator','https://www.bremboparts.com/europe/en/catalogue/vw-golf-v-1k1-1-9-tdi/000017484-1'),
 
-      ('APP_BRK2_GOLF5_BLS_PR1ZF_280','Volkswagen','Golf V','1K1','1.9 TDI BLS — PR 1ZF/1ZM — 280 mm','BLS','PR 1ZF/1ZM; 280x22 mm ventilated front disc; Teves front pad set','09.9167.11','280x22 mm ventilated','P 85 072','Teves; electric wear indicator','https://www.bremboparts.com/europe/en/catalogue/vw-golf-v-1k1-1-9-tdi/000017484-1'),
+      ('APP_BRAKE2_GOLF5_BLS_PR1ZF_280','Volkswagen','Golf V','1K1','1.9 TDI BLS — PR 1ZF/1ZM — 280 mm','BLS','PR 1ZF/1ZM; 280x22 mm ventilated front disc; Teves front pad set','09.9167.11','280x22 mm ventilated','P 85 072','Teves; electric wear indicator','https://www.bremboparts.com/europe/en/catalogue/vw-golf-v-1k1-1-9-tdi/000017484-1'),
 
-      ('APP_BRK2_GOLF5_BLS_PR1ZE_288','Volkswagen','Golf V','1K1','1.9 TDI BLS — PR 1ZE/1ZP — 288 mm','BLS','PR 1ZE/1ZP; 288x25 mm ventilated front disc; Teves front pad set','09.9145.11','288x25 mm ventilated','P 85 146','Teves; electric wear indicator','https://www.bremboparts.com/europe/en/catalogue/vw-golf-v-1k1-1-9-tdi/000017484-1'),
+      ('APP_BRAKE2_GOLF5_BLS_PR1ZE_288','Volkswagen','Golf V','1K1','1.9 TDI BLS — PR 1ZE/1ZP — 288 mm','BLS','PR 1ZE/1ZP; 288x25 mm ventilated front disc; Teves front pad set','09.9145.11','288x25 mm ventilated','P 85 146','Teves; electric wear indicator','https://www.bremboparts.com/europe/en/catalogue/vw-golf-v-1k1-1-9-tdi/000017484-1'),
 
-      ('APP_BRK2_GOLF5_BXE_PR1ZF_280','Volkswagen','Golf V','1K1','1.9 TDI BXE — PR 1ZF/1ZM — 280 mm','BXE','PR 1ZF/1ZM; 280x22 mm ventilated front disc; Teves front pad set','09.9167.11','280x22 mm ventilated','P 85 072','Teves; electric wear indicator','https://www.bremboparts.com/europe/en/catalogue/vw-golf-v-1k1-1-9-tdi/000017484-1'),
+      ('APP_BRAKE2_GOLF5_BXE_PR1ZF_280','Volkswagen','Golf V','1K1','1.9 TDI BXE — PR 1ZF/1ZM — 280 mm','BXE','PR 1ZF/1ZM; 280x22 mm ventilated front disc; Teves front pad set','09.9167.11','280x22 mm ventilated','P 85 072','Teves; electric wear indicator','https://www.bremboparts.com/europe/en/catalogue/vw-golf-v-1k1-1-9-tdi/000017484-1'),
 
-      ('APP_BRK2_GOLF5_BXE_PR1ZE_288','Volkswagen','Golf V','1K1','1.9 TDI BXE — PR 1ZE/1ZP — 288 mm','BXE','PR 1ZE/1ZP; 288x25 mm ventilated front disc; Teves front pad set','09.9145.11','288x25 mm ventilated','P 85 146','Teves; electric wear indicator','https://www.bremboparts.com/europe/en/catalogue/vw-golf-v-1k1-1-9-tdi/000017484-1'),
+      ('APP_BRAKE2_GOLF5_BXE_PR1ZE_288','Volkswagen','Golf V','1K1','1.9 TDI BXE — PR 1ZE/1ZP — 288 mm','BXE','PR 1ZE/1ZP; 288x25 mm ventilated front disc; Teves front pad set','09.9145.11','288x25 mm ventilated','P 85 146','Teves; electric wear indicator','https://www.bremboparts.com/europe/en/catalogue/vw-golf-v-1k1-1-9-tdi/000017484-1'),
 
-      ('APP_BRK2_A3_8P_BKC_PR1ZF_280','Audi','A3 8P','8P1','1.9 TDI BKC — PR 1ZF/1ZM — 280 mm','BKC','PR 1ZF/1ZM; 280x22 mm ventilated front disc; Teves front pad set','09.9167.11','280x22 mm ventilated','P 85 072','Teves; electric wear indicator','https://www.bremboparts.com/europe/en/catalogue/audi-a3-8p1-1-9-tdi/000017398-1'),
+      ('APP_BRAKE2_A3_8P_BKC_PR1ZF_280','Audi','A3 8P','8P1','1.9 TDI BKC — PR 1ZF/1ZM — 280 mm','BKC','PR 1ZF/1ZM; 280x22 mm ventilated front disc; Teves front pad set','09.9167.11','280x22 mm ventilated','P 85 072','Teves; electric wear indicator','https://www.bremboparts.com/europe/en/catalogue/audi-a3-8p1-1-9-tdi/000017398-1'),
 
-      ('APP_BRK2_A3_8P_BKC_PR1ZE_288','Audi','A3 8P','8P1','1.9 TDI BKC — PR 1ZE — 288 mm','BKC','PR 1ZE; 288x25 mm ventilated front disc; Teves front pad set','09.9145.11','288x25 mm ventilated','P 85 075','Teves; electric wear indicator','https://www.bremboparts.com/europe/en/catalogue/audi-a3-8p1-1-9-tdi/000017398-1'),
+      ('APP_BRAKE2_A3_8P_BKC_PR1ZE_288','Audi','A3 8P','8P1','1.9 TDI BKC — PR 1ZE — 288 mm','BKC','PR 1ZE; 288x25 mm ventilated front disc; Teves front pad set','09.9145.11','288x25 mm ventilated','P 85 075','Teves; electric wear indicator','https://www.bremboparts.com/europe/en/catalogue/audi-a3-8p1-1-9-tdi/000017398-1'),
 
-      ('APP_BRK2_A3_8P_BLS_PR1ZF_280','Audi','A3 8P','8P1','1.9 TDI BLS — PR 1ZF/1ZM — 280 mm','BLS','PR 1ZF/1ZM; 280x22 mm ventilated front disc; Teves front pad set','09.9167.11','280x22 mm ventilated','P 85 072','Teves; electric wear indicator','https://www.bremboparts.com/europe/en/catalogue/audi-a3-8p1-1-9-tdi/000017398-1'),
+      ('APP_BRAKE2_A3_8P_BLS_PR1ZF_280','Audi','A3 8P','8P1','1.9 TDI BLS — PR 1ZF/1ZM — 280 mm','BLS','PR 1ZF/1ZM; 280x22 mm ventilated front disc; Teves front pad set','09.9167.11','280x22 mm ventilated','P 85 072','Teves; electric wear indicator','https://www.bremboparts.com/europe/en/catalogue/audi-a3-8p1-1-9-tdi/000017398-1'),
 
-      ('APP_BRK2_A3_8P_BLS_PR1ZE_288','Audi','A3 8P','8P1','1.9 TDI BLS — PR 1ZE — 288 mm','BLS','PR 1ZE; 288x25 mm ventilated front disc; Teves front pad set','09.9145.11','288x25 mm ventilated','P 85 075','Teves; electric wear indicator','https://www.bremboparts.com/europe/en/catalogue/audi-a3-8p1-1-9-tdi/000017398-1'),
+      ('APP_BRAKE2_A3_8P_BLS_PR1ZE_288','Audi','A3 8P','8P1','1.9 TDI BLS — PR 1ZE — 288 mm','BLS','PR 1ZE; 288x25 mm ventilated front disc; Teves front pad set','09.9145.11','288x25 mm ventilated','P 85 075','Teves; electric wear indicator','https://www.bremboparts.com/europe/en/catalogue/audi-a3-8p1-1-9-tdi/000017398-1'),
 
-      ('APP_BRK2_A3_8P_BXE_PR1ZF_280','Audi','A3 8P','8P1','1.9 TDI BXE — PR 1ZF/1ZM — 280 mm','BXE','PR 1ZF/1ZM; 280x22 mm ventilated front disc; Teves front pad set','09.9167.11','280x22 mm ventilated','P 85 072','Teves; electric wear indicator','https://www.bremboparts.com/europe/en/catalogue/audi-a3-8p1-1-9-tdi/000017398-1'),
+      ('APP_BRAKE2_A3_8P_BXE_PR1ZF_280','Audi','A3 8P','8P1','1.9 TDI BXE — PR 1ZF/1ZM — 280 mm','BXE','PR 1ZF/1ZM; 280x22 mm ventilated front disc; Teves front pad set','09.9167.11','280x22 mm ventilated','P 85 072','Teves; electric wear indicator','https://www.bremboparts.com/europe/en/catalogue/audi-a3-8p1-1-9-tdi/000017398-1'),
 
-      ('APP_BRK2_A3_8P_BXE_PR1ZE_288','Audi','A3 8P','8P1','1.9 TDI BXE — PR 1ZE — 288 mm','BXE','PR 1ZE; 288x25 mm ventilated front disc; Teves front pad set','09.9145.11','288x25 mm ventilated','P 85 075','Teves; electric wear indicator','https://www.bremboparts.com/europe/en/catalogue/audi-a3-8p1-1-9-tdi/000017398-1'),
+      ('APP_BRAKE2_A3_8P_BXE_PR1ZE_288','Audi','A3 8P','8P1','1.9 TDI BXE — PR 1ZE — 288 mm','BXE','PR 1ZE; 288x25 mm ventilated front disc; Teves front pad set','09.9145.11','288x25 mm ventilated','P 85 075','Teves; electric wear indicator','https://www.bremboparts.com/europe/en/catalogue/audi-a3-8p1-1-9-tdi/000017398-1'),
 
-      ('APP_BRK2_OCTAVIA2COMBI_BKC_PR1ZF_280','Skoda','Octavia II Combi','1Z5','1.9 TDI BKC — PR 1ZF/1ZM — 280 mm','BKC','PR 1ZF/1ZM; 280x22 mm ventilated front disc; Teves front pad set','09.9167.11','280x22 mm ventilated','P 85 072','Teves; electric wear indicator','https://www.bremboparts.com/europe/es/catalogue/skoda-octavia-ii-combi-1z5-1-9-tdi/000018248-1'),
+      ('APP_BRAKE2_OCTAVIA2COMBI_BKC_PR1ZF_280','Skoda','Octavia II Combi','1Z5','1.9 TDI BKC — PR 1ZF/1ZM — 280 mm','BKC','PR 1ZF/1ZM; 280x22 mm ventilated front disc; Teves front pad set','09.9167.11','280x22 mm ventilated','P 85 072','Teves; electric wear indicator','https://www.bremboparts.com/europe/es/catalogue/skoda-octavia-ii-combi-1z5-1-9-tdi/000018248-1'),
 
-      ('APP_BRK2_OCTAVIA2COMBI_BKC_PR1ZE_288','Skoda','Octavia II Combi','1Z5','1.9 TDI BKC — PR 1ZE — 288 mm','BKC','PR 1ZE; 288x25 mm ventilated front disc; Teves front pad set','09.9145.11','288x25 mm ventilated','P 85 075','Teves; electric wear indicator','https://www.bremboparts.com/europe/es/catalogue/skoda-octavia-ii-combi-1z5-1-9-tdi/000018248-1'),
+      ('APP_BRAKE2_OCTAVIA2COMBI_BKC_PR1ZE_288','Skoda','Octavia II Combi','1Z5','1.9 TDI BKC — PR 1ZE — 288 mm','BKC','PR 1ZE; 288x25 mm ventilated front disc; Teves front pad set','09.9145.11','288x25 mm ventilated','P 85 075','Teves; electric wear indicator','https://www.bremboparts.com/europe/es/catalogue/skoda-octavia-ii-combi-1z5-1-9-tdi/000018248-1'),
 
-      ('APP_BRK2_OCTAVIA2COMBI_BLS_PR1ZF_280','Skoda','Octavia II Combi','1Z5','1.9 TDI BLS — PR 1ZF/1ZM — 280 mm','BLS','PR 1ZF/1ZM; 280x22 mm ventilated front disc; Teves front pad set','09.9167.11','280x22 mm ventilated','P 85 072','Teves; electric wear indicator','https://www.bremboparts.com/europe/es/catalogue/skoda-octavia-ii-combi-1z5-1-9-tdi/000018248-1'),
+      ('APP_BRAKE2_OCTAVIA2COMBI_BLS_PR1ZF_280','Skoda','Octavia II Combi','1Z5','1.9 TDI BLS — PR 1ZF/1ZM — 280 mm','BLS','PR 1ZF/1ZM; 280x22 mm ventilated front disc; Teves front pad set','09.9167.11','280x22 mm ventilated','P 85 072','Teves; electric wear indicator','https://www.bremboparts.com/europe/es/catalogue/skoda-octavia-ii-combi-1z5-1-9-tdi/000018248-1'),
 
-      ('APP_BRK2_OCTAVIA2COMBI_BLS_PR1ZE_288','Skoda','Octavia II Combi','1Z5','1.9 TDI BLS — PR 1ZE — 288 mm','BLS','PR 1ZE; 288x25 mm ventilated front disc; Teves front pad set','09.9145.11','288x25 mm ventilated','P 85 075','Teves; electric wear indicator','https://www.bremboparts.com/europe/es/catalogue/skoda-octavia-ii-combi-1z5-1-9-tdi/000018248-1'),
+      ('APP_BRAKE2_OCTAVIA2COMBI_BLS_PR1ZE_288','Skoda','Octavia II Combi','1Z5','1.9 TDI BLS — PR 1ZE — 288 mm','BLS','PR 1ZE; 288x25 mm ventilated front disc; Teves front pad set','09.9145.11','288x25 mm ventilated','P 85 075','Teves; electric wear indicator','https://www.bremboparts.com/europe/es/catalogue/skoda-octavia-ii-combi-1z5-1-9-tdi/000018248-1'),
 
-      ('APP_BRK2_OCTAVIA2COMBI_BXE_PR1ZF_280','Skoda','Octavia II Combi','1Z5','1.9 TDI BXE — PR 1ZF/1ZM — 280 mm','BXE','PR 1ZF/1ZM; 280x22 mm ventilated front disc; Teves front pad set','09.9167.11','280x22 mm ventilated','P 85 072','Teves; electric wear indicator','https://www.bremboparts.com/europe/es/catalogue/skoda-octavia-ii-combi-1z5-1-9-tdi/000018248-1'),
+      ('APP_BRAKE2_OCTAVIA2COMBI_BXE_PR1ZF_280','Skoda','Octavia II Combi','1Z5','1.9 TDI BXE — PR 1ZF/1ZM — 280 mm','BXE','PR 1ZF/1ZM; 280x22 mm ventilated front disc; Teves front pad set','09.9167.11','280x22 mm ventilated','P 85 072','Teves; electric wear indicator','https://www.bremboparts.com/europe/es/catalogue/skoda-octavia-ii-combi-1z5-1-9-tdi/000018248-1'),
 
-      ('APP_BRK2_OCTAVIA2COMBI_BXE_PR1ZE_288','Skoda','Octavia II Combi','1Z5','1.9 TDI BXE — PR 1ZE — 288 mm','BXE','PR 1ZE; 288x25 mm ventilated front disc; Teves front pad set','09.9145.11','288x25 mm ventilated','P 85 075','Teves; electric wear indicator','https://www.bremboparts.com/europe/es/catalogue/skoda-octavia-ii-combi-1z5-1-9-tdi/000018248-1'),
+      ('APP_BRAKE2_OCTAVIA2COMBI_BXE_PR1ZE_288','Skoda','Octavia II Combi','1Z5','1.9 TDI BXE — PR 1ZE — 288 mm','BXE','PR 1ZE; 288x25 mm ventilated front disc; Teves front pad set','09.9145.11','288x25 mm ventilated','P 85 075','Teves; electric wear indicator','https://www.bremboparts.com/europe/es/catalogue/skoda-octavia-ii-combi-1z5-1-9-tdi/000018248-1'),
 
-      ('APP_BRK2_LEON2_BKC_PR1ZF_280','Seat','León II','1P1','1.9 TDI BKC — PR 1ZF/1ZM — 280 mm','BKC','PR 1ZF/1ZM; 280x22 mm ventilated front disc; Teves front pad set','09.9167.11','280x22 mm ventilated','P 85 072','Teves; electric wear indicator','https://www.bremboparts.com/europe/es/catalogue/seat-leon-1p1-1-9-tdi/000018769-1'),
+      ('APP_BRAKE2_LEON2_BKC_PR1ZF_280','Seat','León II','1P1','1.9 TDI BKC — PR 1ZF/1ZM — 280 mm','BKC','PR 1ZF/1ZM; 280x22 mm ventilated front disc; Teves front pad set','09.9167.11','280x22 mm ventilated','P 85 072','Teves; electric wear indicator','https://www.bremboparts.com/europe/es/catalogue/seat-leon-1p1-1-9-tdi/000018769-1'),
 
-      ('APP_BRK2_LEON2_BLS_PR1ZF_280','Seat','León II','1P1','1.9 TDI BLS — PR 1ZF/1ZM — 280 mm','BLS','PR 1ZF/1ZM; 280x22 mm ventilated front disc; Teves front pad set','09.9167.11','280x22 mm ventilated','P 85 072','Teves; electric wear indicator','https://www.bremboparts.com/europe/es/catalogue/seat-leon-1p1-1-9-tdi/000018769-1'),
+      ('APP_BRAKE2_LEON2_BLS_PR1ZF_280','Seat','León II','1P1','1.9 TDI BLS — PR 1ZF/1ZM — 280 mm','BLS','PR 1ZF/1ZM; 280x22 mm ventilated front disc; Teves front pad set','09.9167.11','280x22 mm ventilated','P 85 072','Teves; electric wear indicator','https://www.bremboparts.com/europe/es/catalogue/seat-leon-1p1-1-9-tdi/000018769-1'),
 
-      ('APP_BRK2_LEON2_BXE_PR1ZF_280','Seat','León II','1P1','1.9 TDI BXE — PR 1ZF/1ZM — 280 mm','BXE','PR 1ZF/1ZM; 280x22 mm ventilated front disc; Teves front pad set','09.9167.11','280x22 mm ventilated','P 85 072','Teves; electric wear indicator','https://www.bremboparts.com/europe/es/catalogue/seat-leon-1p1-1-9-tdi/000018769-1')
+      ('APP_BRAKE2_LEON2_BXE_PR1ZF_280','Seat','León II','1P1','1.9 TDI BXE — PR 1ZF/1ZM — 280 mm','BXE','PR 1ZF/1ZM; 280x22 mm ventilated front disc; Teves front pad set','09.9167.11','280x22 mm ventilated','P 85 072','Teves; electric wear indicator','https://www.bremboparts.com/europe/es/catalogue/seat-leon-1p1-1-9-tdi/000018769-1')
     ) AS v(app_code,make,model,generation,variant,engine_code,restrictions,disc_ref,disc_spec,pad_ref,pad_spec,source_url)
   LOOP
     INSERT INTO repair_vehicle_applicabilities(
@@ -103,8 +103,8 @@ BEGIN
       production_from=EXCLUDED.production_from,production_to=EXCLUDED.production_to,
       restrictions=EXCLUDED.restrictions;
 
-    disc_edge := replace(item.app_code,'APP_BRK2_','EDGE_BRK2_') || '_DISC';
-    pad_edge := replace(item.app_code,'APP_BRK2_','EDGE_BRK2_') || '_PAD';
+    disc_edge := replace(item.app_code,'APP_BRAKE2_','EDGE_BRAKE2_') || '_DISC';
+    pad_edge := replace(item.app_code,'APP_BRAKE2_','EDGE_BRAKE2_') || '_PAD';
 
     INSERT INTO repair_bom_edges(
       code,applicability_id,repair_job_id,part_role_id,item_kind,quantity,requirement_type,
