@@ -18,6 +18,8 @@ migration_031="server/dist/migrations/031_repair_knowledge_coverage_05_dv6c.sql"
 pending_031="server/dist/migrations/031_repair_knowledge_coverage_05_dv6c.pending"
 migration_032="server/dist/migrations/032_repair_knowledge_coverage_06_vag19tdi.sql"
 pending_032="server/dist/migrations/032_repair_knowledge_coverage_06_vag19tdi.pending"
+migration_033="server/dist/migrations/033_repair_knowledge_coverage_07_k9k636_646.sql"
+pending_033="server/dist/migrations/033_repair_knowledge_coverage_07_k9k636_646.pending"
 
 cleanup() {
   if [ -f "$pending" ]; then mv "$pending" "$migration"; fi
@@ -27,6 +29,7 @@ cleanup() {
   if [ -f "$pending_030" ]; then mv "$pending_030" "$migration_030"; fi
   if [ -f "$pending_031" ]; then mv "$pending_031" "$migration_031"; fi
   if [ -f "$pending_032" ]; then mv "$pending_032" "$migration_032"; fi
+  if [ -f "$pending_033" ]; then mv "$pending_033" "$migration_033"; fi
   docker rm -f "$container" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT INT TERM
@@ -52,7 +55,7 @@ port="$(docker port "$container" 5432/tcp | sed 's/.*://')"
 export NODE_ENV=production
 export MIGRATOR_DATABASE_URL="postgresql://bibendia_migrator_login:$migrator_password@127.0.0.1:$port/bibendia"
 
-# Stop at the exact production state: schema 025 applied, 026/027/028/029/030/031/032 not yet present.
+# Stop at the exact production state: schema 025 applied, 026/027/028/029/030/031/032/033 not yet present.
 mv "$migration" "$pending"
 mv "$migration_027" "$pending_027"
 mv "$migration_028" "$pending_028"
@@ -60,6 +63,7 @@ mv "$migration_029" "$pending_029"
 mv "$migration_030" "$pending_030"
 mv "$migration_031" "$pending_031"
 mv "$migration_032" "$pending_032"
+mv "$migration_033" "$pending_033"
 node server/dist/src/persistence/migrate.js
 
 placeholder='{"version":"v1","liftCount":2,"nonLiftBayCount":2,"concurrentTechnicians":2,"maxVehiclesOnSite":8,"maxVehicleIntakesPerHour":3,"resourceRequirements":{"rules":{},"fallback":null}}'
@@ -141,4 +145,11 @@ node server/dist/src/persistence/migrate.js
 applied_032="$(docker exec "$container" psql -At -U postgres -d bibendia -c "SELECT count(*) FROM schema_migrations WHERE name='032_repair_knowledge_coverage_06_vag19tdi.sql'")"
 [ "$applied_032" = '1' ] || { echo "expected one 032 migration record, found $applied_032" >&2; exit 1; }
 
-echo '025 to 026 to 027 to 028 to 029 to 030 to 031 to 032 upgrade gate: PASS'
+# Then prove K9K 636/646 coverage applies as the next production migration.
+mv "$pending_033" "$migration_033"
+node server/dist/src/persistence/migrate.js
+node server/dist/src/persistence/migrate.js
+applied_033="$(docker exec "$container" psql -At -U postgres -d bibendia -c "SELECT count(*) FROM schema_migrations WHERE name='033_repair_knowledge_coverage_07_k9k636_646.sql'")"
+[ "$applied_033" = '1' ] || { echo "expected one 033 migration record, found $applied_033" >&2; exit 1; }
+
+echo '025 to 026 to 027 to 028 to 029 to 030 to 031 to 032 to 033 upgrade gate: PASS'
