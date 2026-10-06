@@ -3,7 +3,7 @@ import type { ProviderIngressConfig } from '../auth/provider-authentication-adap
 import type { HumanAuthenticationConfig } from '../auth/oidc-authentication-adapter.js';
 import { piiProtectionFromEnvironment, type PiiProtection } from '../security/pii-protection.js';
 
-export const EXPECTED_SCHEMA_VERSION = '037_repair_knowledge_maintenance_02_psa_ford.sql';
+export const EXPECTED_SCHEMA_VERSION = '038_repair_knowledge_maintenance_03_k9k.sql';
 export type RuntimeIdentity = { version: string; commit: string };
 
 export type ApiRuntimeConfig = RuntimeIdentity & {
