@@ -24,9 +24,9 @@ describe('RK Coverage Expansion 07 — K9K 636/646', () => {
     expect(result?.components[0].evidence).toHaveLength(2);
   });
 
-  it('collapses Qashqai K9K 636/646 when the technical result is identical', async () => {
+  it('collapses Qashqai K9K 636/646 after the 110 hp variant excludes K9K 872', async () => {
     const result = await resolveRepairKnowledgeProgressively(apiPool, {
-      make: 'Nissan', model: 'Qashqai II', repairJobCode: job,
+      make: 'Nissan', model: 'Qashqai II', variant: '1.5 dCi 110', repairJobCode: job,
     });
     expect(result).toMatchObject({ status: 'RESOLVED', validForMultipleVariants: true });
     if (result?.status !== 'RESOLVED') throw new Error('expected equivalent Qashqai K9K variants to resolve');
