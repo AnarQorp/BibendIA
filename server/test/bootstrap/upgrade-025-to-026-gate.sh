@@ -10,11 +10,14 @@ migration_027="server/dist/migrations/027_repair_knowledge_coverage_01.sql"
 pending_027="server/dist/migrations/027_repair_knowledge_coverage_01.pending"
 migration_028="server/dist/migrations/028_repair_knowledge_coverage_02_clha.sql"
 pending_028="server/dist/migrations/028_repair_knowledge_coverage_02_clha.pending"
+migration_029="server/dist/migrations/029_repair_knowledge_coverage_03_crmb.sql"
+pending_029="server/dist/migrations/029_repair_knowledge_coverage_03_crmb.pending"
 
 cleanup() {
   if [ -f "$pending" ]; then mv "$pending" "$migration"; fi
   if [ -f "$pending_027" ]; then mv "$pending_027" "$migration_027"; fi
   if [ -f "$pending_028" ]; then mv "$pending_028" "$migration_028"; fi
+  if [ -f "$pending_029" ]; then mv "$pending_029" "$migration_029"; fi
   docker rm -f "$container" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT INT TERM
@@ -40,10 +43,11 @@ port="$(docker port "$container" 5432/tcp | sed 's/.*://')"
 export NODE_ENV=production
 export MIGRATOR_DATABASE_URL="postgresql://bibendia_migrator_login:$migrator_password@127.0.0.1:$port/bibendia"
 
-# Stop at the exact production state: schema 025 applied, 026/027/028 not yet present.
+# Stop at the exact production state: schema 025 applied, 026/027/028/029 not yet present.
 mv "$migration" "$pending"
 mv "$migration_027" "$pending_027"
 mv "$migration_028" "$pending_028"
+mv "$migration_029" "$pending_029"
 node server/dist/src/persistence/migrate.js
 
 placeholder='{"version":"v1","liftCount":2,"nonLiftBayCount":2,"concurrentTechnicians":2,"maxVehiclesOnSite":8,"maxVehicleIntakesPerHour":3,"resourceRequirements":{"rules":{},"fallback":null}}'
@@ -97,4 +101,11 @@ node server/dist/src/persistence/migrate.js
 applied_028="$(docker exec "$container" psql -At -U postgres -d bibendia -c "SELECT count(*) FROM schema_migrations WHERE name='028_repair_knowledge_coverage_02_clha.sql'")"
 [ "$applied_028" = '1' ] || { echo "expected one 028 migration record, found $applied_028" >&2; exit 1; }
 
-echo '025 to 026 to 027 to 028 upgrade gate: PASS'
+# Then prove CRMB coverage applies as the next production migration.
+mv "$pending_029" "$migration_029"
+node server/dist/src/persistence/migrate.js
+node server/dist/src/persistence/migrate.js
+applied_029="$(docker exec "$container" psql -At -U postgres -d bibendia -c "SELECT count(*) FROM schema_migrations WHERE name='029_repair_knowledge_coverage_03_crmb.sql'")"
+[ "$applied_029" = '1' ] || { echo "expected one 029 migration record, found $applied_029" >&2; exit 1; }
+
+echo '025 to 026 to 027 to 028 to 029 upgrade gate: PASS'
