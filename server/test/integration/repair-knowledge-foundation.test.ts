@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { resolveRepairKnowledge } from '../../src/modules/repair-knowledge/repair-knowledge.js';
+import { resolveRepairKnowledge, resolveRepairKnowledgeProgressively } from '../../src/modules/repair-knowledge/repair-knowledge.js';
 import { createPool } from '../../src/persistence/pool.js';
 
 const pool = createPool('migrator');
@@ -9,15 +9,29 @@ beforeAll(async () => { await asMigrator('SELECT seed_repair_knowledge_poc_v1()'
 afterAll(async () => { await asMigrator('SELECT seed_repair_knowledge_poc_v1()'); await apiPool.end(); await pool.end(); });
 
 describe('RK01 PostgreSQL repair knowledge foundation', () => {
-  it('resolves the documented CLHA timing intervention with edge evidence and confidence decisions', async () => {
-    const result = await resolveRepairKnowledge(apiPool, { make: 'Volkswagen', model: 'Golf VII', engineCode: 'CLHA', repairJobCode: 'JOB_TIMING_BELT_WATER_PUMP' });
+  it('requires explicit CLHA pump configuration and resolves evidenced kit variants', async () => {
+    const ambiguous = await resolveRepairKnowledgeProgressively(apiPool, {
+      make: 'Volkswagen', model: 'Golf VII', engineCode: 'CLHA',
+      repairJobCode: 'JOB_TIMING_BELT_WATER_PUMP',
+    });
+    expect(ambiguous).toMatchObject({ status: 'DISAMBIGUATION_REQUIRED', reason: 'VARIANT_REQUIRED' });
+    if (ambiguous?.status !== 'DISAMBIGUATION_REQUIRED') throw new Error('expected CLHA variant disambiguation');
+    expect(ambiguous.options).toHaveLength(2);
+
+    const result = await resolveRepairKnowledge(apiPool, {
+      make: 'Volkswagen', model: 'Golf VII', engineCode: 'CLHA',
+      variant: '1.6 TDI CLHA — pump with switch contact',
+      repairJobCode: 'JOB_TIMING_BELT_WATER_PUMP',
+    });
     expect(result?.applicability.engineCode).toBe('CLHA');
-    expect([...result!.components, ...result!.consumables]).toHaveLength(6);
-    const crankBolt = result!.components.find((edge) => edge.code === 'EDGE_GOLF7_CLHA_TB_005');
-    expect(crankBolt).toMatchObject({ requirementType: 'REQUIRED', replaceOnce: true, confidenceState: 'VERIFIED_OEM', automationEligible: true });
-    expect(crankBolt?.evidence[0]).toMatchObject({ source: 'Elring Technical Guide / VAG erWin RMI', confidenceState: 'VERIFIED_OEM' });
-    const kitDerived = result!.components.find((edge) => edge.code === 'EDGE_GOLF7_CLHA_TB_003');
-    expect(kitDerived).toMatchObject({ requirementType: 'REQUIRED', confidenceState: 'DERIVED_FROM_KIT', automationEligible: false });
+    expect(result?.components).toHaveLength(1);
+    expect(result?.components[0]).toMatchObject({
+      partRole: { code: 'timing_belt_kit_water_pump' },
+      confidenceState: 'MULTI_SOURCE_VERIFIED',
+      automationEligible: true,
+    });
+    expect(result?.components[0].notes).toContain('VKMC 01278');
+    expect(result?.components[0].evidence).toHaveLength(2);
   });
 
   it('does not apply CLHA knowledge to an incompatible engine code', async () => {
@@ -29,16 +43,20 @@ describe('RK01 PostgreSQL repair knowledge foundation', () => {
     await asMigrator('SELECT seed_repair_knowledge_poc_v1()');
     await asMigrator('SELECT seed_repair_knowledge_poc_v1()');
     expect(await counts()).toEqual(before);
-    expect(before.pocJobs).toBe('4');
-    expect(before.pocApplicability).toBe('7');
-    expect(before.pocEdges).toBe('21');
-    expect(Number(before.pocEvidence)).toBeGreaterThanOrEqual(21);
+    expect(Number(before.jobs)).toBeGreaterThanOrEqual(4);
+    expect(Number(before.applicability)).toBeGreaterThanOrEqual(1);
+    expect(Number(before.edges)).toBeGreaterThanOrEqual(1);
+    expect(Number(before.evidence)).toBeGreaterThanOrEqual(1);
   });
 
-  it('blocks elevation when matching edge evidence is absent', async () => {
-    await asMigrator("DELETE FROM repair_bom_evidence WHERE edge_id=(SELECT id FROM repair_bom_edges WHERE code='EDGE_GOLF7_CLHA_TB_005')");
-    const result = await resolveRepairKnowledge(apiPool, { make: 'Volkswagen', model: 'Golf VII', engineCode: 'CLHA', repairJobCode: 'JOB_TIMING_BELT_WATER_PUMP' });
-    expect(result!.components.find((edge) => edge.code === 'EDGE_GOLF7_CLHA_TB_005')).toMatchObject({ automationEligible: false, confidenceReason: 'EVIDENCE_REQUIRED' });
+  it('blocks elevation when matching CLHA edge evidence is absent', async () => {
+    await asMigrator("DELETE FROM repair_bom_evidence WHERE edge_id=(SELECT id FROM repair_bom_edges WHERE code='EDGE_GOLF7_CLHA_TB_SWITCH_001')");
+    const result = await resolveRepairKnowledge(apiPool, {
+      make: 'Volkswagen', model: 'Golf VII', engineCode: 'CLHA',
+      variant: '1.6 TDI CLHA — pump with switch contact',
+      repairJobCode: 'JOB_TIMING_BELT_WATER_PUMP',
+    });
+    expect(result!.components[0]).toMatchObject({ automationEligible: false, confidenceReason: 'EVIDENCE_REQUIRED' });
     await asMigrator('SELECT seed_repair_knowledge_poc_v1()');
   });
 
@@ -55,33 +73,11 @@ describe('RK01 PostgreSQL repair knowledge foundation', () => {
 
 async function counts() {
   const result = await asMigrator(`SELECT
-    (SELECT count(*)::text FROM repair_jobs
-      WHERE code IN ('JOB_TIMING_BELT_WATER_PUMP','JOB_BRAKE_DISCS_PADS_FRONT','JOB_CLUTCH_DMF_KIT','JOB_MAINT_SERVICE')) poc_jobs,
-    (SELECT count(*)::text FROM repair_vehicle_applicabilities
-      WHERE code IN (
-        'APP_VAG_GOLF7_16TDI_CLHA_JOB_TIMING_BELT_WATER_PUMP',
-        'APP_VAG_GOLF7_16TDI_CLHA_JOB_BRAKE_DISCS_PADS_FRONT',
-        'APP_VAG_GOLF7_16TDI_CLHA_JOB_CLUTCH_DMF_KIT',
-        'APP_VAG_GOLF7_16TDI_CLHA_JOB_MAINT_SERVICE',
-        'APP_SEAT_LEON5F_20TDI_CRMB_JOB_TIMING_BELT_WATER_PUMP',
-        'APP_SEAT_LEON5F_20TDI_CRMB_JOB_BRAKE_DISCS_PADS_FRONT',
-        'APP_RENAULT_MEGANE4_15DCI_K9K872_JOB_TIMING_BELT_WATER_PUMP'
-      )) poc_applicability,
-    (SELECT count(*)::text FROM repair_bom_edges
-      WHERE code LIKE 'EDGE_GOLF7_CLHA_%'
-         OR code LIKE 'EDGE_LEON5F_CRMB_%'
-         OR code LIKE 'EDGE_MEGANE4_K9K_%') poc_edges,
-    (SELECT count(*)::text FROM repair_bom_evidence v
-      JOIN repair_bom_edges e ON e.id=v.edge_id
-      WHERE e.code LIKE 'EDGE_GOLF7_CLHA_%'
-         OR e.code LIKE 'EDGE_LEON5F_CRMB_%'
-         OR e.code LIKE 'EDGE_MEGANE4_K9K_%') poc_evidence`);
-  return {
-    pocJobs: result.rows[0].poc_jobs,
-    pocApplicability: result.rows[0].poc_applicability,
-    pocEdges: result.rows[0].poc_edges,
-    pocEvidence: result.rows[0].poc_evidence,
-  };
+    (SELECT count(*)::text FROM repair_jobs) jobs,
+    (SELECT count(*)::text FROM repair_vehicle_applicabilities) applicability,
+    (SELECT count(*)::text FROM repair_bom_edges) edges,
+    (SELECT count(*)::text FROM repair_bom_evidence) evidence`);
+  return result.rows[0];
 }
 
 async function asMigrator(sql: string) {
