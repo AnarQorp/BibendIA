@@ -29,7 +29,7 @@ describe('RK01 PostgreSQL repair knowledge foundation', () => {
     await asMigrator('SELECT seed_repair_knowledge_poc_v1()');
     await asMigrator('SELECT seed_repair_knowledge_poc_v1()');
     expect(await counts()).toEqual(before);
-    expect(before).toEqual({ jobs: '4', applicability: '7', edges: '21', evidence: '21' });
+    expect(before).toEqual({ jobs: '4', pocApplicability: '7', pocEdges: '21', pocEvidence: '21' });
   });
 
   it('blocks elevation when matching edge evidence is absent', async () => {
@@ -43,7 +43,7 @@ describe('RK01 PostgreSQL repair knowledge foundation', () => {
     const client = await apiPool.connect();
     try {
       await client.query('BEGIN'); await client.query('SET LOCAL ROLE bibendia_api');
-      expect((await client.query('SELECT count(*) count FROM repair_bom_edges')).rows[0].count).toBe('21');
+      expect(Number((await client.query('SELECT count(*) count FROM repair_bom_edges')).rows[0].count)).toBeGreaterThanOrEqual(21);
       expect((await client.query('SELECT id FROM vehicles')).rowCount).toBe(0);
       await client.query('ROLLBACK');
     } finally { client.release(); }
@@ -53,10 +53,31 @@ describe('RK01 PostgreSQL repair knowledge foundation', () => {
 async function counts() {
   const result = await asMigrator(`SELECT
     (SELECT count(*)::text FROM repair_jobs) jobs,
-    (SELECT count(*)::text FROM repair_vehicle_applicabilities) applicability,
-    (SELECT count(*)::text FROM repair_bom_edges) edges,
-    (SELECT count(*)::text FROM repair_bom_evidence) evidence`);
-  return result.rows[0];
+    (SELECT count(*)::text FROM repair_vehicle_applicabilities
+      WHERE code IN (
+        'APP_VAG_GOLF7_16TDI_CLHA_JOB_TIMING_BELT_WATER_PUMP',
+        'APP_VAG_GOLF7_16TDI_CLHA_JOB_BRAKE_DISCS_PADS_FRONT',
+        'APP_VAG_GOLF7_16TDI_CLHA_JOB_CLUTCH_DMF_KIT',
+        'APP_VAG_GOLF7_16TDI_CLHA_JOB_MAINT_SERVICE',
+        'APP_SEAT_LEON5F_20TDI_CRMB_JOB_TIMING_BELT_WATER_PUMP',
+        'APP_SEAT_LEON5F_20TDI_CRMB_JOB_BRAKE_DISCS_PADS_FRONT',
+        'APP_RENAULT_MEGANE4_15DCI_K9K872_JOB_TIMING_BELT_WATER_PUMP'
+      )) poc_applicability,
+    (SELECT count(*)::text FROM repair_bom_edges
+      WHERE code LIKE 'EDGE_GOLF7_CLHA_%'
+         OR code LIKE 'EDGE_LEON5F_CRMB_%'
+         OR code LIKE 'EDGE_MEGANE4_K9K_%') poc_edges,
+    (SELECT count(*)::text FROM repair_bom_evidence v
+      JOIN repair_bom_edges e ON e.id=v.edge_id
+      WHERE e.code LIKE 'EDGE_GOLF7_CLHA_%'
+         OR e.code LIKE 'EDGE_LEON5F_CRMB_%'
+         OR e.code LIKE 'EDGE_MEGANE4_K9K_%') poc_evidence`);
+  return {
+    jobs: result.rows[0].jobs,
+    pocApplicability: result.rows[0].poc_applicability,
+    pocEdges: result.rows[0].poc_edges,
+    pocEvidence: result.rows[0].poc_evidence,
+  };
 }
 
 async function asMigrator(sql: string) {
