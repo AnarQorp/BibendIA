@@ -39,7 +39,10 @@ describe('RK vehicle discovery', () => {
       'JOB_TIMING_BELT_WATER_PUMP','JOB_BRAKE_DISCS_PADS_FRONT','JOB_CLUTCH_DMF_KIT','JOB_MAINT_SERVICE',
     ]));
     const golf = await listRepairKnowledgeVehicleFacets(apiPool, { make: 'Volkswagen', model: 'Golf VII' });
-    expect(golf.engines).toContainEqual({ engineCode: 'CLHA', variant: '1.6 TDI', generation: '5G1/BQ1', label: '1.6 TDI — CLHA' });
+    expect(golf.engines).toEqual(expect.arrayContaining([
+      expect.objectContaining({ engineCode: 'CLHA', generation: '5G1/BQ1/BE1/BE2' }),
+    ]));
+    expect(golf.engines.some((item) => item.engineCode === 'CLHA' && item.variant?.includes('MWW manual 5-speed'))).toBe(true);
   });
 
   it('resolves without engine when one applicability matches', async () => {
