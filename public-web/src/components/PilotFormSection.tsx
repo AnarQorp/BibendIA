@@ -7,7 +7,11 @@ import {
   IdempotencyTracker,
 } from '../services/leadService';
 
-export const PilotFormSection: React.FC = () => {
+interface PilotFormSectionProps {
+  onOpenPrivacy?: () => void;
+}
+
+export const PilotFormSection: React.FC<PilotFormSectionProps> = ({ onOpenPrivacy }) => {
   const [formData, setFormData] = useState<LeadFormData>({
     taller: '',
     nombre: '',
@@ -302,6 +306,22 @@ export const PilotFormSection: React.FC = () => {
                     </>
                   )}
                 </button>
+                <p className="mt-2 text-center text-[11px] text-slate-400">
+                  Consulta cómo tratamos tus datos en nuestra{' '}
+                  <a
+                    href="#politica-privacidad"
+                    onClick={(e) => {
+                      if (onOpenPrivacy) {
+                        e.preventDefault();
+                        onOpenPrivacy();
+                      }
+                    }}
+                    className="text-blue-400 hover:text-blue-300 underline"
+                  >
+                    Política de privacidad
+                  </a>
+                  .
+                </p>
               </div>
             </form>
           )}
@@ -314,4 +334,3 @@ export const PilotFormSection: React.FC = () => {
     </section>
   );
 };
-
