@@ -44,8 +44,8 @@ describe('RK vehicle discovery', () => {
 
   it('resolves without engine when one applicability matches', async () => {
     const result = await resolveRepairKnowledgeProgressively(apiPool,
-      { make: 'Volkswagen', model: 'Golf VII', repairJobCode: 'JOB_TIMING_BELT_WATER_PUMP' });
-    expect(result).toMatchObject({ status: 'RESOLVED', validForMultipleVariants: false, applicability: { engineCode: 'CLHA' } });
+      { make: 'Renault', model: 'Mégane IV', repairJobCode: 'JOB_TIMING_BELT_WATER_PUMP' });
+    expect(result).toMatchObject({ status: 'RESOLVED', validForMultipleVariants: false, applicability: { engineCode: 'K9K 872' } });
   });
 
   it('requires disambiguation when engine changes the technical result', async () => {
