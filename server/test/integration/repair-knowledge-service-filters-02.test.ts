@@ -49,8 +49,8 @@ describe('RK Service Filters 02 — León II VAG families',()=>{
       });
       expect(result).toMatchObject({status:'RESOLVED'});
       if(result?.status!=='RESOLVED')throw new Error('expected late-chassis fuel filter to resolve');
-      expect(result.result.components[0].notes).toContain('PU 825 x');
-      expect(result.result.components[0].notes).toContain('1P_6_014786');
+      expect(result.components[0].notes).toContain('PU 825 x');
+      expect(result.components[0].notes).toContain('1P_6_014786');
     }
   });
 
