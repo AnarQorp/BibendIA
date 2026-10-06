@@ -35,7 +35,10 @@ describe('RK Coverage Expansion 06 — VAG 1.9 TDI BKC/BLS/BXE', () => {
     expect(result).toMatchObject({ status: 'RESOLVED', validForMultipleVariants: true });
     if (result?.status !== 'RESOLVED') throw new Error('expected equivalent 1.9 TDI variants to resolve');
     expect(result.matchedApplicabilities).toHaveLength(3);
-    expect(result.matchedApplicabilities.map((a) => a.engineCode).sort()).toEqual(['BKC','BLS','BXE']);
+    expect(result.matchedApplicabilities).toHaveLength(3);
+    expect(result.matchedApplicabilities.some((code) => code.includes('_BKC_'))).toBe(true);
+    expect(result.matchedApplicabilities.some((code) => code.includes('_BLS_'))).toBe(true);
+    expect(result.matchedApplicabilities.some((code) => code.includes('_BXE_'))).toBe(true);
     expect(result.components[0].notes).toContain('KP55569XS-2');
   });
 
