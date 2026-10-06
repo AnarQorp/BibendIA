@@ -51,10 +51,13 @@ BEGIN
       engine_code,
       min(production_from) AS production_from,
       CASE WHEN bool_or(production_to IS NULL) THEN NULL::date ELSE max(production_to) END AS production_to
-    FROM repair_vehicle_applicabilities
-    WHERE engine_code IN ('CLHA','CRMB','CAYC','BKC','BLS','BXE','A17DTR','Z17DTR')
-    GROUP BY make,model,generation,engine_code
-    ORDER BY make,model,generation,engine_code
+    FROM repair_vehicle_applicabilities a
+    JOIN repair_bom_edges e ON e.applicability_id=a.id
+    JOIN repair_jobs j ON j.id=e.repair_job_id
+    WHERE a.engine_code IN ('CLHA','CRMB','CAYC','BKC','BLS','BXE','A17DTR','Z17DTR')
+      AND j.code='JOB_TIMING_BELT_WATER_PUMP'
+    GROUP BY a.make,a.model,a.generation,a.engine_code
+    ORDER BY a.make,a.model,a.generation,a.engine_code
   LOOP
     CASE item.engine_code
       WHEN 'CLHA' THEN
