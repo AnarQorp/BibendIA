@@ -6,9 +6,12 @@ postgres_password="upgrade-gate-only"
 migrator_password="migrator-upgrade-only"
 migration="server/dist/migrations/026_workshop_capacity_resource_rls_backfill.sql"
 pending="server/dist/migrations/026_workshop_capacity_resource_rls_backfill.pending"
+migration_027="server/dist/migrations/027_repair_knowledge_coverage_01.sql"
+pending_027="server/dist/migrations/027_repair_knowledge_coverage_01.pending"
 
 cleanup() {
   if [ -f "$pending" ]; then mv "$pending" "$migration"; fi
+  if [ -f "$pending_027" ]; then mv "$pending_027" "$migration_027"; fi
   docker rm -f "$container" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT INT TERM
@@ -34,8 +37,9 @@ port="$(docker port "$container" 5432/tcp | sed 's/.*://')"
 export NODE_ENV=production
 export MIGRATOR_DATABASE_URL="postgresql://bibendia_migrator_login:$migrator_password@127.0.0.1:$port/bibendia"
 
-# Stop at the exact production state: schema 025 applied, 026 not yet present.
+# Stop at the exact production state: schema 025 applied, 026/027 not yet present.
 mv "$migration" "$pending"
+mv "$migration_027" "$pending_027"
 node server/dist/src/persistence/migrate.js
 
 placeholder='{"version":"v1","liftCount":2,"nonLiftBayCount":2,"concurrentTechnicians":2,"maxVehiclesOnSite":8,"maxVehicleIntakesPerHour":3,"resourceRequirements":{"rules":{},"fallback":null}}'
@@ -75,4 +79,11 @@ corrupt_preserved="$(docker exec "$container" psql -At -U postgres -d bibendia -
 applied="$(docker exec "$container" psql -At -U postgres -d bibendia -c "SELECT count(*) FROM schema_migrations WHERE name='026_workshop_capacity_resource_rls_backfill.sql'")"
 [ "$applied" = '1' ] || { echo "expected one 026 migration record, found $applied" >&2; exit 1; }
 
-echo '025 to 026 FORCE RLS upgrade gate: PASS'
+# Then prove the next production migration applies cleanly on the upgraded schema.
+mv "$pending_027" "$migration_027"
+node server/dist/src/persistence/migrate.js
+node server/dist/src/persistence/migrate.js
+applied_027="$(docker exec "$container" psql -At -U postgres -d bibendia -c "SELECT count(*) FROM schema_migrations WHERE name='027_repair_knowledge_coverage_01.sql'")"
+[ "$applied_027" = '1' ] || { echo "expected one 027 migration record, found $applied_027" >&2; exit 1; }
+
+echo '025 to 026 to 027 upgrade gate: PASS'
