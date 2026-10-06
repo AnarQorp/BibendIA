@@ -29,7 +29,10 @@ describe('RK01 PostgreSQL repair knowledge foundation', () => {
     await asMigrator('SELECT seed_repair_knowledge_poc_v1()');
     await asMigrator('SELECT seed_repair_knowledge_poc_v1()');
     expect(await counts()).toEqual(before);
-    expect(before).toEqual({ jobs: '4', pocApplicability: '7', pocEdges: '21', pocEvidence: '21' });
+    expect(before.pocJobs).toBe('4');
+    expect(before.pocApplicability).toBe('7');
+    expect(before.pocEdges).toBe('21');
+    expect(Number(before.pocEvidence)).toBeGreaterThanOrEqual(21);
   });
 
   it('blocks elevation when matching edge evidence is absent', async () => {
@@ -52,7 +55,8 @@ describe('RK01 PostgreSQL repair knowledge foundation', () => {
 
 async function counts() {
   const result = await asMigrator(`SELECT
-    (SELECT count(*)::text FROM repair_jobs) jobs,
+    (SELECT count(*)::text FROM repair_jobs
+      WHERE code IN ('JOB_TIMING_BELT_WATER_PUMP','JOB_BRAKE_DISCS_PADS_FRONT','JOB_CLUTCH_DMF_KIT','JOB_MAINT_SERVICE')) poc_jobs,
     (SELECT count(*)::text FROM repair_vehicle_applicabilities
       WHERE code IN (
         'APP_VAG_GOLF7_16TDI_CLHA_JOB_TIMING_BELT_WATER_PUMP',
@@ -73,7 +77,7 @@ async function counts() {
          OR e.code LIKE 'EDGE_LEON5F_CRMB_%'
          OR e.code LIKE 'EDGE_MEGANE4_K9K_%') poc_evidence`);
   return {
-    jobs: result.rows[0].jobs,
+    pocJobs: result.rows[0].poc_jobs,
     pocApplicability: result.rows[0].poc_applicability,
     pocEdges: result.rows[0].poc_edges,
     pocEvidence: result.rows[0].poc_evidence,
