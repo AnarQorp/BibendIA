@@ -197,7 +197,7 @@ BEGIN
       CASE WHEN item.engine_code='T1DA' THEN 'OEM_MAINTENANCE_SPEC' ELSE 'OEM_TECHNICAL_DOCUMENT_MIRROR' END,
       DATE '2026-10-06',oil_confidence,
       'ALLOW_FACT_DERIVATION',
-      format('Service-fill quantity %.2s L and maintenance specification normalized for %s.',oil_qty,item.engine_code),
+      format('Service-fill quantity %s L and maintenance specification normalized for %s.',oil_qty::text,item.engine_code),
       'RK Maintenance Coverage 02@2026-10-06'
     FROM repair_bom_edges e WHERE e.code=oil_edge_code
     ON CONFLICT(edge_id,source,evidence_reference) DO UPDATE SET
