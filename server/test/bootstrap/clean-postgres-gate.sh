@@ -51,7 +51,7 @@ node server/dist/src/persistence/migrate.js
 node server/test/bootstrap/verify-runtime-contract.mjs
 
 applied="$(docker exec "$container" psql -At -U postgres -d bibendia -c 'SELECT count(*) FROM schema_migrations')"
-[ "$applied" = '41' ] || { echo "expected 41 migrations, found $applied" >&2; exit 1; }
+[ "$applied" = '42' ] || { echo "expected 42 migrations, found $applied" >&2; exit 1; }
 
 # Bootstrap itself is restart-safe and must not change the final authority model.
 docker exec "$container" psql -v ON_ERROR_STOP=1 -U postgres -d bibendia -f /tmp/bootstrap.sql >/dev/null
