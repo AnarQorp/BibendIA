@@ -56,7 +56,7 @@ BEGIN
         edge_code,a.id,j.id,r.id,'PART_ROLE',NULL,
         'REQUIRED','DERIVED_FROM_KIT','MULTI_SOURCE_VERIFIED',NULL,false,
         jsonb_build_object(
-          'applicability',format('VAG 1.9 TDI %s timing system',engine),
+          'applicability','VAG 1.9 TDI BKC/BLS/BXE timing system',
           'specification','120 teeth / 30 mm',
           'oem_reference','VAG 038198119A / 03G198119A family',
           'aftermarket_references',jsonb_build_object(
