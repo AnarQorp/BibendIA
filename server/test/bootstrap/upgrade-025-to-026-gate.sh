@@ -14,6 +14,8 @@ migration_029="server/dist/migrations/029_repair_knowledge_coverage_03_crmb.sql"
 pending_029="server/dist/migrations/029_repair_knowledge_coverage_03_crmb.pending"
 migration_030="server/dist/migrations/030_repair_knowledge_coverage_04_cayc.sql"
 pending_030="server/dist/migrations/030_repair_knowledge_coverage_04_cayc.pending"
+migration_031="server/dist/migrations/031_repair_knowledge_coverage_05_dv6c.sql"
+pending_031="server/dist/migrations/031_repair_knowledge_coverage_05_dv6c.pending"
 
 cleanup() {
   if [ -f "$pending" ]; then mv "$pending" "$migration"; fi
@@ -21,6 +23,7 @@ cleanup() {
   if [ -f "$pending_028" ]; then mv "$pending_028" "$migration_028"; fi
   if [ -f "$pending_029" ]; then mv "$pending_029" "$migration_029"; fi
   if [ -f "$pending_030" ]; then mv "$pending_030" "$migration_030"; fi
+  if [ -f "$pending_031" ]; then mv "$pending_031" "$migration_031"; fi
   docker rm -f "$container" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT INT TERM
@@ -46,12 +49,13 @@ port="$(docker port "$container" 5432/tcp | sed 's/.*://')"
 export NODE_ENV=production
 export MIGRATOR_DATABASE_URL="postgresql://bibendia_migrator_login:$migrator_password@127.0.0.1:$port/bibendia"
 
-# Stop at the exact production state: schema 025 applied, 026/027/028/029/030 not yet present.
+# Stop at the exact production state: schema 025 applied, 026/027/028/029/030/031 not yet present.
 mv "$migration" "$pending"
 mv "$migration_027" "$pending_027"
 mv "$migration_028" "$pending_028"
 mv "$migration_029" "$pending_029"
 mv "$migration_030" "$pending_030"
+mv "$migration_031" "$pending_031"
 node server/dist/src/persistence/migrate.js
 
 placeholder='{"version":"v1","liftCount":2,"nonLiftBayCount":2,"concurrentTechnicians":2,"maxVehiclesOnSite":8,"maxVehicleIntakesPerHour":3,"resourceRequirements":{"rules":{},"fallback":null}}'
@@ -119,4 +123,11 @@ node server/dist/src/persistence/migrate.js
 applied_030="$(docker exec "$container" psql -At -U postgres -d bibendia -c "SELECT count(*) FROM schema_migrations WHERE name='030_repair_knowledge_coverage_04_cayc.sql'")"
 [ "$applied_030" = '1' ] || { echo "expected one 030 migration record, found $applied_030" >&2; exit 1; }
 
-echo '025 to 026 to 027 to 028 to 029 to 030 upgrade gate: PASS'
+# Then prove DV6C coverage applies as the next production migration.
+mv "$pending_031" "$migration_031"
+node server/dist/src/persistence/migrate.js
+node server/dist/src/persistence/migrate.js
+applied_031="$(docker exec "$container" psql -At -U postgres -d bibendia -c "SELECT count(*) FROM schema_migrations WHERE name='031_repair_knowledge_coverage_05_dv6c.sql'")"
+[ "$applied_031" = '1' ] || { echo "expected one 031 migration record, found $applied_031" >&2; exit 1; }
+
+echo '025 to 026 to 027 to 028 to 029 to 030 to 031 upgrade gate: PASS'
