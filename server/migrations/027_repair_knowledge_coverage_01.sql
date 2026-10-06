@@ -249,7 +249,9 @@ WITH expected(name) AS (VALUES
  ('015_repair_knowledge_foundation.sql'),('016_repair_estimate_draft.sql'),('017_workshop_service_duration_policy.sql'),
  ('018_repair_knowledge_api.sql'),('019_estimate_draft_editing.sql'),('020_vehicle_catalog_foundation.sql'),
  ('021_vehicle_catalog_vehiclesdb_2026_09_1.sql'),('022_manual_operations_foundation.sql'),
- ('023_reception_case_foundation.sql'),('024_repair_knowledge_coverage_01.sql')
+ ('023_reception_case_foundation.sql'),('024_workshop_capacity_scheduling_v1.sql'),
+ ('025_workshop_capacity_resource_bootstrap.sql'),('026_workshop_capacity_resource_rls_backfill.sql'),
+ ('027_repair_knowledge_coverage_01.sql')
 ),counts AS (
  SELECT
   (SELECT count(*) FROM expected e LEFT JOIN public.schema_migrations s USING(name) WHERE s.name IS NULL)::int missing,
