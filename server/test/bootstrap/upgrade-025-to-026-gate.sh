@@ -138,12 +138,50 @@ node server/dist/src/persistence/migrate.js
 applied_027="$(docker exec "$container" psql -At -U postgres -d bibendia -c "SELECT count(*) FROM schema_migrations WHERE name='027_repair_knowledge_coverage_01.sql'")"
 [ "$applied_027" = '1' ] || { echo "expected one 027 migration record, found $applied_027" >&2; exit 1; }
 
+# Reproduce production: a real estimate references the ambiguous legacy CLHA
+# applicability and one of its BOM edges before migration 028 is applied.
+docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d bibendia <<'SQL' >/dev/null
+INSERT INTO estimate_drafts(
+  id,tenant_id,repair_job_id,applicability_id,status,idempotency_key,
+  knowledge_revision,vehicle_snapshot,repair_job_snapshot,draft_type)
+SELECT
+  '30000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001',
+  j.id,a.id,'technical_draft','upgrade-gate-clha-history','schema-027','{}','{}','REPAIR_KNOWLEDGE'
+FROM repair_jobs j,repair_vehicle_applicabilities a
+WHERE j.code='JOB_TIMING_BELT_WATER_PUMP'
+  AND a.code='APP_VAG_GOLF7_16TDI_CLHA_JOB_TIMING_BELT_WATER_PUMP';
+
+INSERT INTO estimate_draft_lines(
+  id,tenant_id,draft_id,repair_bom_edge_id,item_type,part_role_code,part_role_name,
+  description,quantity,requirement_type,replace_once,condition,confidence_state,automation_status,
+  review_required,selected,confidence_reason,evidence_snapshot,notes)
+SELECT
+  '40000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001',
+  '30000000-0000-4000-8000-000000000001',e.id,e.item_kind,r.code,r.name,r.name,e.quantity,
+  e.requirement_type,e.replace_once,e.condition,e.confidence_state,'AUTO_INCLUDED',false,true,
+  'historical upgrade fixture','[]','must remain unchanged'
+FROM repair_bom_edges e JOIN repair_part_roles r ON r.id=e.part_role_id
+WHERE e.code='EDGE_GOLF7_CLHA_TB_001';
+SQL
+
 # Then prove CLHA coverage applies as the next production migration.
 mv "$pending_028" "$migration_028"
 node server/dist/src/persistence/migrate.js
 node server/dist/src/persistence/migrate.js
 applied_028="$(docker exec "$container" psql -At -U postgres -d bibendia -c "SELECT count(*) FROM schema_migrations WHERE name='028_repair_knowledge_coverage_02_clha.sql'")"
 [ "$applied_028" = '1' ] || { echo "expected one 028 migration record, found $applied_028" >&2; exit 1; }
+
+historical_028="$(docker exec "$container" psql -At -F '|' -U postgres -d bibendia -c "
+SELECT d.id,l.id,a.code,a.active,e.code,l.notes
+FROM estimate_drafts d
+JOIN estimate_draft_lines l ON l.draft_id=d.id
+JOIN repair_vehicle_applicabilities a ON a.id=d.applicability_id
+JOIN repair_bom_edges e ON e.id=l.repair_bom_edge_id
+WHERE d.id='30000000-0000-4000-8000-000000000001';")"
+[ "$historical_028" = '30000000-0000-4000-8000-000000000001|40000000-0000-4000-8000-000000000001|APP_VAG_GOLF7_16TDI_CLHA_JOB_TIMING_BELT_WATER_PUMP|f|EDGE_GOLF7_CLHA_TB_001|must remain unchanged' ] || { echo "historical CLHA estimate changed: $historical_028" >&2; exit 1; }
+
+active_clha_028="$(docker exec "$container" psql -At -U postgres -d bibendia -c "SELECT count(*) FROM repair_vehicle_applicabilities WHERE active AND code IN ('APP_VW_GOLF7_CLHA_TB_SWITCH','APP_VW_GOLF7_CLHA_TB_NO_SWITCH')")"
+[ "$active_clha_028" = '2' ] || { echo "expected 2 active explicit CLHA applicabilities, found $active_clha_028" >&2; exit 1; }
 
 # Then prove CRMB coverage applies as the next production migration.
 mv "$pending_029" "$migration_029"
@@ -228,5 +266,11 @@ node server/dist/src/persistence/migrate.js
 node server/dist/src/persistence/migrate.js
 applied_040="$(docker exec "$container" psql -At -U postgres -d bibendia -c "SELECT count(*) FROM schema_migrations WHERE name='040_repair_knowledge_clutch_01_priority.sql'")"
 [ "$applied_040" = '1' ] || { echo "expected one 040 migration record, found $applied_040" >&2; exit 1; }
+
+schema_040="$(docker exec "$container" psql -At -F '|' -U postgres -d bibendia -c 'SELECT schema_version,compatible,missing_migrations,unknown_migrations FROM runtime_schema_status()')"
+[ "$schema_040" = '040_repair_knowledge_clutch_01_priority.sql|t|0|0' ] || { echo "unexpected final schema status: $schema_040" >&2; exit 1; }
+
+historical_040="$(docker exec "$container" psql -At -U postgres -d bibendia -c "SELECT count(*) FROM estimate_drafts d JOIN estimate_draft_lines l ON l.draft_id=d.id JOIN repair_vehicle_applicabilities a ON a.id=d.applicability_id JOIN repair_bom_edges e ON e.id=l.repair_bom_edge_id WHERE d.id='30000000-0000-4000-8000-000000000001' AND l.id='40000000-0000-4000-8000-000000000001' AND NOT a.active AND a.code='APP_VAG_GOLF7_16TDI_CLHA_JOB_TIMING_BELT_WATER_PUMP' AND e.code='EDGE_GOLF7_CLHA_TB_001' AND l.notes='must remain unchanged'")"
+[ "$historical_040" = '1' ] || { echo 'historical CLHA estimate did not survive through schema 040' >&2; exit 1; }
 
 echo '025 to 026 to 027 to 028 to 029 to 030 to 031 to 032 to 033 to 034 to 035 to 036 to 037 to 038 to 039 to 040 upgrade gate: PASS'

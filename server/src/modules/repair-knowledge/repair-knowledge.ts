@@ -80,7 +80,7 @@ export async function resolveRepairKnowledgeProgressively(pool: pg.Pool, input: 
       JOIN repair_jobs j ON j.id=e.repair_job_id AND j.active
       JOIN repair_part_roles r ON r.id=e.part_role_id AND r.active
       LEFT JOIN repair_bom_evidence v ON v.edge_id=e.id
-      WHERE lower(a.make)=lower($1) AND lower(a.model)=lower($2) AND ($3::text IS NULL OR upper(a.engine_code)=upper($3)) AND j.code=$4
+      WHERE a.active AND lower(a.make)=lower($1) AND lower(a.model)=lower($2) AND ($3::text IS NULL OR upper(a.engine_code)=upper($3)) AND j.code=$4
         AND ($5::date IS NULL OR (($5::date >= COALESCE(a.production_from,'-infinity'::date)) AND ($5::date <= COALESCE(a.production_to,'infinity'::date))))
         AND ($6::text IS NULL OR lower(COALESCE(a.variant,''))=lower($6))
       GROUP BY a.id,j.id,e.id,r.id ORDER BY e.code`,
@@ -110,7 +110,7 @@ export async function listRepairKnowledgeVehicleFacets(pool: pg.Pool, input: Rep
       SELECT DISTINCT a.make,a.model,a.generation,a.variant,a.engine_code,j.code job_code,j.name job_name,j.system,j.subsystem
       FROM repair_vehicle_applicabilities a JOIN repair_bom_edges e ON e.applicability_id=a.id
       JOIN repair_jobs j ON j.id=e.repair_job_id AND j.active
-      WHERE ($1::text IS NULL OR lower(a.make)=lower($1)) AND ($2::text IS NULL OR lower(a.model)=lower($2))
+      WHERE a.active AND ($1::text IS NULL OR lower(a.make)=lower($1)) AND ($2::text IS NULL OR lower(a.model)=lower($2))
         AND ($3::text IS NULL OR lower(COALESCE(a.variant,''))=lower($3)) AND ($4::text IS NULL OR upper(a.engine_code)=upper($4))
         AND ($5::text IS NULL OR j.code=$5)
       ORDER BY a.make,a.model,a.variant,a.engine_code,j.code`,
