@@ -8,8 +8,12 @@ import {
   Building2,
   Users,
   History,
-  ChevronDown
+  ChevronDown,
+  Mail,
+  Wrench,
 } from 'lucide-react';
+import { WorkshopManagementView } from './views/WorkshopManagementView';
+import { InvitationsAdminView } from './views/InvitationsAdminView';
 import { TenantControlView } from './views/TenantControlView';
 import { OutboxMonitorView } from './views/OutboxMonitorView';
 import { RedactedAppointmentsView } from './views/RedactedAppointmentsView';
@@ -25,7 +29,7 @@ export interface AdminLayoutProps {
 }
 
 export const AdminLayout: React.FC<AdminLayoutProps> = ({ selectedTenantId: initialTenantId = null }) => {
-  const [activeTab, setActiveTab] = useState<'control' | 'workshops' | 'memberships' | 'appointments' | 'outbox' | 'audit' | 'proveedores'>('control');
+  const [activeTab, setActiveTab] = useState<'workshops-dir' | 'invitations' | 'control' | 'workshops' | 'memberships' | 'appointments' | 'outbox' | 'audit' | 'proveedores'>('workshops-dir');
   
   const [tenants, setTenants] = useState<PlatformTenantSummary[]>([]);
   const [selectedTenantId, setSelectedTenantId] = useState<string | null>(() => {
@@ -128,6 +132,30 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ selectedTenantId: init
         {/* Navigation Tabs */}
         <div className="flex items-center gap-2 border-b border-slate-800 pb-3 overflow-x-auto no-scrollbar py-0.5">
           <button
+            onClick={() => setActiveTab('workshops-dir')}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition shrink-0 ${
+              activeTab === 'workshops-dir'
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'bg-slate-900/80 text-slate-400 hover:text-white border border-slate-800'
+            }`}
+          >
+            <Building2 className="w-3.5 h-3.5 text-blue-400" />
+            <span>Gestión de Talleres</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('invitations')}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition shrink-0 ${
+              activeTab === 'invitations'
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'bg-slate-900/80 text-slate-400 hover:text-white border border-slate-800'
+            }`}
+          >
+            <Mail className="w-3.5 h-3.5 text-amber-400" />
+            <span>Invitaciones</span>
+          </button>
+
+          <button
             onClick={() => setActiveTab('control')}
             className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition shrink-0 ${
               activeTab === 'control'
@@ -147,8 +175,8 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ selectedTenantId: init
                 : 'bg-slate-900/80 text-slate-400 hover:text-white border border-slate-800'
             }`}
           >
-            <Building2 className="w-3.5 h-3.5" />
-            <span>Talleres & Canales</span>
+            <Wrench className="w-3.5 h-3.5" />
+            <span>Sedes & Canales</span>
           </button>
 
           <button
@@ -214,6 +242,18 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ selectedTenantId: init
 
         {/* Tab Content Area */}
         <div className="text-slate-900">
+          {activeTab === 'workshops-dir' && (
+            <WorkshopManagementView
+              onNavigateToInvitations={(tenantId) => {
+                if (tenantId) setSelectedTenantId(tenantId);
+                setActiveTab('invitations');
+              }}
+              onSelectTenant={(tenantId) => handleSelectTenant(tenantId)}
+            />
+          )}
+          {activeTab === 'invitations' && (
+            <InvitationsAdminView initialTenantId={selectedTenantId} />
+          )}
           {activeTab === 'control' && <TenantControlView tenantId={selectedTenantId} />}
           {activeTab === 'workshops' && <WorkshopsAndChannelsView tenantId={selectedTenantId} />}
           {activeTab === 'memberships' && <UsersAndAccessView tenantId={selectedTenantId} />}

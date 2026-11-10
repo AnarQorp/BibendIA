@@ -11,6 +11,9 @@ import type {
   PlatformIntegrationRow,
   PlatformAuditEventRow,
   WorkshopServiceDurationPolicy,
+  PlatformInvitationRow,
+  PlatformWorkshopDirectoryItem,
+  WorkshopPlanCode,
 } from '../types';
 
 export interface PlatformControlState {
@@ -439,3 +442,359 @@ export async function fetchPlatformAudit(tenantId: string, baseUrl = ''): Promis
     return { status: 'error', message: e instanceof Error ? e.message : 'Error de red' };
   }
 }
+
+// ==========================================
+// CANONICAL TENANT & WORKSHOP PROVISIONING (SQL041)
+// ==========================================
+
+export interface CreatePlatformTenantParams {
+  name: string;
+  locale?: string;
+  timezone?: string;
+  operatingMode?: 'standard' | 'pilot_supervised';
+  planCode?: WorkshopPlanCode;
+  plan?: WorkshopPlanCode;
+  idempotencyKey: string;
+}
+
+export async function createPlatformTenant(
+  params: CreatePlatformTenantParams,
+  baseUrl = ''
+): Promise<{ ok: boolean; data?: unknown; receipt?: unknown; message?: string; correlationId?: string }> {
+  try {
+    const payload = {
+      name: params.name,
+      locale: params.locale || 'es-ES',
+      timezone: params.timezone || 'Europe/Madrid',
+      operatingMode: params.operatingMode || 'pilot_supervised',
+      workshop: {
+        name: params.name,
+        timezone: params.timezone || 'Europe/Madrid',
+      },
+      idempotencyKey: params.idempotencyKey,
+    };
+    const res = await fetch(`${baseUrl}/v1/platform/tenants`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      return { ok: false, message: err.error || `Error ${res.status}` };
+    }
+    const json = await res.json();
+    const tenantId = json.receipt?.entityId || json.receipt?.after?.tenant?.id;
+    const plan = params.planCode || params.plan;
+    if (tenantId && plan && plan !== 'pilot') {
+      await patchPlatformTenant(tenantId, {
+        planCode: plan,
+        expectedVersion: 1,
+        idempotencyKey: `${params.idempotencyKey}-plan`,
+      }, baseUrl).catch(() => {});
+    }
+    return { ok: true, data: json.data || json.receipt?.after, receipt: json.receipt, correlationId: json.correlationId };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : 'Error de red' };
+  }
+}
+
+export interface PatchPlatformTenantParams {
+  planCode?: WorkshopPlanCode;
+  name?: string;
+  locale?: string;
+  timezone?: string;
+  operatingMode?: 'standard' | 'pilot_supervised';
+  expectedVersion: number;
+  idempotencyKey: string;
+}
+
+export async function patchPlatformTenant(
+  tenantId: string,
+  params: PatchPlatformTenantParams,
+  baseUrl = ''
+): Promise<{ ok: boolean; data?: unknown; receipt?: unknown; message?: string; correlationId?: string }> {
+  try {
+    const res = await fetch(`${baseUrl}/v1/platform/tenants/${encodeURIComponent(tenantId)}`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(params),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      return { ok: false, message: err.error || `Error ${res.status}` };
+    }
+    const json = await res.json();
+    return { ok: true, receipt: json.receipt, correlationId: json.correlationId };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : 'Error de red' };
+  }
+}
+
+// ==========================================
+// WORKSHOPS DIRECTORY (AGGREGATED CANONICAL VIEW)
+// ==========================================
+
+export interface PlatformWorkshopsDirectoryState {
+  status: 'idle' | 'loading' | 'unauthorized' | 'error' | 'success';
+  data?: PlatformWorkshopDirectoryItem[];
+  message?: string;
+  correlationId?: string;
+}
+
+export async function fetchPlatformWorkshopsDirectory(
+  _params?: { search?: string; status?: string; plan?: string },
+  baseUrl = ''
+): Promise<PlatformWorkshopsDirectoryState> {
+  try {
+    const tenantsRes = await fetchPlatformTenants(baseUrl);
+    if (tenantsRes.status !== 'success' || !tenantsRes.data) {
+      return { status: tenantsRes.status, message: tenantsRes.message };
+    }
+
+    const items: PlatformWorkshopDirectoryItem[] = [];
+    for (const t of tenantsRes.data) {
+      const wRes = await fetchPlatformWorkshops(t.id, baseUrl);
+      const workshops = wRes.status === 'success' && wRes.data ? wRes.data : [];
+      if (workshops.length > 0) {
+        for (const w of workshops) {
+          items.push({
+            id: w.id,
+            tenant_id: t.id,
+            name: w.name,
+            slug: w.name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+            workshop_status: w.status,
+            tenant_name: t.name,
+            tenant_plan: t.plan_code || (t as any).plan || 'pilot',
+            operating_mode: t.operating_mode,
+            lifecycle_status: t.lifecycle_status,
+            kill_switch_enabled: t.kill_switch_enabled,
+            tenant_version: t.version,
+            created_at: t.created_at,
+          });
+        }
+      } else {
+        items.push({
+          id: t.id,
+          tenant_id: t.id,
+          name: t.name,
+          slug: t.name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+          workshop_status: 'active',
+          tenant_name: t.name,
+          tenant_plan: t.plan_code || (t as any).plan || 'pilot',
+          operating_mode: t.operating_mode,
+          lifecycle_status: t.lifecycle_status,
+          kill_switch_enabled: t.kill_switch_enabled,
+          tenant_version: t.version,
+          created_at: t.created_at,
+        });
+      }
+    }
+
+    return { status: 'success', data: items, correlationId: tenantsRes.correlationId };
+  } catch (e) {
+    return { status: 'error', message: e instanceof Error ? e.message : 'Error de red' };
+  }
+}
+
+// ==========================================
+// CANONICAL INVITATIONS MANAGEMENT (SQL041)
+// ==========================================
+
+export interface PlatformInvitationsState {
+  status: 'idle' | 'loading' | 'unauthorized' | 'error' | 'success';
+  data?: PlatformInvitationRow[];
+  message?: string;
+  correlationId?: string;
+}
+
+export async function fetchPlatformInvitations(
+  params?: { tenantId?: string; status?: string },
+  baseUrl = ''
+): Promise<PlatformInvitationsState> {
+  try {
+    if (params?.tenantId && params.tenantId !== 'all') {
+      const res = await fetch(`${baseUrl}/v1/platform/tenants/${encodeURIComponent(params.tenantId)}/invitations`, {
+        method: 'GET',
+        credentials: 'include',
+        headers: { Accept: 'application/json' },
+      });
+      if (res.status === 401 || res.status === 403) {
+        return { status: 'unauthorized', message: 'No autorizado para consultar invitaciones de este tenant' };
+      }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        return { status: 'error', message: err.error || `HTTP ${res.status}` };
+      }
+      const json = await res.json();
+      return { status: 'success', data: json.data || [], correlationId: json.correlationId };
+    }
+
+    // When tenantId is not provided or 'all', aggregate over all active tenants
+    const tenantsRes = await fetchPlatformTenants(baseUrl);
+    if (tenantsRes.status !== 'success' || !tenantsRes.data) {
+      return { status: tenantsRes.status, message: tenantsRes.message };
+    }
+
+    const allInvitations: PlatformInvitationRow[] = [];
+    for (const t of tenantsRes.data) {
+      const invRes = await fetch(`${baseUrl}/v1/platform/tenants/${encodeURIComponent(t.id)}/invitations`, {
+        method: 'GET',
+        credentials: 'include',
+        headers: { Accept: 'application/json' },
+      }).catch(() => null);
+      if (invRes && invRes.ok) {
+        const json = await invRes.json().catch(() => null);
+        if (json?.data && Array.isArray(json.data)) {
+          for (const inv of json.data) {
+            allInvitations.push({
+              ...inv,
+              tenant_name: t.name,
+              tenant_plan: t.plan_code || (t as any).plan || 'pilot',
+            });
+          }
+        }
+      }
+    }
+
+    return { status: 'success', data: allInvitations, correlationId: tenantsRes.correlationId };
+  } catch (e) {
+    return { status: 'error', message: e instanceof Error ? e.message : 'Error de red' };
+  }
+}
+
+export interface CreatePlatformInvitationParams {
+  email: string;
+  role: 'OWNER' | 'MANAGER' | 'RECEPTION' | 'VIEWER';
+  expiresInHours?: number;
+  idempotencyKey: string;
+}
+
+export async function createPlatformInvitation(
+  tenantId: string,
+  params: CreatePlatformInvitationParams,
+  baseUrl = ''
+): Promise<{ ok: boolean; receipt?: unknown; message?: string; correlationId?: string }> {
+  try {
+    const res = await fetch(`${baseUrl}/v1/platform/tenants/${encodeURIComponent(tenantId)}/invitations`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({
+        email: params.email,
+        role: params.role || 'OWNER',
+        expiresInHours: params.expiresInHours || 72,
+        idempotencyKey: params.idempotencyKey,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      return { ok: false, message: err.error || `Error ${res.status}` };
+    }
+    const json = await res.json();
+    return {
+      ok: true,
+      receipt: json.receipt,
+      correlationId: json.correlationId,
+    };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : 'Error de red' };
+  }
+}
+
+export interface ResendPlatformInvitationParams {
+  expectedVersion: number;
+  expiresInHours?: number;
+  idempotencyKey: string;
+}
+
+export async function resendPlatformInvitation(
+  tenantId: string,
+  invitationId: string,
+  params: ResendPlatformInvitationParams,
+  baseUrl = ''
+): Promise<{ ok: boolean; receipt?: unknown; message?: string; correlationId?: string }> {
+  try {
+    const res = await fetch(
+      `${baseUrl}/v1/platform/tenants/${encodeURIComponent(tenantId)}/invitations/${encodeURIComponent(invitationId)}/resend`,
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({
+          expectedVersion: params.expectedVersion,
+          expiresInHours: params.expiresInHours || 72,
+          idempotencyKey: params.idempotencyKey,
+        }),
+      }
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      return { ok: false, message: err.error || `Error ${res.status}` };
+    }
+    const json = await res.json();
+    return {
+      ok: true,
+      receipt: json.receipt,
+      correlationId: json.correlationId,
+    };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : 'Error de red' };
+  }
+}
+
+export interface ExpirePlatformInvitationParams {
+  expectedVersion: number;
+  idempotencyKey: string;
+}
+
+export async function expirePlatformInvitation(
+  tenantId: string,
+  invitationId: string,
+  params: ExpirePlatformInvitationParams,
+  baseUrl = ''
+): Promise<{ ok: boolean; receipt?: unknown; message?: string; correlationId?: string }> {
+  try {
+    const res = await fetch(
+      `${baseUrl}/v1/platform/tenants/${encodeURIComponent(tenantId)}/invitations/${encodeURIComponent(invitationId)}/expire`,
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({
+          expectedVersion: params.expectedVersion,
+          idempotencyKey: params.idempotencyKey,
+        }),
+      }
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      return { ok: false, message: err.error || `Error ${res.status}` };
+    }
+    const json = await res.json();
+    return {
+      ok: true,
+      receipt: json.receipt,
+      correlationId: json.correlationId,
+    };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : 'Error de red' };
+  }
+}
+

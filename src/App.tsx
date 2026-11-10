@@ -14,6 +14,7 @@ import { IntegracionesView } from './components/views/IntegracionesView';
 import { DirectorioView } from './components/views/DirectorioView';
 import { GlobalAssistantModal } from './components/ai/GlobalAssistantModal';
 import { AuthSessionGate } from './components/auth/AuthSessionGate';
+import { WelcomeInvitationView } from './components/auth/WelcomeInvitationView';
 import { WorkshopAppointmentsProvider } from './context/WorkshopAppointmentsContext';
 
 declare const __DEMO_ENABLED__: boolean;
@@ -124,6 +125,17 @@ const MainContent: React.FC<{ tenantId: string }> = ({ tenantId }) => {
 };
 
 export function App() {
+  const isInvitation = typeof window !== 'undefined' && (
+    window.location.pathname === '/invitacion' ||
+    window.location.pathname === '/invitacion/' ||
+    window.location.pathname === '/auth/invitation' ||
+    window.location.pathname === '/auth/invitation/'
+  );
+
+  if (isInvitation) {
+    return <WelcomeInvitationView />;
+  }
+
   const content = (tenantId: string) => (
     <RouterProvider>
       <DemoProvider>
