@@ -1,4 +1,5 @@
 import pg from 'pg';
+import { assertIsolatedTestDatabase } from './test-database-guard.js';
 
 export const DEFAULT_DATABASE_URL = 'postgres://bibendia:bibendia@127.0.0.1:55432/bibendia';
 
@@ -6,12 +7,13 @@ export type DatabaseProcess = 'api' | 'worker' | 'migrator';
 export type RuntimeDatabaseRole = 'bibendia_api' | 'bibendia_worker';
 
 function connectionStringFor(processKind: DatabaseProcess): string {
+  if(process.env.NODE_ENV==='test')assertIsolatedTestDatabase(process.env);
   const processUrl = {
     api: process.env.API_DATABASE_URL,
     worker: process.env.WORKER_DATABASE_URL,
     migrator: process.env.MIGRATOR_DATABASE_URL,
   }[processKind];
-  if (process.env.NODE_ENV === 'production' && !processUrl) {
+  if ((processKind==='migrator' || process.env.NODE_ENV === 'production') && !processUrl) {
     throw new Error(`${processKind.toUpperCase()}_DATABASE_URL is required in production`);
   }
   return processUrl ?? process.env.DATABASE_URL ?? DEFAULT_DATABASE_URL;

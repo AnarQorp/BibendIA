@@ -5,6 +5,8 @@ import { checkDatabaseReadiness } from '../runtime/readiness.js';
 import { operationalLog } from '../runtime/logging.js';
 import { piiProtectionFromEnvironment } from '../security/pii-protection.js';
 import { NodeSmtpTransport, PublicLeadNotificationAdapter } from '../adapters/smtp/public-lead-smtp.js';
+import { WorkshopInvitationSmtpAdapter } from '../adapters/smtp/workshop-invitation-smtp.js';
+import { invitationEvent } from '../modules/invitations/invitations.js';
 import { WorkerDispatcher, workerCapability, type WorkerAdapterRegistry } from './runtime.js';
 
 const config = loadWorkerRuntimeConfig();
@@ -61,5 +63,10 @@ function buildAdapters(): WorkerAdapterRegistry {
     return smtp.password;
   } });
   const adapter = new PublicLeadNotificationAdapter(pool, piiProtectionFromEnvironment(), transport, smtp.sender, smtp.destination);
-  return new Map([['public_lead.notification_requested', adapter]]);
+  const registry:Map<string,import('./outbox.js').OutboxEffectAdapter>=new Map([['public_lead.notification_requested', adapter]]);
+  if(process.env.WORKSHOP_INVITATION_EMAIL_ENABLED==='true'){
+    const invitationAdapter=new WorkshopInvitationSmtpAdapter(pool,piiProtectionFromEnvironment(),recipient=>new NodeSmtpTransport({host:smtp.host,port:smtp.port,tlsMode:smtp.tlsMode,user:smtp.user,passwordRef:'worker-smtp-password',sender:smtp.sender,destination:recipient,timeoutMs:smtp.timeoutMs},{async resolve(ref){if(ref!=='worker-smtp-password')throw new Error('SECRET_REFERENCE_NOT_ALLOWED');return smtp.password;}}),smtp.sender);
+    registry.set(invitationEvent,invitationAdapter);
+  }
+  return registry;
 }

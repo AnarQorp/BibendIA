@@ -34,6 +34,8 @@ migration_039="server/dist/migrations/039_repair_knowledge_brakes_01_priority.sq
 pending_039="server/dist/migrations/039_repair_knowledge_brakes_01_priority.pending"
 migration_040="server/dist/migrations/040_repair_knowledge_clutch_01_priority.sql"
 pending_040="server/dist/migrations/040_repair_knowledge_clutch_01_priority.pending"
+migration_041="server/dist/migrations/041_workshop_invitations.sql"
+pending_041="server/dist/migrations/041_workshop_invitations.pending"
 
 cleanup() {
   if [ -f "$pending" ]; then mv "$pending" "$migration"; fi
@@ -51,6 +53,7 @@ cleanup() {
   if [ -f "$pending_038" ]; then mv "$pending_038" "$migration_038"; fi
   if [ -f "$pending_039" ]; then mv "$pending_039" "$migration_039"; fi
   if [ -f "$pending_040" ]; then mv "$pending_040" "$migration_040"; fi
+  if [ -f "$pending_041" ]; then mv "$pending_041" "$migration_041"; fi
   docker rm -f "$container" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT INT TERM
@@ -92,6 +95,7 @@ mv "$migration_037" "$pending_037"
 mv "$migration_038" "$pending_038"
 mv "$migration_039" "$pending_039"
 mv "$migration_040" "$pending_040"
+mv "$migration_041" "$pending_041"
 node server/dist/src/persistence/migrate.js
 
 placeholder='{"version":"v1","liftCount":2,"nonLiftBayCount":2,"concurrentTechnicians":2,"maxVehiclesOnSite":8,"maxVehicleIntakesPerHour":3,"resourceRequirements":{"rules":{},"fallback":null}}'
@@ -229,4 +233,11 @@ node server/dist/src/persistence/migrate.js
 applied_040="$(docker exec "$container" psql -At -U postgres -d bibendia -c "SELECT count(*) FROM schema_migrations WHERE name='040_repair_knowledge_clutch_01_priority.sql'")"
 [ "$applied_040" = '1' ] || { echo "expected one 040 migration record, found $applied_040" >&2; exit 1; }
 
-echo '025 to 026 to 027 to 028 to 029 to 030 to 031 to 032 to 033 to 034 to 035 to 036 to 037 to 038 to 039 to 040 upgrade gate: PASS'
+# Invitation migration remains hidden until its predecessors are applied.
+mv "$pending_041" "$migration_041"
+node server/dist/src/persistence/migrate.js
+node server/dist/src/persistence/migrate.js
+applied_041="$(docker exec "$container" psql -At -U postgres -d bibendia -c "SELECT count(*) FROM schema_migrations WHERE name='041_workshop_invitations.sql'")"
+[ "$applied_041" = '1' ] || { echo "expected one 041 migration record, found $applied_041" >&2; exit 1; }
+
+echo '025 to 026 to 027 to 028 to 029 to 030 to 031 to 032 to 033 to 034 to 035 to 036 to 037 to 038 to 039 to 040 to 041 upgrade gate: PASS'

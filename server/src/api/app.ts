@@ -25,6 +25,8 @@ import { findSlots, holdSlot } from '../modules/scheduling/postgres-scheduling.j
 import { PlatformAdminError, registerPlatformAdminRoutes } from './platform-admin-routes.js';
 import { registerPublicLeadRoute } from './public-lead-route.js';
 import { OidcAuthenticationAdapter } from '../auth/oidc-authentication-adapter.js';
+import { registerWorkshopInvitationRoutes } from './workshop-invitation-routes.js';
+import { invitationDeliveryFromEnvironment, InvitationError, type InvitationDelivery } from '../modules/invitations/invitations.js';
 import { registerHumanAuthRoutes } from './human-auth-routes.js';
 import { localIsoDateTime } from './provider-local-time.js';
 import { resolveServiceDuration, ServiceDurationPolicyError, serviceIntentSchema } from '../modules/scheduling/service-duration-policy.js';
@@ -39,6 +41,7 @@ import { inTenantTransaction } from '../persistence/pool.js';
 import { resolveCapacityRequirements, WorkshopCapacityError } from '../modules/scheduling/workshop-capacity-policy.js';
 
 export type ApiSecurityOptions = {
+  invitationDelivery?: InvitationDelivery;
   authentication?: AuthenticationAdapter;
   allowedOrigins?: readonly string[];
   providerIngress?: ProviderIngressConfig;
@@ -66,6 +69,7 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
     trustProxy,
     logger: {
       base: options.runtime,
+      serializers:{req(request){return {method:request.method,url:request.url?.startsWith('/auth/')?request.url.split('?')[0]:request.url,host:request.headers?.host,remoteAddress:request.ip};}},
       redact: { paths: ['req.headers.authorization', 'req.headers.cookie', 'req.headers.x-twilio-signature', 'req.headers.elevenlabs-signature'], censor: '[REDACTED]' },
     },
   });
@@ -80,7 +84,7 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
   registerAuthenticationBoundary(app, authentication);
   registerVehicleCatalogRoutes(app, pool);
   registerReceptionLifecycleTools(app, pool, pii, options.confirmationEvidenceVerifier);
-  if (options.humanAuthentication) registerHumanAuthRoutes(app, pool, options.humanAuthentication);
+  if (options.humanAuthentication) registerHumanAuthRoutes(app, pool, options.humanAuthentication,pii);
   app.setErrorHandler((error, request, reply) => {
     if ((error as { statusCode?: number }).statusCode === 413) {
       return reply.code(413).send({ error: 'PAYLOAD_TOO_LARGE', correlationId: request.id });
@@ -100,6 +104,7 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
       request.log.error({ ...safeErrorAttributes(error), correlationId: request.id }, 'PII operation failed closed');
       return reply.code(503).send({ error: 'PII_PROTECTION_UNAVAILABLE', correlationId: request.id });
     }
+    if (error instanceof InvitationError) return reply.code(400).send({error:error.code,correlationId:request.id});
     if (error instanceof PlatformAdminError) {
       return reply.code(error.code === 'ENTITY_NOT_FOUND' ? 404 : 409).send({ error:error.code,correlationId:request.id });
     }
@@ -239,6 +244,7 @@ export function buildApi(pool: pg.Pool, options: ApiSecurityOptions = {}) {
     });
   }
   registerPlatformAdminRoutes(app,pool);
+  registerWorkshopInvitationRoutes(app,pool,pii,options.invitationDelivery ?? invitationDeliveryFromEnvironment());
   registerRepairKnowledgeRoutes(app,pool,pii);
   registerWorkshopOperationsRoutes(app,pool,pii);
   registerReceptionCaseRoutes(app,pool,pii);

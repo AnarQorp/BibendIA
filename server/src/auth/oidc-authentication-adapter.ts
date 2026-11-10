@@ -24,7 +24,7 @@ export type HumanAuthenticationConfig = {
 
 type HumanSession = {
   v: 1; userId: string; issuer: string; subject: string; sessionId: string;
-  audience: 'workshop' | 'platform'; assurance: HumanAssurance; authenticatedAt: string; expiresAt: string;
+  audience: 'workshop' | 'platform'; tenantId?: string; assurance: HumanAssurance; authenticatedAt: string; expiresAt: string;
 };
 
 export type HumanAuthority = { userId: string; tenantIds: string[] };
@@ -47,10 +47,11 @@ export class OidcAuthenticationAdapter implements AuthenticationAdapter {
     if (!session || session.v !== 1 || session.audience !== expectedAudience || !Number.isFinite(expiresAt) || expiresAt <= Date.now() ||
         !isUuid(session.userId) || session.issuer !== expectedIssuer || !session.subject ||
         (surface.requireMfa && session.assurance !== 'mfa')) return null;
-    const authority = await resolveHumanAuthority(this.pool, session.userId, session.issuer, session.subject, expectedAudience, surface.authorizationTenantId);
+    const authority = await resolveHumanAuthority(this.pool, session.userId, session.issuer, session.subject, expectedAudience, session.tenantId ?? surface.authorizationTenantId);
     if (!authority || authority.userId !== session.userId) return null;
     return {
       kind: expectedAudience === 'workshop' ? 'workshop_user' : 'platform_user',
+      ...(expectedAudience==='workshop'?{tenantId:session.tenantId??surface.authorizationTenantId}:{}),
       audience: expectedAudience, userId: session.userId, issuer: session.issuer, subject: session.subject,
       sessionId: session.sessionId, authenticatedAt: session.authenticatedAt, expiresAt: session.expiresAt,
       assurance: session.assurance,
@@ -114,7 +115,7 @@ export async function resolveHumanAuthority(
 }
 
 export type VerifiedOidcIdentity = {
-  userId: string; issuer: string; subject: string; authenticatedAt: string; assurance: HumanAssurance;
+  userId?: string; issuer: string; subject: string; authenticatedAt: string; assurance: HumanAssurance; email?: string; emailVerified: boolean;
 };
 
 export async function verifyOidcIdToken(
@@ -124,13 +125,14 @@ export async function verifyOidcIdToken(
   const jwks = createRemoteJWKSet(new URL(`${normalizedIssuer}.well-known/jwks.json`));
   const { payload } = await jwtVerify(token, jwks, { issuer: normalizedIssuer, audience: surface.clientId });
   const userId = payload['https://bibendia.com/user_id'];
-  if (payload.nonce !== nonce || !payload.sub || typeof userId !== 'string' || !isUuid(userId)) throw new Error('OIDC_TOKEN_INVALID');
+  if (payload.nonce !== nonce || !payload.sub || (userId !== undefined && (typeof userId !== 'string' || !isUuid(userId)))) throw new Error('OIDC_TOKEN_INVALID');
   const authenticatedEpoch = typeof payload.auth_time === 'number' ? payload.auth_time : payload.iat;
   if (typeof authenticatedEpoch !== 'number' || authenticatedEpoch * 1000 > Date.now() + 60_000) throw new Error('OIDC_TOKEN_INVALID');
   const assurance = assuranceFromPayload(payload);
   if (surface.requireMfa && assurance !== 'mfa') throw new Error('OIDC_MFA_REQUIRED');
   return {
-    userId, issuer: normalizedIssuer, subject: payload.sub, assurance,
+    userId: typeof userId === 'string' ? userId : undefined, issuer: normalizedIssuer, subject: payload.sub, assurance,
+    email:typeof payload.email==='string'?payload.email:undefined,emailVerified:payload.email_verified===true,
     authenticatedAt: new Date(authenticatedEpoch * 1000).toISOString(),
   };
 }
@@ -155,4 +157,11 @@ export function parseCookies(header?: string): Record<string, string> {
 
 async function setLocal(client: pg.PoolClient, key: string, value: string) {
   await client.query('SELECT set_config($1,$2,true)', [key, value]);
+}
+
+export async function resolveCanonicalOidcUser(pool:pg.Pool,issuer:string,subject:string):Promise<string|null>{
+ const c=await pool.connect();try{await c.query('BEGIN');await c.query('SET LOCAL ROLE bibendia_api');const r=await c.query('SELECT resolve_oidc_user($1,$2) AS id',[issuer,subject]);await c.query('COMMIT');return r.rows[0]?.id??null;}catch(e){await c.query('ROLLBACK');throw e;}finally{c.release();}
+}
+export async function discoverWorkshopTenants(pool:pg.Pool,userId:string,issuer:string,subject:string):Promise<string[]>{
+ const c=await pool.connect();try{await c.query('BEGIN');await c.query('SET LOCAL ROLE bibendia_api');const r=await c.query('SELECT oidc_workshop_tenants($1,$2,$3) AS id',[userId,issuer,subject]);await c.query('COMMIT');return r.rows.map(r=>r.id);}catch(e){await c.query('ROLLBACK');throw e;}finally{c.release();}
 }

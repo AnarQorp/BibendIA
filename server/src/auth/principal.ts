@@ -12,6 +12,7 @@ type HumanPrincipal = {
 };
 
 export type WorkshopPrincipal = HumanPrincipal & {
+  tenantId?: string;
   kind: 'workshop_user';
   audience: 'workshop';
 };
