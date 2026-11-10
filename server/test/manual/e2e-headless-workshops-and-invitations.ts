@@ -32,7 +32,7 @@ function record(step: string, passed: boolean, details?: string, screenshot?: st
 async function run() {
   console.log('🚀 Starting BibendIA E2E Browser Verification: Workshops, Invitations & Welcome Activation\n');
 
-  const screenshotsDir = '/home/anarqorp/.gemini/antigravity/brain/6444447f-9d31-4de4-867b-d3583a1d7b61/scratch/e2e-screenshots';
+  const screenshotsDir = '/home/anarqorp/.gemini/antigravity/brain/8002ff51-80f0-46f7-8391-801498418dde/scratch/e2e-screenshots';
   await mkdir(screenshotsDir, { recursive: true });
 
   const pool = createPool('migrator');
@@ -46,6 +46,11 @@ async function run() {
     `INSERT INTO platform_access_grants(user_id, role, scope_type, tenant_id, status)
      VALUES($1, 'PLATFORM_ADMIN', 'global', NULL, 'active')`,
     [adminUserId]
+  );
+  await pool.query(
+    `INSERT INTO tenants(id, name, lifecycle_status, plan_code)
+     VALUES(gen_random_uuid(), 'Talleres Jarrisons Bilbao', 'pilot', 'pilot')
+     ON CONFLICT DO NOTHING`
   );
 
   const adminPrincipal: PrincipalContext = {

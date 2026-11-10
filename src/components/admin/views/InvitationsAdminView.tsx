@@ -119,6 +119,7 @@ export const InvitationsAdminView: React.FC<InvitationsAdminViewProps> = ({
     setReceiptCorrelationId(res.correlationId || null);
     setReceiptOpen(true);
     setInviteEmail('');
+    setFilterTenantId(targetTenantId);
     loadData();
   };
 
