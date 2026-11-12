@@ -278,7 +278,7 @@ export const InvitationsAdminView: React.FC<InvitationsAdminViewProps> = ({
             <option value="all">Todos los talleres</option>
             {tenants.map((t) => (
               <option key={t.id} value={t.id}>
-                {t.name || t.id.slice(0, 8)} [{t.plan || 'pilot'}]
+                {t.name || t.id.slice(0, 8)}
               </option>
             ))}
           </select>
@@ -292,7 +292,7 @@ export const InvitationsAdminView: React.FC<InvitationsAdminViewProps> = ({
             <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-bold text-[10px]">
               <tr>
                 <th className="py-3 px-4">Correo Destinatario</th>
-                <th className="py-3 px-4">Taller & Plan</th>
+                <th className="py-3 px-4">Taller</th>
                 <th className="py-3 px-4">Rol Asignado</th>
                 <th className="py-3 px-4">Estado</th>
                 <th className="py-3 px-4">Caducidad</th>
@@ -322,7 +322,6 @@ export const InvitationsAdminView: React.FC<InvitationsAdminViewProps> = ({
 
                     <td className="py-3.5 px-4">
                       <div className="font-bold text-slate-800">{inv.workshop_name || inv.tenant_name || 'Taller'}</div>
-                      <div className="font-mono text-[11px] text-slate-400 uppercase">{inv.tenant_plan || 'pilot'}</div>
                     </td>
 
                     <td className="py-3.5 px-4">
@@ -423,7 +422,7 @@ export const InvitationsAdminView: React.FC<InvitationsAdminViewProps> = ({
                 >
                   {tenants.map((t) => (
                     <option key={t.id} value={t.id}>
-                      {t.name || t.id} [{t.plan || 'pilot'}]
+                      {t.name || t.id}
                     </option>
                   ))}
                 </select>

@@ -1,5 +1,4 @@
 -- Invitations are tenant scoped. Only the OIDC callback may call the narrow redemption function.
-ALTER TABLE tenants ADD COLUMN plan_code text NOT NULL DEFAULT 'pilot' CHECK (plan_code IN ('pilot','standard','professional'));
 CREATE TABLE workshop_invitations (
  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid NOT NULL REFERENCES tenants(id),
  email_encrypted jsonb NOT NULL, email_digest text NOT NULL, email_digest_key_id text NOT NULL,

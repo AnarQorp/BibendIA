@@ -23,7 +23,7 @@ import {
   mutateTenantLifecycle,
   type PlatformWorkshopsDirectoryState,
 } from '../../../services/platformAdmin';
-import type { PlatformWorkshopDirectoryItem, WorkshopPlan } from '../../../types';
+import type { PlatformWorkshopDirectoryItem } from '../../../types';
 
 export interface WorkshopManagementViewProps {
   onNavigateToInvitations?: (tenantId?: string) => void;
@@ -37,7 +37,6 @@ export const WorkshopManagementView: React.FC<WorkshopManagementViewProps> = ({
   const [directoryState, setDirectoryState] = useState<PlatformWorkshopsDirectoryState>({ status: 'idle' });
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [planFilter, setPlanFilter] = useState<string>('all');
   const [isLoading, setIsLoading] = useState(false);
 
   // Selected workshop for Detail Ficha Modal/Drawer
@@ -47,7 +46,6 @@ export const WorkshopManagementView: React.FC<WorkshopManagementViewProps> = ({
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [newWorkshopName, setNewWorkshopName] = useState('');
   const [newWorkshopSlug, setNewWorkshopSlug] = useState('');
-  const [newWorkshopPlan, setNewWorkshopPlan] = useState<WorkshopPlan>('pilot');
   const [newWorkshopMode, setNewWorkshopMode] = useState<'pilot_supervised' | 'standard'>('pilot_supervised');
   const [createError, setCreateError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
@@ -62,7 +60,6 @@ export const WorkshopManagementView: React.FC<WorkshopManagementViewProps> = ({
     const res = await fetchPlatformWorkshopsDirectory({
       search: searchTerm.trim() || undefined,
       status: statusFilter !== 'all' ? statusFilter : undefined,
-      plan: planFilter !== 'all' ? planFilter : undefined,
     });
     setDirectoryState(res);
     setIsLoading(false);
@@ -70,7 +67,7 @@ export const WorkshopManagementView: React.FC<WorkshopManagementViewProps> = ({
 
   useEffect(() => {
     loadData();
-  }, [statusFilter, planFilter]);
+  }, [statusFilter]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -101,7 +98,6 @@ export const WorkshopManagementView: React.FC<WorkshopManagementViewProps> = ({
     const idempotencyKey = `create-tenant:${Date.now()}:${Math.random().toString(36).substring(2, 9)}`;
     const res = await createPlatformTenant({
       name: newWorkshopName.trim(),
-      plan: newWorkshopPlan,
       operatingMode: newWorkshopMode,
       idempotencyKey,
     });
@@ -115,7 +111,6 @@ export const WorkshopManagementView: React.FC<WorkshopManagementViewProps> = ({
     setIsCreateModalOpen(false);
     setNewWorkshopName('');
     setNewWorkshopSlug('');
-    setNewWorkshopPlan('pilot');
     loadData();
   };
 
@@ -147,19 +142,6 @@ export const WorkshopManagementView: React.FC<WorkshopManagementViewProps> = ({
   };
 
   const workshops = directoryState.data || [];
-
-  const getPlanBadge = (plan: WorkshopPlan) => {
-    switch (plan) {
-      case 'pilot':
-        return <span className="bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md">Plan Piloto</span>;
-      case 'professional':
-        return <span className="bg-purple-50 text-purple-700 border border-purple-200 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md">Profesional</span>;
-      case 'standard':
-        return <span className="bg-blue-50 text-blue-700 border border-blue-200 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md">Estándar</span>;
-      default:
-        return <span className="bg-slate-100 text-slate-700 border border-slate-200 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md">Básico</span>;
-    }
-  };
 
   const getStatusBadge = (status: string, killSwitch: boolean) => {
     if (killSwitch) {
@@ -215,7 +197,7 @@ export const WorkshopManagementView: React.FC<WorkshopManagementViewProps> = ({
             </span>
           </div>
           <p className="text-xs text-slate-500 pt-0.5">
-            Directorio maestro de talleres BibendIA. Consulta el estado operativo, asigna planes, gestiona el ciclo de vida y emite invitaciones de acceso.
+            Directorio maestro de talleres BibendIA. Consulta el estado operativo, gestiona el ciclo de vida y emite invitaciones de acceso.
           </p>
         </div>
 
@@ -271,22 +253,6 @@ export const WorkshopManagementView: React.FC<WorkshopManagementViewProps> = ({
             </select>
           </div>
 
-          {/* Plan Filter */}
-          <div className="flex items-center gap-1.5 text-xs text-slate-500">
-            <span>Plan:</span>
-            <select
-              value={planFilter}
-              onChange={(e) => setPlanFilter(e.target.value)}
-              className="bg-slate-50 border border-slate-200 text-slate-700 text-xs px-2.5 py-1.5 rounded-lg focus:outline-none focus:border-blue-500 cursor-pointer"
-            >
-              <option value="all">Todos los planes</option>
-              <option value="pilot">Plan Piloto</option>
-              <option value="basic">Básico</option>
-              <option value="standard">Estándar</option>
-              <option value="pro">Pro</option>
-              <option value="enterprise">Enterprise</option>
-            </select>
-          </div>
         </div>
       </div>
 
@@ -297,7 +263,6 @@ export const WorkshopManagementView: React.FC<WorkshopManagementViewProps> = ({
             <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-bold text-[10px]">
               <tr>
                 <th className="py-3 px-4">Taller & Identificador</th>
-                <th className="py-3 px-4">Plan Asignado</th>
                 <th className="py-3 px-4">Estado Operativo</th>
                 <th className="py-3 px-4">Equipo & Accesos</th>
                 <th className="py-3 px-4">Fecha Alta</th>
@@ -307,7 +272,7 @@ export const WorkshopManagementView: React.FC<WorkshopManagementViewProps> = ({
             <tbody className="divide-y divide-slate-100">
               {workshops.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-slate-400">
+                  <td colSpan={5} className="py-12 text-center text-slate-400">
                     <Building2 className="w-8 h-8 mx-auto mb-2 opacity-40" />
                     <p className="font-medium">No se encontraron talleres con los filtros seleccionados.</p>
                   </td>
@@ -327,9 +292,6 @@ export const WorkshopManagementView: React.FC<WorkshopManagementViewProps> = ({
                       </div>
                     </td>
 
-                    <td className="py-3.5 px-4">
-                      {getPlanBadge(w.tenant_plan)}
-                    </td>
 
                     <td className="py-3.5 px-4">
                       {getStatusBadge(w.lifecycle_status, w.kill_switch_enabled)}
@@ -416,7 +378,6 @@ export const WorkshopManagementView: React.FC<WorkshopManagementViewProps> = ({
 
               {/* Badges row */}
               <div className="flex items-center gap-2 pt-1">
-                {getPlanBadge(selectedWorkshop.tenant_plan)}
                 {getStatusBadge(selectedWorkshop.lifecycle_status, selectedWorkshop.kill_switch_enabled)}
               </div>
 
@@ -588,20 +549,6 @@ export const WorkshopManagementView: React.FC<WorkshopManagementViewProps> = ({
               </div>
 
               <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="block text-slate-700 font-bold">Plan asignado:</label>
-                  <select
-                    value={newWorkshopPlan}
-                    onChange={(e) => setNewWorkshopPlan(e.target.value as WorkshopPlan)}
-                    className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-xs px-3 py-2 rounded-xl focus:outline-none focus:border-blue-500"
-                  >
-                    <option value="pilot">Plan Piloto</option>
-                    <option value="basic">Básico</option>
-                    <option value="standard">Estándar</option>
-                    <option value="pro">Pro</option>
-                    <option value="enterprise">Enterprise</option>
-                  </select>
-                </div>
 
                 <div className="space-y-1">
                   <label className="block text-slate-700 font-bold">Modo de operación:</label>

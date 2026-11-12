@@ -286,14 +286,10 @@ export interface PlatformSupplierSummary {
 // PLATFORM ADMIN DOMAIN INTERFACES (P0.9 & Canonical SQL041)
 // ==========================================
 
-export type WorkshopPlanCode = 'pilot' | 'standard' | 'professional';
-export type WorkshopPlan = WorkshopPlanCode;
 
 export interface PlatformTenantSummary {
   id: string;
   name: string;
-  plan_code?: WorkshopPlanCode;
-  plan?: WorkshopPlanCode;
   locale: string;
   timezone: string;
   operating_mode: 'standard' | 'pilot_supervised';
@@ -311,7 +307,6 @@ export interface PlatformWorkshopDirectoryItem {
   slug?: string;
   workshop_status: 'active' | 'suspended' | 'closed';
   tenant_name: string;
-  tenant_plan: WorkshopPlanCode;
   operating_mode: 'standard' | 'pilot_supervised';
   lifecycle_status: 'provisioning' | 'pilot' | 'active' | 'suspended' | 'deactivated';
   kill_switch_enabled: boolean;
@@ -337,7 +332,6 @@ export interface PlatformInvitationRow {
   version: number;
   delivery_state?: 'queued' | 'disabled' | 'not_attempted' | 'in_progress' | 'succeeded' | 'failed_safe_to_retry' | 'unknown_outcome' | 'dead_letter';
   tenant_name?: string;
-  tenant_plan?: WorkshopPlanCode;
   workshop_name?: string | null;
 }
 
@@ -353,7 +347,6 @@ export interface PublicInvitationContext {
     tenantName?: string;
     workshopId?: string | null;
     workshopName?: string;
-    plan?: WorkshopPlanCode;
     expiresAt: string;
   };
 }

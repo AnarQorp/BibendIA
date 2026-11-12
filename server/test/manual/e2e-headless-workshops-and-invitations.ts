@@ -32,7 +32,7 @@ function record(step: string, passed: boolean, details?: string, screenshot?: st
 async function run() {
   console.log('🚀 Starting BibendIA E2E Browser Verification: Workshops, Invitations & Welcome Activation\n');
 
-  const screenshotsDir = '/home/anarqorp/.gemini/antigravity/brain/8002ff51-80f0-46f7-8391-801498418dde/scratch/e2e-screenshots';
+  const screenshotsDir = process.env.BIBENDIA_E2E_ARTIFACTS_DIR || '/tmp/bibendia-minimal-e2e-screenshots';
   await mkdir(screenshotsDir, { recursive: true });
 
   const pool = createPool('migrator');
@@ -48,10 +48,12 @@ async function run() {
     [adminUserId]
   );
   await pool.query(
-    `INSERT INTO tenants(id, name, lifecycle_status, plan_code)
-     VALUES(gen_random_uuid(), 'Talleres Jarrisons Bilbao', 'pilot', 'pilot')
+    `INSERT INTO tenants(id, name, lifecycle_status)
+     VALUES(gen_random_uuid(), 'Synthetic existing workshop', 'pilot')
      ON CONFLICT DO NOTHING`
   );
+
+  const existingBefore = (await pool.query("SELECT row_to_json(t) AS row FROM tenants t WHERE name='Synthetic existing workshop'")).rows;
 
   const adminPrincipal: PrincipalContext = {
     kind: 'platform_user',
@@ -177,7 +179,7 @@ async function run() {
     record('1. Screenshot: Directory view', true, 'Captured', shot1);
 
     // ----------------------------------------------------
-    // STEP 2: Create Workshop for Arkaitz with Plan Piloto
+    // STEP 2: Create Workshop for Arkaitz without a commercial plan
     // ----------------------------------------------------
     console.log('\n--- Step 2: Creating Workshop for Arkaitz ---');
     const newWorkshopBtn = await page.waitForSelector('button:has-text("Nuevo Taller")');
@@ -186,8 +188,8 @@ async function run() {
     await page.waitForSelector('input[placeholder*="Taller Arkaitz Motor"]');
     await page.fill('input[placeholder*="Taller Arkaitz Motor"]', 'Taller Arkaitz Donostia');
     
-    // Select Plan Piloto (it is default, but explicitly select it)
-    await page.selectOption('select:has-text("Plan Piloto")', 'pilot');
+    // Commercial plans are outside this release.
+    if (await page.locator('text=Plan asignado:').count()) throw new Error('Unexpected commercial plan selector');
 
     const shotModal = `${screenshotsDir}/02-create-workshop-modal.png`;
     await page.screenshot({ path: shotModal });
@@ -199,7 +201,7 @@ async function run() {
 
     const shotCreated = `${screenshotsDir}/03-workshop-created-in-directory.png`;
     await page.screenshot({ path: shotCreated, fullPage: true });
-    record('2. Workshop Created in Directory', true, 'Taller Arkaitz Donostia rendered with PLAN PILOTO badge', shotCreated);
+    record('2. Workshop Created in Directory', true, 'Taller Arkaitz Donostia rendered without commercial plan metadata', shotCreated);
 
     // ----------------------------------------------------
     // STEP 3: Issue One-Time Access Invitation for Arkaitz
@@ -297,12 +299,13 @@ async function run() {
     // ----------------------------------------------------
     // STEP 6: DB Invariant & Jarrisons Untouched Check
     // ----------------------------------------------------
-    console.log('\n--- Step 6: Verifying DB Invariants & Jarrisons Safety ---');
+    console.log('\n--- Step 6: Verifying DB Invariants & Synthetic Tenant Safety ---');
     const invCount = await pool.query('SELECT count(*)::int as count FROM workshop_invitations');
     record('6. DB Invariant: Invitations recorded', invCount.rows[0].count > 0, `Total invitations in test DB: ${invCount.rows[0].count}`);
 
-    const jarrisonsCheck = await pool.query("SELECT count(*)::int as count FROM tenants WHERE name ILIKE '%jarrison%'");
-    record('6. Jarrisons Untouched', jarrisonsCheck.rows[0].count > 0, `Active Jarrisons records: ${jarrisonsCheck.rows[0].count}`);
+    const existingAfter = (await pool.query("SELECT row_to_json(t) AS row FROM tenants t WHERE name='Synthetic existing workshop'")).rows;
+    if (JSON.stringify(existingAfter) !== JSON.stringify(existingBefore)) throw new Error('Existing synthetic tenant was modified');
+    record('6. Synthetic existing tenant unchanged', true, 'Exact row snapshot preserved; no real Jarrisons data used');
 
     const shotComplete = `${screenshotsDir}/10-e2e-complete.png`;
     await page.screenshot({ path: shotComplete });

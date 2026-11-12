@@ -3,6 +3,12 @@
 -- and expand the verified CLHA family across common MQB vehicles.
 -- No paid data dependency and no diagnostic inference.
 
+-- Repair knowledge already referenced by an estimate is historical evidence.
+-- Keep it addressable by its original identifiers while excluding it from new
+-- catalogue resolution.
+ALTER TABLE repair_vehicle_applicabilities
+  ADD COLUMN IF NOT EXISTS active boolean NOT NULL DEFAULT true;
+
 CREATE OR REPLACE FUNCTION apply_repair_knowledge_coverage_02()
 RETURNS void
 LANGUAGE plpgsql
@@ -16,23 +22,11 @@ DECLARE
   kit_spec text;
   pump_ref text;
 BEGIN
-  -- Historical RK01 mixed several CLHA pump configurations under one Golf
-  -- applicability. Remove only that timing applicability; other Golf jobs stay intact.
-  DELETE FROM repair_bom_evidence
-  WHERE edge_id IN (
-    SELECT e.id
-    FROM repair_bom_edges e
-    JOIN repair_vehicle_applicabilities a ON a.id=e.applicability_id
-    WHERE a.code='APP_VAG_GOLF7_16TDI_CLHA_JOB_TIMING_BELT_WATER_PUMP'
-  );
-
-  DELETE FROM repair_bom_edges
-  WHERE applicability_id=(
-    SELECT id FROM repair_vehicle_applicabilities
-    WHERE code='APP_VAG_GOLF7_16TDI_CLHA_JOB_TIMING_BELT_WATER_PUMP'
-  );
-
-  DELETE FROM repair_vehicle_applicabilities
+  -- RK01 mixed several CLHA pump configurations under one applicability. It can
+  -- no longer be selected for new estimates, but its edges and evidence remain
+  -- immutable for historical estimate drafts.
+  UPDATE repair_vehicle_applicabilities
+  SET active=false
   WHERE code='APP_VAG_GOLF7_16TDI_CLHA_JOB_TIMING_BELT_WATER_PUMP';
 
   -- Two explicitly different configurations are admitted:
@@ -104,15 +98,15 @@ BEGIN
     END IF;
 
     INSERT INTO repair_vehicle_applicabilities(
-      code,make,model,generation,variant,engine_code,production_from,production_to,restrictions)
+      code,make,model,generation,variant,engine_code,production_from,production_to,restrictions,active)
     VALUES (
       item.app_code,item.make,item.model,item.generation,item.variant,item.engine_code,
-      item.production_from,item.production_to,item.restrictions)
+      item.production_from,item.production_to,item.restrictions,true)
     ON CONFLICT(code) DO UPDATE SET
       make=EXCLUDED.make,model=EXCLUDED.model,generation=EXCLUDED.generation,
       variant=EXCLUDED.variant,engine_code=EXCLUDED.engine_code,
       production_from=EXCLUDED.production_from,production_to=EXCLUDED.production_to,
-      restrictions=EXCLUDED.restrictions;
+      restrictions=EXCLUDED.restrictions,active=true;
 
     INSERT INTO repair_bom_edges(
       code,applicability_id,repair_job_id,part_role_id,item_kind,quantity,

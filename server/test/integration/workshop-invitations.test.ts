@@ -44,11 +44,12 @@ afterAll(async()=>{
  await pool.query('DELETE FROM tenants WHERE id=ANY($1::uuid[])',[[tenant,tenantB,...extraTenants]]);await pool.end();
 });
 describe('workshop administration invitations, actual PostgreSQL and runtime RLS',()=>{
- it('creates a clean tenant, preserves the other fixture, updates plan and lifecycle using existing controls',async()=>{
+ it('creates a clean tenant, preserves the other fixture, updates metadata and lifecycle using existing controls',async()=>{
   expect((await pool.query('SELECT count(*)::int n FROM customers WHERE tenant_id=$1',[tenant])).rows[0].n).toBe(0);
   expect((await send('GET',`/v1/platform/tenants/${tenant}/workshops/${workshop}`)).statusCode).toBe(200);
   expect((await send('POST','/v1/platform/tenants',{name:'Denied',workshop:{name:'Denied'},idempotencyKey:randomUUID()},'scoped')).statusCode).toBe(403);
-  expect((await send('PATCH',`/v1/platform/tenants/${tenant}`,{planCode:'professional',expectedVersion:1,idempotencyKey:randomUUID()})).statusCode).toBe(200);
+  expect((await send('PATCH',`/v1/platform/tenants/${tenant}`,{name:'Updated clean workshop',expectedVersion:1,idempotencyKey:randomUUID()})).statusCode).toBe(200);
+  expect((await send('PATCH',`/v1/platform/tenants/${tenant}`,{planCode:'professional',expectedVersion:2,idempotencyKey:randomUUID()})).statusCode).toBe(400);
   expect((await send('POST',`/v1/platform/tenants/${tenant}/lifecycle`,{target:'pilot',reason:'Ephemeral test only',expectedVersion:1,idempotencyKey:randomUUID()})).statusCode).toBe(200);
   expect((await pool.query('SELECT name FROM workshops WHERE tenant_id=$1',[tenantB])).rows[0].name).toBe('Synthetic existing data');
  });

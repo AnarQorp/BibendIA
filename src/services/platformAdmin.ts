@@ -13,7 +13,6 @@ import type {
   WorkshopServiceDurationPolicy,
   PlatformInvitationRow,
   PlatformWorkshopDirectoryItem,
-  WorkshopPlanCode,
 } from '../types';
 
 export interface PlatformControlState {
@@ -452,8 +451,6 @@ export interface CreatePlatformTenantParams {
   locale?: string;
   timezone?: string;
   operatingMode?: 'standard' | 'pilot_supervised';
-  planCode?: WorkshopPlanCode;
-  plan?: WorkshopPlanCode;
   idempotencyKey: string;
 }
 
@@ -487,15 +484,6 @@ export async function createPlatformTenant(
       return { ok: false, message: err.error || `Error ${res.status}` };
     }
     const json = await res.json();
-    const tenantId = json.receipt?.entityId || json.receipt?.after?.tenant?.id;
-    const plan = params.planCode || params.plan;
-    if (tenantId && plan && plan !== 'pilot') {
-      await patchPlatformTenant(tenantId, {
-        planCode: plan,
-        expectedVersion: 1,
-        idempotencyKey: `${params.idempotencyKey}-plan`,
-      }, baseUrl).catch(() => {});
-    }
     return { ok: true, data: json.data || json.receipt?.after, receipt: json.receipt, correlationId: json.correlationId };
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : 'Error de red' };
@@ -503,7 +491,6 @@ export async function createPlatformTenant(
 }
 
 export interface PatchPlatformTenantParams {
-  planCode?: WorkshopPlanCode;
   name?: string;
   locale?: string;
   timezone?: string;
@@ -550,7 +537,7 @@ export interface PlatformWorkshopsDirectoryState {
 }
 
 export async function fetchPlatformWorkshopsDirectory(
-  _params?: { search?: string; status?: string; plan?: string },
+  _params?: { search?: string; status?: string },
   baseUrl = ''
 ): Promise<PlatformWorkshopsDirectoryState> {
   try {
@@ -572,7 +559,6 @@ export async function fetchPlatformWorkshopsDirectory(
             slug: w.name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
             workshop_status: w.status,
             tenant_name: t.name,
-            tenant_plan: t.plan_code || (t as any).plan || 'pilot',
             operating_mode: t.operating_mode,
             lifecycle_status: t.lifecycle_status,
             kill_switch_enabled: t.kill_switch_enabled,
@@ -588,7 +574,6 @@ export async function fetchPlatformWorkshopsDirectory(
           slug: t.name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
           workshop_status: 'active',
           tenant_name: t.name,
-          tenant_plan: t.plan_code || (t as any).plan || 'pilot',
           operating_mode: t.operating_mode,
           lifecycle_status: t.lifecycle_status,
           kill_switch_enabled: t.kill_switch_enabled,
@@ -657,7 +642,6 @@ export async function fetchPlatformInvitations(
             allInvitations.push({
               ...inv,
               tenant_name: t.name,
-              tenant_plan: t.plan_code || (t as any).plan || 'pilot',
             });
           }
         }

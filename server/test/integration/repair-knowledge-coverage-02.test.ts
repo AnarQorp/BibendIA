@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from 'vitest';
-import { resolveRepairKnowledge, resolveRepairKnowledgeProgressively } from '../../src/modules/repair-knowledge/repair-knowledge.js';
+import { listRepairKnowledgeVehicleFacets, resolveRepairKnowledge, resolveRepairKnowledgeProgressively } from '../../src/modules/repair-knowledge/repair-knowledge.js';
 import { createPool } from '../../src/persistence/pool.js';
 
 const pool = createPool('migrator');
@@ -12,11 +12,21 @@ const withSwitch = '1.6 TDI CLHA — pump with switch contact';
 const withoutSwitch = '1.6 TDI CLHA — pump without switch contact';
 
 describe('RK Coverage Expansion 02 — CLHA', () => {
-  it('removes the ambiguous historical Golf timing applicability', async () => {
+  it('preserves but retires the ambiguous historical Golf timing applicability', async () => {
     const result = await asMigrator(
-      "SELECT count(*)::int count FROM repair_vehicle_applicabilities WHERE code='APP_VAG_GOLF7_16TDI_CLHA_JOB_TIMING_BELT_WATER_PUMP'",
+      `SELECT a.active,count(DISTINCT e.id)::int edges,count(DISTINCT v.id)::int evidence
+       FROM repair_vehicle_applicabilities a
+       JOIN repair_bom_edges e ON e.applicability_id=a.id
+       LEFT JOIN repair_bom_evidence v ON v.edge_id=e.id
+       WHERE a.code='APP_VAG_GOLF7_16TDI_CLHA_JOB_TIMING_BELT_WATER_PUMP'
+       GROUP BY a.active`,
     );
-    expect(result.rows[0].count).toBe(0);
+    expect(result.rows[0]).toMatchObject({ active: false, edges: 6, evidence: 6 });
+
+    const facets = await listRepairKnowledgeVehicleFacets(apiPool, {
+      make: 'Volkswagen', model: 'Golf VII', engineCode: 'CLHA', repairJobCode: job,
+    });
+    expect(facets.variants).not.toContain('1.6 TDI');
   });
 
   it('requires pump-configuration disambiguation for Golf VII CLHA', async () => {
