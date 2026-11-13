@@ -14,6 +14,7 @@ import { IntegracionesView } from './components/views/IntegracionesView';
 import { DirectorioView } from './components/views/DirectorioView';
 import { GlobalAssistantModal } from './components/ai/GlobalAssistantModal';
 import { AuthSessionGate } from './components/auth/AuthSessionGate';
+import { selectWorkshopTenant } from './services/humanSession';
 import { WelcomeInvitationView } from './components/auth/WelcomeInvitationView';
 import { WorkshopAppointmentsProvider } from './context/WorkshopAppointmentsContext';
 
@@ -146,7 +147,7 @@ export function App() {
     </RouterProvider>
   );
   if (typeof __DEMO_ENABLED__ !== 'undefined' && __DEMO_ENABLED__) return content('');
-  return <AuthSessionGate expectedAudience="workshop">{(session) => content(session.tenantIds[0] ?? '')}</AuthSessionGate>;
+  return <AuthSessionGate expectedAudience="workshop">{(session) => content(selectWorkshopTenant(session) ?? '')}</AuthSessionGate>;
 }
 
 export default App;

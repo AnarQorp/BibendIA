@@ -114,7 +114,7 @@ export const WorkshopManagementView: React.FC<WorkshopManagementViewProps> = ({
     loadData();
   };
 
-  const handleLifecycleChange = async (target: 'active' | 'suspended') => {
+  const handleLifecycleChange = async (target: 'pilot' | 'active' | 'suspended') => {
     if (!selectedWorkshop) return;
     if (target === 'suspended' && !mutationReason.trim()) {
       setMutationError('Debes indicar un motivo para suspender el taller.');
@@ -447,7 +447,7 @@ export const WorkshopManagementView: React.FC<WorkshopManagementViewProps> = ({
                     <div className="flex gap-2 pt-1">
                       {selectedWorkshop.lifecycle_status === 'provisioning' && (
                         <button
-                          onClick={() => handleLifecycleChange('active')}
+                          onClick={() => handleLifecycleChange('pilot')}
                           disabled={isMutating}
                           className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition flex items-center justify-center gap-1.5 disabled:opacity-50"
                         >

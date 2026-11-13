@@ -10,6 +10,7 @@ import { hashInvitationToken, invitationEvent, redeemInvitation, revealInvitatio
 import { claimOutboxBatch, dispatchClaimedOutboxEvent } from '../../src/worker/outbox.js';
 import { WorkshopInvitationSmtpAdapter } from '../../src/adapters/smtp/workshop-invitation-smtp.js';
 import { inTenantTransaction } from '../../src/persistence/pool.js';
+import { selectWorkshopTenant } from '../../../src/services/humanSession.js';
 
 const pool=createPool('migrator');
 const pii=new AesGcmPiiProtection(new Map([['test',Buffer.alloc(32,9)]]),'test',new Map([['lookup',Buffer.alloc(32,8)]]),'lookup');
@@ -160,6 +161,39 @@ describe('real signed OIDC callback and subsequent normal login',()=>{
    const ambiguous=await login();expect(ambiguous.statusCode).toBe(403);expect(ambiguous.json().error).toBe('WORKSHOP_SELECTION_REQUIRED');
    expect((await login(undefined,{},undefined,tenant)).statusCode).toBe(302);
    expect((await login(undefined,{},undefined,tenantB)).statusCode).toBe(403);
+
+   // Full onboarding journey for an already-bound OIDC user with other memberships.
+   const created=await send('POST','/v1/platform/tenants',{name:'Invitation journey fixture',workshop:{name:'Invited workshop'},idempotencyKey:randomUUID()});
+   expect(created.statusCode,created.body).toBe(201);
+   const invitedTenant=created.json().receipt.entityId;extraTenants.push(invitedTenant);
+   expect((await pool.query('SELECT lifecycle_status FROM tenants WHERE id=$1',[invitedTenant])).rows[0].lifecycle_status).toBe('provisioning');
+   const promote=await send('POST',`/v1/platform/tenants/${invitedTenant}/lifecycle`,{target:'pilot',reason:'Synthetic onboarding journey',expectedVersion:1,idempotencyKey:randomUUID()});
+   expect(promote.statusCode,promote.body).toBe(200);
+   expect((await pool.query('SELECT lifecycle_status FROM tenants WHERE id=$1',[invitedTenant])).rows[0].lifecycle_status).toBe('pilot');
+   const issued=await send('POST',`/v1/platform/tenants/${invitedTenant}/invitations`,{email:'signed@example.invalid',role:'VIEWER',idempotencyKey:randomUUID()});
+   expect(issued.statusCode,issued.body).toBe(201);
+   const issuedId=issued.json().receipt.entityId;
+   const event=(await pool.query('SELECT payload_jsonb FROM outbox_events WHERE aggregate_id=$1 AND event_type=$2',[issuedId,invitationEvent])).rows[0];
+   const mail=JSON.parse(revealInvitation(pii,issuedId,'invitation.email',event.payload_jsonb.encrypted));
+   const accepted=await login(new URLSearchParams(new URL(mail.url).hash.slice(1)).get('token')!);
+   expect(accepted.statusCode,accepted.body).toBe(302);expect(accepted.headers.location).toBe(config.workshop.origin);
+   const acceptedCookies=accepted.headers['set-cookie'];
+   const workshopCookie=(Array.isArray(acceptedCookies)?acceptedCookies:[String(acceptedCookies)]).find(c=>c.startsWith('__Host-test-workshop='))!.split(';')[0];
+   const headers={host:'app.bibendia.test',cookie:workshopCookie};
+   const current=await authApp.inject({url:'/auth/session',headers});expect(current.statusCode,current.body).toBe(200);
+   expect(current.json().principal).toMatchObject({kind:'workshop_user',audience:'workshop',userId:signedUser});
+   expect(current.json().tenantIds.length).toBeGreaterThan(1);expect(current.json().activeTenantId).toBe(invitedTenant);
+   // Force another authorized membership first: selection must not depend on UUID order.
+   const workshopSession={...current.json(),tenantIds:[other,...current.json().tenantIds.filter((t:string)=>t!==other)]};
+   expect(workshopSession.tenantIds[0]).not.toBe(invitedTenant);
+   const selected=selectWorkshopTenant(workshopSession);expect(selected).toBe(invitedTenant);
+   expect((await authApp.inject({url:`/v1/workshop/tenants/${selected}/appointments`,headers})).statusCode).toBe(200);
+   expect((await authApp.inject({url:`/v1/workshop/tenants/${tenantB}/appointments`,headers})).statusCode).toBe(403);
+   expect((await authApp.inject({url:'/v1/platform/tenants',headers})).statusCode).toBe(401);
+   expect((await pool.query('SELECT role,status FROM tenant_memberships WHERE user_id=$1 AND tenant_id=$2',[signedUser,invitedTenant])).rows).toEqual([{role:'VIEWER',status:'active'}]);
+   expect((await pool.query('SELECT count(*)::int n FROM platform_access_grants WHERE user_id=$1',[signedUser])).rows[0].n).toBe(0);
+   // Clean up this extra invitation and its membership before the existing shared teardown.
+   for(const table of ['workshop_invitations','outbox_events','audit_events','platform_command_receipts','tenant_control_events','tenant_memberships','workshops'])await pool.query(`DELETE FROM ${table} WHERE tenant_id=$1`,[invitedTenant]);
 
   }finally{await authApp.close();await new Promise<void>((r,e)=>server.close(err=>err?e(err):r()));}
  });

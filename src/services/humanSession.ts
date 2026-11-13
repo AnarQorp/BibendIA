@@ -1,8 +1,14 @@
 export type HumanSession = {
   principal: { kind: 'workshop_user' | 'platform_user'; audience: 'workshop' | 'platform'; userId: string; assurance: 'single_factor' | 'mfa' };
   tenantIds: string[];
+  activeTenantId?: string;
   expiresAt: string;
 };
+
+export function selectWorkshopTenant(session: Pick<HumanSession, 'tenantIds' | 'activeTenantId'>): string | null {
+  if (session.activeTenantId && session.tenantIds.includes(session.activeTenantId)) return session.activeTenantId;
+  return session.tenantIds[0] ?? null;
+}
 
 export async function loadHumanSession(): Promise<HumanSession | null> {
   const response = await fetch('/auth/session', { credentials: 'include', headers: { accept: 'application/json' } });

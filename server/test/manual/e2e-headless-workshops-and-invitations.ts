@@ -69,9 +69,11 @@ async function run() {
 
   const authentication: AuthenticationAdapter = {
     async authenticate() {
-      return adminPrincipal;
+      return workshopPrincipal ?? adminPrincipal;
     },
   };
+  let workshopPrincipal: PrincipalContext | null = null;
+  let workshopTenantIds: string[] = [];
 
   // Build Fastify App that serves API, dist-admin and dist-workshop
   const app: FastifyInstance = buildApi(pool, {
@@ -82,6 +84,10 @@ async function run() {
 
   // Mock /auth/session endpoint for Platform Admin AuthSessionGate
   app.get('/auth/session', { config: { auth: { mode: 'public' } } }, async (_req, reply) => {
+    if (workshopPrincipal?.kind === 'workshop_user') return reply.send({
+      principal: { kind: 'workshop_user', audience: 'workshop', userId: workshopPrincipal.userId, assurance: 'single_factor' },
+      tenantIds: workshopTenantIds, activeTenantId: workshopPrincipal.tenantId, expiresAt: workshopPrincipal.expiresAt,
+    });
     return reply.send({
       principal: {
         kind: 'platform_user',
@@ -137,7 +143,7 @@ async function run() {
     }
 
     // If pathname is /invitacion or contains token, serve workshop index.html
-    if (pathname.startsWith('/invitacion') || url.search.includes('token=')) {
+    if (pathname === '/workshop' || pathname.startsWith('/invitacion') || url.search.includes('token=')) {
       const indexHtml = await readFile(join(process.cwd(), 'dist-workshop', 'index.html'), 'utf-8');
       return reply.header('Content-Type', 'text/html; charset=utf-8').send(indexHtml);
     }
@@ -202,6 +208,18 @@ async function run() {
     const shotCreated = `${screenshotsDir}/03-workshop-created-in-directory.png`;
     await page.screenshot({ path: shotCreated, fullPage: true });
     record('2. Workshop Created in Directory', true, 'Taller Arkaitz Donostia rendered without commercial plan metadata', shotCreated);
+
+    // Exercise the actual UI action and backend lifecycle validation, not a direct SQL promotion.
+    const createdTenant = (await pool.query("SELECT id FROM tenants WHERE name='Taller Arkaitz Donostia'")).rows[0].id;
+    await page.locator('table tbody tr', { hasText: 'Taller Arkaitz Donostia' }).getByRole('button', { name: 'Ficha', exact: true }).click();
+    const promoted = page.waitForResponse(r => r.url().endsWith(`/tenants/${createdTenant}/lifecycle`) && r.request().method() === 'POST');
+    await page.getByRole('button', { name: 'Activar Taller', exact: true }).click();
+    const promotion = await promoted;
+    if (promotion.status() !== 200) throw new Error(`UI activation failed: ${await promotion.text()}`);
+    if (promotion.request().postDataJSON().target !== 'pilot') throw new Error('UI must promote provisioning to pilot');
+    if ((await pool.query('SELECT lifecycle_status FROM tenants WHERE id=$1', [createdTenant])).rows[0].lifecycle_status !== 'pilot') throw new Error('New workshop did not enter pilot');
+    await page.waitForSelector('table tbody tr:has-text("Taller Arkaitz Donostia"):has-text("EN PILOTO")');
+    record('2. UI activation promotes provisioning to pilot', true, 'Real lifecycle endpoint accepted; no transition to active');
 
     // ----------------------------------------------------
     // STEP 3: Issue One-Time Access Invitation for Arkaitz
@@ -296,6 +314,24 @@ async function run() {
     await page.screenshot({ path: shotWelcome, fullPage: true });
     record('5. Screenshot: Welcome Screen', true, 'Captured', shotWelcome);
 
+    // UI wiring regression with a controlled session fixture; signed OIDC redemption is
+    // covered separately by workshop-invitations.test.ts against this same real API/DB.
+    const member = randomUUID();
+    const existingTenant = (await pool.query("SELECT id FROM tenants WHERE name='Synthetic existing workshop' LIMIT 1")).rows[0].id;
+    await pool.query("INSERT INTO users(id,status) VALUES($1,'active')", [member]);
+    await pool.query("INSERT INTO tenant_memberships(user_id,tenant_id,role) VALUES($1,$2,'VIEWER'),($1,$3,'OWNER')", [member,createdTenant,existingTenant]);
+    workshopTenantIds = [existingTenant,createdTenant];
+    workshopPrincipal = { ...adminPrincipal, kind: 'workshop_user', audience: 'workshop', userId: member, tenantId: createdTenant, assurance: 'single_factor' };
+    const appointmentRequest = page.waitForRequest(r => r.url().includes('/v1/workshop/tenants/') && r.url().endsWith('/appointments'));
+    await page.goto('/workshop', { waitUntil: 'networkidle' });
+    const requestedAppointments = await appointmentRequest;
+    if (!requestedAppointments.url().includes(`/tenants/${createdTenant}/appointments`)) throw new Error('Workshop UI selected the first membership instead of activeTenantId');
+    const scopedResponse = await page.request.get(`/v1/workshop/tenants/${createdTenant}/appointments`);
+    if (scopedResponse.status() !== 200) throw new Error('Invited workshop data is not accessible');
+    const deniedPlatform = await page.request.get('/v1/platform/tenants');
+    if (deniedPlatform.status() !== 403 && deniedPlatform.status() !== 401) throw new Error('Workshop session accessed global administration');
+    record('5. Multi-membership UI opens active invited workshop', true, 'Actual app selects second membership; workshop API succeeds and platform API denies access (controlled session fixture)');
+
     // ----------------------------------------------------
     // STEP 6: DB Invariant & Jarrisons Untouched Check
     // ----------------------------------------------------
@@ -311,6 +347,7 @@ async function run() {
     await page.screenshot({ path: shotComplete });
     record('6. Screenshot: E2E Verification Complete', true, 'Captured', shotComplete);
 
+    if (steps.some(step => !step.passed)) throw new Error('One or more browser checks failed');
     console.log('\n======================================================');
     console.log('🎉 ALL 6 E2E BROWSER STEPS COMPLETED AND VERIFIED!');
     console.log('======================================================\n');

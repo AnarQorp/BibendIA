@@ -10,6 +10,8 @@ Uses existing platform OIDC authentication, PostgreSQL capabilities/RLS, receipt
 4. `GET .../invitations` returns `{data:[{id,tenant_id,email,role,status,expires_at,version,delivery_state}],correlationId}` (max100). Email is revealed only after scoped authorization. No raw token/hash/ciphertext returned. Status pending/accepted/expired (expiry computed on read).
 5. `POST .../invitations/:invitationId/resend` `{expiresInHours:72,expectedVersion,idempotencyKey}` rotates the secret; **old URL is immediately invalid**, queued previous mail dead-lettered. `POST .../:invitationId/expire` `{expectedVersion,idempotencyKey}` invalidates it. Accepted invitations cannot resend/redeem. Both return `{receipt,correlationId}`.
 
+The platform panel's **Activar Taller** action for a newly provisioned workshop requests `target:"pilot"`, not `active`. Promotion to `active` remains a later, separately authorized lifecycle transition under the existing backend rules. Activate to pilot before the recipient accepts; `operating_mode=pilot_supervised` alone does not change lifecycle status.
+
 Invitation create/resend receipt `after` is `{id,tenantId,role,status,expiresAt,delivery:{state:"queued"|"disabled",eventId:number|null}}`. Queued is not delivered. List delivery state follows existing outbox: not_attempted/in_progress/succeeded/failed_safe_to_retry/unknown_outcome/dead_letter or disabled. SMTP succeeded means accepted by SMTP, not recipient delivery. Disabled creates a token hash but no deliverable/raw URL; configure mail and explicitly resend later.
 
 ## Existing OIDC invitation bridge
@@ -20,6 +22,8 @@ Start stores the token only in authenticated encrypted HttpOnly Secure SameSite=
 
 Callback mints existing encrypted workshop session with selected tenant. `/auth/session` returns actual active tenantIds and activeTenantId from the encrypted session (UI must honor this, not the old pilot setting). Ordinary subsequent login resolves canonical issuer/sub without Auth0 management API/custom claim prerequisite; `/auth/login?tenantId=<uuid>` selects a workshop, and omitted tenant preserves authorized legacy pilot, otherwise resolves the sole active tenant (ambiguous memberships require explicit selection). No manual per-workshop auth configuration.
 
+The workshop UI prioritizes `activeTenantId` only when it is included in the session's authorized `tenantIds`. If absent or invalid, it retains the legacy first-membership fallback; an empty membership list selects no tenant. This is navigation, not authorization: API membership, role and RLS checks remain unchanged. Platform Admin still requires its existing platform session/grants; invitations do not onboard internal administrators.
+
 ## Deployment prerequisites (not executed here)
 
 Apply migration041 through migrator. Existing PII encryption+lookup keyrings must be configured in API/worker (retain old keys for pending invites across rotation). `WORKSHOP_INVITATION_EMAIL_ENABLED=true` explicitly enables queueing and worker invitation adapter; default is disabled. Reuses existing `WORKER_SMTP_*` configuration (including the existing WORKER_SMTP_DESTINATION required by the public-lead adapter) and real TLS/starttls SMTP transport, no paid service required. Worker remains independently disabled unless existing `WORKER_MODE=enabled` and `WORKER_ACTIVATION_NOT_BEFORE` gate are set. Both API and worker must have consistent mail enablement. No messages sent by this implementation run.
@@ -29,6 +33,8 @@ Invitation recipients and queued email contents are AEAD-encrypted using existin
 ## Test boundary
 
 Integration tests fail before connecting unless `BIBENDIA_TEST_DATABASE_URL` is explicitly set and all four process database URLs exactly match it. The target must be a loopback, non-default-port PostgreSQL database named `bibendia_*test`; ports5432/55432 are rejected. Export variables (sourcing non-exported shell assignments is insufficient). `db:migrate` always requires explicit `MIGRATOR_DATABASE_URL`; it cannot use the development fallback.
+
+Regression coverage includes clean tenant/workshop creation, promotion through the existing lifecycle API, invitation issuance, signed local-OIDC acceptance by an identity with several memberships, invited-tenant selection and successful workshop API access. It verifies the assigned VIEWER role, rejection of an unjoined tenant and platform API denial. Browser checks exercise the actual activation button against PostgreSQL and application navigation with a controlled multi-membership session (not a live IdP); unit tests also cover absent/unauthorized active-tenant fallback. No real mail is sent.
 
 ## Minimal release / operator handoff
 
